@@ -259,7 +259,14 @@ export default function AcuaApp() {
 
   useEffect(() => {
     console.log('[acua] wallet.address changed', wallet.address)
-    if (wallet.address) { loadData(); fetchNewContractOwnership(wallet.address) }
+    if (wallet.address) {
+      loadData()
+      fetchNewContractOwnership(wallet.address)
+      // Auto-navigate special roles to their exclusive panel
+      const addrLow = wallet.address.toLowerCase()
+      if (addrLow === AIR_FUNDER_ADDRESS) setActiveTab('air-fund')
+      else if (addrLow === SECONDARY_ADMIN_ADDRESS) setActiveTab('admin')
+    }
   }, [wallet.address]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Check ownership of new staking contracts ──────────────────────────────
@@ -306,21 +313,32 @@ export default function AcuaApp() {
   const addr = wallet.address
 
   // ── Build tab list ────────────────────────────────────────────────────────
-  const mainTabs: { tab: Tab; icon: React.ReactNode; label: string; special?: 'admin' | 'air' }[] = [
-    { tab: 'h2o',        icon: <Droplets className="w-3.5 h-3.5" />,    label: 'H2O' },
-    { tab: 'stake-plus', icon: <TrendingUp className="w-3.5 h-3.5" />,  label: 'Stake+' },
-    { tab: 'uth2',       icon: <Pickaxe className="w-3.5 h-3.5" />,     label: 'UTH₂' },
-    { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,        label: 'WLD' },
-    { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,       label: 'TIME' },
-    { tab: 'tokens',     icon: <BookOpen className="w-3.5 h-3.5" />,    label: 'Tokens' },
-    { tab: 'info',       icon: <HelpCircle className="w-3.5 h-3.5" />,  label: 'Info' },
-  ]
+  // AIR Funder: ONLY the AIR secondary panel
+  // Secondary Admin: ONLY the Admin panel (Panel 1)
+  // Regular user/owner: public tabs + optionally Admin
+  let mainTabs: { tab: Tab; icon: React.ReactNode; label: string; special?: 'admin' | 'air' }[] = []
 
-  if (isMainOwner) {
-    mainTabs.push({ tab: 'admin', icon: <Shield className="w-3.5 h-3.5" />, label: 'Admin', special: 'admin' })
-  }
   if (isAirFunder) {
-    mainTabs.push({ tab: 'air-fund', icon: <Wind className="w-3.5 h-3.5" />, label: 'AIR', special: 'air' })
+    mainTabs = [
+      { tab: 'air-fund', icon: <Wind className="w-3.5 h-3.5" />, label: 'AIR', special: 'air' },
+    ]
+  } else if (isSecondaryAdmin) {
+    mainTabs = [
+      { tab: 'admin', icon: <Shield className="w-3.5 h-3.5" />, label: 'Admin', special: 'admin' },
+    ]
+  } else {
+    mainTabs = [
+      { tab: 'h2o',        icon: <Droplets className="w-3.5 h-3.5" />,    label: 'H2O' },
+      { tab: 'stake-plus', icon: <TrendingUp className="w-3.5 h-3.5" />,  label: 'Stake+' },
+      { tab: 'uth2',       icon: <Pickaxe className="w-3.5 h-3.5" />,     label: 'UTH₂' },
+      { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,        label: 'WLD' },
+      { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,       label: 'TIME' },
+      { tab: 'tokens',     icon: <BookOpen className="w-3.5 h-3.5" />,    label: 'Tokens' },
+      { tab: 'info',       icon: <HelpCircle className="w-3.5 h-3.5" />,  label: 'Info' },
+    ]
+    if (isMainOwner) {
+      mainTabs.push({ tab: 'admin', icon: <Shield className="w-3.5 h-3.5" />, label: 'Admin', special: 'admin' })
+    }
   }
 
   return (
