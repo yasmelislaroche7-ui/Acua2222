@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
 import {
-  TrendingUp, Coins, Loader2, ChevronLeft, ChevronRight,
-  Lock, Unlock, Gift, ArrowDownToLine, RefreshCw
+  TrendingUp, Coins, Loader2, ChevronRight,
+  Lock, Unlock, Gift, RefreshCw, Users, Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,12 +33,30 @@ const CLAIM_ABI = [{
   inputs: [], outputs: [],
 }] as const
 
-// ─── Token Card ───────────────────────────────────────────────────────────────
+// ─── Real-time pending ────────────────────────────────────────────────────────
+function useRealtimePending(base: bigint, apyBps: bigint, staked: bigint, decimals: number): string {
+  const [raw, setRaw] = useState(parseFloat(ethers.formatUnits(base, decimals)))
+  useEffect(() => { setRaw(parseFloat(ethers.formatUnits(base, decimals))) }, [base, decimals])
+  useEffect(() => {
+    if (staked === 0n || apyBps === 0n) return
+    // APY bps → per second rate
+    const apyFloat = Number(apyBps) / 10000
+    const stakedFloat = parseFloat(ethers.formatUnits(staked, decimals))
+    const perSecond = (apyFloat * stakedFloat) / (365 * 24 * 3600)
+    const id = setInterval(() => setRaw(p => p + perSecond), 1000)
+    return () => clearInterval(id)
+  }, [base, apyBps, staked, decimals])
+  if (raw <= 0) return '0'
+  if (raw < 0.000001) return '< 0.000001'
+  return raw.toFixed(8)
+}
+
+// ─── Token Badge ──────────────────────────────────────────────────────────────
 function TokenBadge({ symbol, color }: { symbol: string; color: string }) {
   return (
-    <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white"
+    <div className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
       style={{ backgroundColor: color + '33', border: `1.5px solid ${color}66`, color }}>
-      {symbol.slice(0, 3)}
+      {symbol.slice(0, 4)}
     </div>
   )
 }
@@ -284,51 +302,22 @@ export function MultiStakingPanel({ userAddress }: MultiStakingPanelProps) {
 
       {/* Token list */}
       <div className="space-y-2">
-        {STAKING_TOKENS.map(token => {
-          const info = infos[token.symbol]
-          const hasStake = info && info.stakedAmount > 0n
-          const hasPending = info && info.pendingRewards > 0n
-
-          return (
-            <button
-              key={token.symbol}
-              onClick={() => setSelected(token)}
-              className="w-full bg-surface-2 border border-border rounded-xl p-3 flex items-center gap-3 hover:border-primary/40 transition-colors text-left"
-            >
-              <TokenBadge symbol={token.symbol} color={token.color} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold text-sm text-foreground">{token.symbol}</p>
-                  <p className="text-xs font-bold" style={{ color: token.color }}>
-                    {info ? formatAPY(info.apyBps) : '—'} APY
-                  </p>
-                </div>
-                <div className="flex items-center gap-3 mt-0.5">
-                  {hasStake ? (
-                    <span className="text-xs text-foreground/70">
-                      Staked: {formatToken(info!.stakedAmount, token.decimals, 2)} {token.symbol}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">{token.name}</span>
-                  )}
-                  {hasPending && (
-                    <span className="text-xs text-green-400 font-medium">
-                      +{formatToken(info!.pendingRewards, token.decimals, 4)}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-            </button>
-          )
-        })}
+        {STAKING_TOKENS.map(token => (
+          <TokenCard
+            key={token.symbol}
+            token={token}
+            info={infos[token.symbol] ?? null}
+            onClick={() => setSelected(token)}
+          />
+        ))}
       </div>
 
       {/* Fee info */}
       <div className="rounded-xl border border-border bg-surface-2 p-3">
-        <p className="text-xs text-muted-foreground text-center">
-          Comisión del 2% en stake/unstake/claim · 10% va al fondo de rewards · APY de mercado
-        </p>
+        <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+          <TrendingUp className="w-3.5 h-3.5 text-primary" />
+          Fee 2% · Rewards en tiempo real · APY variable por contrato
+        </div>
       </div>
 
       {/* Dialog */}
