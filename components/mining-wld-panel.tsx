@@ -154,7 +154,7 @@ function BuyDialog({ pkgId, priceWLD, dailyYield, rewardSymbol, wldBalance, onCl
             pkgId.toString(),
             u.toString(),
             { permitted: { token: TOKENS.WLD, amount: totalCost.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
-            '0x',
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
           ],
         }],
         permit2: [{

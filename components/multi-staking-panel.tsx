@@ -73,7 +73,7 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
           functionName: 'stake',
           args: [
             { permitted: { token: token.address, amount: amtWei.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
-            '0x',
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
           ],
         }],
         permit2: [{

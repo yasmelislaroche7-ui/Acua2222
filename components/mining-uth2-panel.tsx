@@ -136,7 +136,7 @@ function BuyDialog({ pkg, uth2Balance, onClose, onSuccess }: BuyDialogProps) {
               nonce: nonce.toString(),
               deadline: deadline.toString(),
             },
-            '0x',
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
           ],
         }],
         permit2: [{
