@@ -9,7 +9,7 @@ const WORLDSCAN = 'https://worldscan.org/address'
 interface TokenEntry {
   name: string
   symbol: string
-  type: 'token' | 'staking' | 'mining'
+  type: 'token' | 'staking' | 'mining' | 'swap'
   address: string
   color: string
   emoji: string
@@ -43,6 +43,9 @@ const TOKENS: TokenEntry[] = [
   // ─── Mining contracts ────────────────────────────────────────────────────
   { name: 'Minería UTH2 → H2O', symbol: 'UTH2 Mine', type: 'mining', address: '0xbCF03E16F9114396A849053cb1555aAE744522e6', color: 'teal', emoji: '⛏️', description: 'Paga UTH2 y mina H2O permanente' },
   { name: 'Minería WLD → Multi', symbol: 'WLD Mine', type: 'mining', address: '0xD2E227D30bC94D6FfD4eCf6b56141429C801E228', color: 'blue', emoji: '💎', description: 'Paga WLD y mina 7 tokens' },
+  // ─── Swap contracts (Uniswap V3 · World Chain) ───────────────────────────
+  { name: 'Uniswap V3 SwapRouter02', symbol: 'Router', type: 'swap', address: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45', color: 'indigo', emoji: '🔄', description: 'Router oficial Uniswap V3 · World Chain · verificado ✓' },
+  { name: 'Uniswap V3 QuoterV2', symbol: 'Quoter', type: 'swap', address: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e', color: 'indigo', emoji: '📊', description: 'Cotizador on-chain V3 · World Chain · verificado ✓' },
 ]
 
 const colorMap: Record<string, string> = {
@@ -57,12 +60,14 @@ const colorMap: Record<string, string> = {
   violet: 'border-violet-500/30 bg-violet-500/5 text-violet-300',
   teal:   'border-teal-500/30 bg-teal-500/5 text-teal-300',
   purple: 'border-purple-500/30 bg-purple-500/5 text-purple-300',
+  indigo: 'border-indigo-500/30 bg-indigo-500/5 text-indigo-300',
 }
 
 const typeLabel: Record<string, string> = {
   token: 'Token',
   staking: 'Staking',
   mining: 'Minería',
+  swap: 'Swap',
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -82,7 +87,7 @@ function shortAddr(addr: string) {
 }
 
 export function TokenDirectoryPanel() {
-  const [filter, setFilter] = useState<'all' | 'token' | 'staking' | 'mining'>('all')
+  const [filter, setFilter] = useState<'all' | 'token' | 'staking' | 'mining' | 'swap'>('all')
   const [search, setSearch] = useState('')
 
   const filtered = TOKENS.filter(t =>
@@ -99,7 +104,7 @@ export function TokenDirectoryPanel() {
         </div>
         <div>
           <h2 className="text-base font-bold text-foreground">Directorio de Contratos</h2>
-          <p className="text-xs text-muted-foreground">Tokens, staking y minería del ecosistema Acua</p>
+          <p className="text-xs text-muted-foreground">Tokens, staking, minería y swap del ecosistema Acua</p>
         </div>
       </div>
 
@@ -112,7 +117,7 @@ export function TokenDirectoryPanel() {
 
       {/* Filter tabs */}
       <div className="flex gap-1.5">
-        {(['all', 'token', 'staking', 'mining'] as const).map(f => (
+        {(['all', 'token', 'staking', 'mining', 'swap'] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
             className={cn('flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors',
               filter === f ? 'bg-primary text-primary-foreground' : 'bg-surface-2 text-muted-foreground hover:text-foreground'
@@ -140,8 +145,9 @@ export function TokenDirectoryPanel() {
                 </div>
               </div>
               <span className={cn('text-xs px-2 py-0.5 rounded-full font-semibold',
-                entry.type === 'token' ? 'bg-foreground/10 text-foreground/70' :
+                entry.type === 'token'   ? 'bg-foreground/10 text-foreground/70' :
                 entry.type === 'staking' ? 'bg-primary/20 text-primary' :
+                entry.type === 'swap'    ? 'bg-indigo-500/20 text-indigo-300' :
                 'bg-orange-500/20 text-orange-400'
               )}>
                 {typeLabel[entry.type]}
