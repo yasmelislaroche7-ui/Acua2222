@@ -15,12 +15,12 @@ async function main() {
 
   const packages = [
     { price:"0.01", yearly:"10" },
-    { price:"0.05", yearly:"50" },
-    { price:"0.1", yearly:"100" },
-    { price:"0.3", yearly:"250" },
-    { price:"0.5", yearly:"320" },
-    { price:"1", yearly:"500" },
-    { price:"5", yearly:"1500" },
+    { price:"0.05", yearly:"5" },
+    { price:"0.01", yearly:"10" },
+    { price:"0.3", yearly:"0.2" },
+    { price:"0.05", yearly:"3" },
+    { price:"0.01", yearly:"5" },
+    { price:"0.001", yearly:"0.00008" },
   ];
 
   for (let i = 0; i < packages.length; i++) {
