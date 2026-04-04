@@ -1,7 +1,7 @@
 import pkg from "hardhat";
 const { ethers } = pkg;
 
-// 🧠 EDITA SOLO LOS MONTOS (o borra líneas si no quieres fondear ese pool)
+// 🧠 EDITA SOLO LOS MONTOS
 const FUNDING_PLAN = [
   { symbol:"WLD",    token:"0x2cFc85d8E48F8EAB294be644d9E25C3030863003", staking:"0x224C31214989F8F22E036c4a8Ae294B9Ce339f74", amount:"0.1" },
   { symbol:"FIRE",   token:"0x22c40632c13a7f3cae9c343480607d886832c686", staking:"0xC799a6D13735bAc407183e0d8Acb6F07dfF072DD", amount:"500" },
@@ -13,7 +13,6 @@ const FUNDING_PLAN = [
   { symbol:"AIR",    token:"0xDBA88118551d5Adf16a7AB943403Aea7ea06762b", staking:"0xfc548193a52cCF151cD2BE34D59a14Be119c5cE1", amount:"2000" },
 ];
 
-// ===== ABIs =====
 const ERC20 = [
   "function approve(address spender,uint256 amount) returns(bool)",
   "function decimals() view returns(uint8)"
@@ -35,7 +34,7 @@ async function fundPool(plan, signer) {
   const staking = new ethers.Contract(plan.staking, STAKING_ABI, signer);
 
   const decimals = await token.decimals();
-  const amount = ethers.parseUnits(plan.amount, decimals);
+  const amount = ethers.utils.parseUnits(plan.amount, decimals);
 
   console.log("Approving...");
   await (await token.approve(plan.staking, amount)).wait();
