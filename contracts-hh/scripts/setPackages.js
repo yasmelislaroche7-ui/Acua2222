@@ -17,7 +17,7 @@ async function main() {
     { price:"0.01", yearly:"10" },
     { price:"0.05", yearly:"5" },
     { price:"0.01", yearly:"10" },
-    { price:"0.3", yearly:"0.2" },
+    { price:"1", yearly:"1" },
     { price:"0.05", yearly:"3" },
     { price:"0.01", yearly:"5" },
     { price:"0.001", yearly:"0.00008" },
