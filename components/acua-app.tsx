@@ -5,7 +5,7 @@ import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
 import {
   Droplets, RefreshCw, Wallet, Shield, Loader2,
-  TrendingUp, Pickaxe, Star, HelpCircle, Wind, Clock, BookOpen,
+  TrendingUp, Pickaxe, Star, HelpCircle, Wind, Clock, BookOpen, Repeat2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StakePanel } from '@/components/stake-panel'
@@ -18,6 +18,7 @@ import { ContractsOwnerPanel } from '@/components/contracts-owner-panel'
 import { AirFunderPanel } from '@/components/air-funder-panel'
 import { InfoPanel } from '@/components/info-panel'
 import { TokenDirectoryPanel } from '@/components/token-directory-panel'
+import { SwapPanel } from '@/components/swap-panel'
 import { useWallet } from '@/hooks/use-wallet'
 import {
   fetchStakeInfo,
@@ -33,7 +34,7 @@ import {
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
-type Tab = 'h2o' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'info' | 'admin' | 'air-fund'
+type Tab = 'h2o' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin' | 'air-fund'
 type InstalledState = null | true | false
 
 // ─── Hardcoded special addresses ──────────────────────────────────────────────
@@ -334,6 +335,7 @@ export default function AcuaApp() {
       { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,        label: 'WLD' },
       { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,       label: 'TIME' },
       { tab: 'tokens',     icon: <BookOpen className="w-3.5 h-3.5" />,    label: 'Tokens' },
+      { tab: 'swap',       icon: <Repeat2 className="w-3.5 h-3.5" />,     label: 'Swap' },
       { tab: 'info',       icon: <HelpCircle className="w-3.5 h-3.5" />,  label: 'Info' },
     ]
     if (isMainOwner) {
@@ -401,6 +403,9 @@ export default function AcuaApp() {
 
         {/* Token Directory */}
         {activeTab === 'tokens' && <TokenDirectoryPanel />}
+
+        {/* Swap */}
+        {activeTab === 'swap' && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
 
         {/* Info & guides */}
         {activeTab === 'info' && <InfoPanel />}
