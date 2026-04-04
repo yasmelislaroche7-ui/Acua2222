@@ -15,7 +15,7 @@ async function main() {
 
   const token = new ethers.Contract(H2O, erc20Abi, signer);
 
-  const amount = ethers.parseUnits("5000", 18); // cantidad a fondear
+const amount = ethers.utils.parseUnits("50000", 18); // cantidad a fondear
 
   const tx = await token.transfer(CONTRACT, amount);
 
