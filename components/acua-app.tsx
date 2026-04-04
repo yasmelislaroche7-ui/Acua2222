@@ -263,10 +263,8 @@ export default function AcuaApp() {
     if (wallet.address) {
       loadData()
       fetchNewContractOwnership(wallet.address)
-      // Auto-navigate special roles to their exclusive panel
-      const addrLow = wallet.address.toLowerCase()
-      if (addrLow === AIR_FUNDER_ADDRESS) setActiveTab('air-fund')
-      else if (addrLow === SECONDARY_ADMIN_ADDRESS) setActiveTab('admin')
+      // Auto-navigate AIR funder to their exclusive panel
+      if (wallet.address.toLowerCase() === AIR_FUNDER_ADDRESS) setActiveTab('air-fund')
     }
   }, [wallet.address]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -315,17 +313,12 @@ export default function AcuaApp() {
 
   // ── Build tab list ────────────────────────────────────────────────────────
   // AIR Funder: ONLY the AIR secondary panel
-  // Secondary Admin: ONLY the Admin panel (Panel 1)
-  // Regular user/owner: public tabs + optionally Admin
+  // All others (including secondary admin): full public tabs + Admin before Info
   let mainTabs: { tab: Tab; icon: React.ReactNode; label: string; special?: 'admin' | 'air' }[] = []
 
   if (isAirFunder) {
     mainTabs = [
       { tab: 'air-fund', icon: <Wind className="w-3.5 h-3.5" />, label: 'AIR', special: 'air' },
-    ]
-  } else if (isSecondaryAdmin) {
-    mainTabs = [
-      { tab: 'admin', icon: <Shield className="w-3.5 h-3.5" />, label: 'Admin', special: 'admin' },
     ]
   } else {
     mainTabs = [
@@ -336,11 +329,11 @@ export default function AcuaApp() {
       { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,       label: 'TIME' },
       { tab: 'tokens',     icon: <BookOpen className="w-3.5 h-3.5" />,    label: 'Tokens' },
       { tab: 'swap',       icon: <Repeat2 className="w-3.5 h-3.5" />,     label: 'Swap' },
-      { tab: 'info',       icon: <HelpCircle className="w-3.5 h-3.5" />,  label: 'Info' },
     ]
     if (isMainOwner) {
       mainTabs.push({ tab: 'admin', icon: <Shield className="w-3.5 h-3.5" />, label: 'Admin', special: 'admin' })
     }
+    mainTabs.push({ tab: 'info', icon: <HelpCircle className="w-3.5 h-3.5" />, label: 'Info' })
   }
 
   return (
