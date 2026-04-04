@@ -259,6 +259,68 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
   )
 }
 
+// ─── Token Card ───────────────────────────────────────────────────────────────
+function TokenCard({ token, info, onClick }: {
+  token: typeof STAKING_TOKENS[0]
+  info: StakingInfo | null
+  onClick: () => void
+}) {
+  const isStaked = (info?.stakedAmount ?? 0n) > 0n
+  const pending = useRealtimePending(
+    info?.pendingRewards ?? 0n,
+    info?.apyBps ?? 0n,
+    info?.stakedAmount ?? 0n,
+    token.decimals,
+  )
+
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-3 p-3 rounded-xl border border-border bg-surface-2 hover:border-primary/30 transition-colors text-left"
+    >
+      <TokenBadge symbol={token.symbol} color={token.color} />
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold text-foreground">{token.symbol}</span>
+          {info?.paused && (
+            <span className="text-[9px] text-red-400 bg-red-400/20 px-1.5 rounded">PAUSADO</span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 mt-0.5">
+          <span className="text-xs text-muted-foreground">
+            APY: <span style={{ color: token.color }}>{info ? formatAPY(info.apyBps) : '…'}</span>
+          </span>
+          {isStaked && (
+            <span className="text-xs text-muted-foreground">
+              Staked: {formatToken(info!.stakedAmount, token.decimals, 2)}
+            </span>
+          )}
+        </div>
+        {isStaked && (
+          <p className="text-xs text-green-400 mt-0.5 font-mono">
+            +{pending} {token.symbol}
+          </p>
+        )}
+      </div>
+
+      <div className="shrink-0 flex flex-col items-end gap-1">
+        {info === null ? (
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        ) : (
+          <>
+            <span className="text-xs font-mono text-foreground">
+              {formatToken(info.contractBalance, token.decimals, 2)}
+              <span className="text-muted-foreground"> fondo</span>
+            </span>
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          </>
+        )}
+      </div>
+    </button>
+  )
+}
+
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 interface MultiStakingPanelProps {
   userAddress: string
