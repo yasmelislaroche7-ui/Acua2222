@@ -34,11 +34,11 @@ import {
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
-type Tab = 'h2o' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin' | 'air-fund'
+type Tab = 'h2o' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin'
 type InstalledState = null | true | false
 
 // ─── Hardcoded special addresses ──────────────────────────────────────────────
-// AIR secondary funder (owners[1] of AIR staking) — sees Panel 2 only
+// AIR secondary funder (owners[1] of AIR staking) — sees full app + Panel 2 in Admin
 const AIR_FUNDER_ADDRESS = '0x72acfbfcee02176118107958ec317157ccd4afdb'
 // Secondary admin — sees Panel 1 (same as main owner)
 const SECONDARY_ADMIN_ADDRESS = '0xc2ef127734f296952de75c1b58a6cec605cc2e59'
@@ -109,8 +109,7 @@ function AcuaLogo() {
 // ─── Connect Screen ───────────────────────────────────────────────────────────
 function ConnectScreen({ onConnect, loading }: { onConnect: () => void; loading: boolean }) {
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-8 px-6">
-      {/* Acua branding */}
+    <div className="flex-1 flex flex-col items-center justify-center gap-8 px-6 overflow-y-auto py-8">
       <div className="flex flex-col items-center gap-4 text-center">
         <div className="relative w-24 h-24 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center">
           <Droplets className="w-12 h-12 text-primary" />
@@ -123,7 +122,6 @@ function ConnectScreen({ onConnect, loading }: { onConnect: () => void; loading:
       </div>
 
       <div className="w-full max-w-xs flex flex-col gap-3">
-        {/* Feature list */}
         <div className="rounded-2xl border border-border bg-surface-2 p-4 space-y-2.5">
           {[
             { color: 'bg-cyan-400', label: 'Stake H2O', value: '12% APY' },
@@ -158,7 +156,7 @@ function ConnectScreen({ onConnect, loading }: { onConnect: () => void; loading:
 // ─── Not Installed ────────────────────────────────────────────────────────────
 function NotInstalled() {
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-6 text-center">
+    <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
       <Droplets className="w-12 h-12 text-primary/60" />
       <h1 className="text-xl font-bold text-foreground">Acua Staking</h1>
       <p className="text-muted-foreground text-sm max-w-xs">
@@ -171,7 +169,7 @@ function NotInstalled() {
 // ─── Loading Screen ───────────────────────────────────────────────────────────
 function LoadingScreen() {
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
+    <div className="h-dvh bg-background flex flex-col items-center justify-center gap-4">
       <div className="relative">
         <Droplets className="w-12 h-12 text-primary" />
         <div className="absolute inset-0 rounded-full border-2 border-primary/30 animate-ping" />
@@ -215,7 +213,6 @@ export default function AcuaApp() {
   const [loadingData, setLoadingData] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('h2o')
 
-  // ── New contract ownership ────────────────────────────────────────────────
   const [isNewOwner, setIsNewOwner] = useState(false)
 
   const wallet = useWallet(config?.owner ?? null, isInstalled === true)
@@ -263,8 +260,6 @@ export default function AcuaApp() {
     if (wallet.address) {
       loadData()
       fetchNewContractOwnership(wallet.address)
-      // Auto-navigate AIR funder to their exclusive panel
-      if (wallet.address.toLowerCase() === AIR_FUNDER_ADDRESS) setActiveTab('air-fund')
     }
   }, [wallet.address]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -297,50 +292,55 @@ export default function AcuaApp() {
   }, [])
 
   // ── Derived ownership flags ───────────────────────────────────────────────
-  // Hardcoded AIR funder: always sees Panel 2, never Panel 1
+  // AIR funder: sees full app + Panel 2 in Admin
   const isAirFunder = wallet.address?.toLowerCase() === AIR_FUNDER_ADDRESS
-  // Hardcoded secondary admin: always sees Panel 1
+  // Secondary admin: always sees Panel 1
   const isSecondaryAdmin = wallet.address?.toLowerCase() === SECONDARY_ADMIN_ADDRESS
-  // Main owner: any contract owner OR secondary admin, NOT the AIR funder
-  const isMainOwner = !isAirFunder && (wallet.isOwner || isNewOwner || isSecondaryAdmin)
+  // Main owner: any contract owner OR secondary admin (includes AIR funder who is a contract owner)
+  const isMainOwner = wallet.isOwner || isNewOwner || isSecondaryAdmin
 
   // ── Render gates ──────────────────────────────────────────────────────────
   if (isInstalled === null) return <LoadingScreen />
-  if (!isInstalled) return <NotInstalled />
-  if (!wallet.address) return <ConnectScreen onConnect={wallet.connect} loading={wallet.isConnecting} />
+
+  if (!isInstalled || !wallet.address) {
+    return (
+      <div className="h-dvh bg-background flex flex-col max-w-md mx-auto">
+        {!isInstalled ? <NotInstalled /> : <ConnectScreen onConnect={wallet.connect} loading={wallet.isConnecting} />}
+      </div>
+    )
+  }
 
   const addr = wallet.address
 
   // ── Build tab list ────────────────────────────────────────────────────────
-  // AIR Funder: ONLY the AIR secondary panel
-  // All others (including secondary admin): full public tabs + Admin before Info
-  let mainTabs: { tab: Tab; icon: React.ReactNode; label: string; special?: 'admin' | 'air' }[] = []
+  // All users (including AIR funder) see the full public tabs
+  // Owners (including AIR funder who is an owner) also see the Admin tab
+  const mainTabs: { tab: Tab; icon: React.ReactNode; label: string; special?: 'admin' | 'air' }[] = [
+    { tab: 'h2o',        icon: <Droplets className="w-3.5 h-3.5" />,    label: 'H2O' },
+    { tab: 'stake-plus', icon: <TrendingUp className="w-3.5 h-3.5" />,  label: 'Stake+' },
+    { tab: 'uth2',       icon: <Pickaxe className="w-3.5 h-3.5" />,     label: 'UTH₂' },
+    { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,        label: 'WLD' },
+    { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,       label: 'TIME' },
+    { tab: 'tokens',     icon: <BookOpen className="w-3.5 h-3.5" />,    label: 'Tokens' },
+    { tab: 'swap',       icon: <Repeat2 className="w-3.5 h-3.5" />,     label: 'Swap' },
+  ]
 
-  if (isAirFunder) {
-    mainTabs = [
-      { tab: 'air-fund', icon: <Wind className="w-3.5 h-3.5" />, label: 'AIR', special: 'air' },
-    ]
-  } else {
-    mainTabs = [
-      { tab: 'h2o',        icon: <Droplets className="w-3.5 h-3.5" />,    label: 'H2O' },
-      { tab: 'stake-plus', icon: <TrendingUp className="w-3.5 h-3.5" />,  label: 'Stake+' },
-      { tab: 'uth2',       icon: <Pickaxe className="w-3.5 h-3.5" />,     label: 'UTH₂' },
-      { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,        label: 'WLD' },
-      { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,       label: 'TIME' },
-      { tab: 'tokens',     icon: <BookOpen className="w-3.5 h-3.5" />,    label: 'Tokens' },
-      { tab: 'swap',       icon: <Repeat2 className="w-3.5 h-3.5" />,     label: 'Swap' },
-    ]
-    if (isMainOwner) {
-      mainTabs.push({ tab: 'admin', icon: <Shield className="w-3.5 h-3.5" />, label: 'Admin', special: 'admin' })
-    }
-    mainTabs.push({ tab: 'info', icon: <HelpCircle className="w-3.5 h-3.5" />, label: 'Info' })
+  if (isMainOwner || isAirFunder) {
+    mainTabs.push({
+      tab: 'admin',
+      icon: <Shield className="w-3.5 h-3.5" />,
+      label: 'Admin',
+      special: isAirFunder && !isMainOwner ? 'air' : 'admin',
+    })
   }
 
+  mainTabs.push({ tab: 'info', icon: <HelpCircle className="w-3.5 h-3.5" />, label: 'Info' })
+
   return (
-    <div className="min-h-screen bg-background flex flex-col max-w-md mx-auto">
+    <div className="h-dvh bg-background flex flex-col max-w-md mx-auto overflow-hidden">
 
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border px-4 py-3">
+      <header className="shrink-0 bg-background/95 backdrop-blur border-b border-border px-4 py-3 z-10">
         <div className="flex items-center justify-between">
           <AcuaLogo />
           <div className="flex items-center gap-2">
@@ -354,7 +354,7 @@ export default function AcuaApp() {
       </header>
 
       {/* Tab bar — horizontally scrollable */}
-      <div className="flex overflow-x-auto border-b border-border scrollbar-none sticky top-[57px] z-10 bg-background/95 backdrop-blur">
+      <div className="shrink-0 flex overflow-x-auto border-b border-border scrollbar-none bg-background/95 backdrop-blur z-10">
         {mainTabs.map(t => (
           <TabBtn
             key={t.tab}
@@ -368,9 +368,8 @@ export default function AcuaApp() {
       </div>
 
       {/* Content */}
-      <main className="flex-1 overflow-y-auto px-4 py-4">
+      <main className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
 
-        {/* H2O Stake (untouched) */}
         {activeTab === 'h2o' && (
           <StakePanel
             stakeInfo={stakeInfo}
@@ -382,52 +381,49 @@ export default function AcuaApp() {
           />
         )}
 
-        {/* Multi-Staking */}
         {activeTab === 'stake-plus' && <MultiStakingPanel userAddress={addr} />}
 
-        {/* Minería UTH₂ */}
         {activeTab === 'uth2' && <MiningUTH2Panel userAddress={addr} />}
 
-        {/* Minería WLD */}
         {activeTab === 'wld' && <MiningWLDPanel userAddress={addr} />}
 
-        {/* Minería TIME */}
         {activeTab === 'time' && <MiningTimePanel userAddress={addr} />}
 
-        {/* Token Directory */}
         {activeTab === 'tokens' && <TokenDirectoryPanel />}
 
-        {/* Swap */}
         {activeTab === 'swap' && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
 
-        {/* Info & guides */}
         {activeTab === 'info' && <InfoPanel />}
 
-        {/* Admin Panel 1 */}
-        {activeTab === 'admin' && isMainOwner && (
-          <div className="space-y-6">
-            <ContractsOwnerPanel userAddress={addr} />
-            {wallet.isOwner && config && (
-              <div className="border-t border-border pt-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <Droplets className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-bold text-primary">Admin Stake H2O (Acua)</span>
-                </div>
-                <OwnerPanel config={config} onRefresh={loadData} />
+        {/* Admin panel: AIR funder sees Panel 2 (AirFunderPanel) only;
+            main owners see Panel 1 (ContractsOwnerPanel + OwnerPanel) */}
+        {activeTab === 'admin' && (
+          <>
+            {isAirFunder && !isMainOwner ? (
+              /* AIR funder Panel 2 */
+              <AirFunderPanel userAddress={addr} />
+            ) : isMainOwner ? (
+              /* Main owners Panel 1 */
+              <div className="space-y-6">
+                <ContractsOwnerPanel userAddress={addr} />
+                {wallet.isOwner && config && (
+                  <div className="border-t border-border pt-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Droplets className="w-4 h-4 text-primary" />
+                      <span className="text-sm font-bold text-primary">Admin Stake H2O (Acua)</span>
+                    </div>
+                    <OwnerPanel config={config} onRefresh={loadData} />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        )}
-
-        {/* AIR Funder Panel 2 */}
-        {activeTab === 'air-fund' && isAirFunder && (
-          <AirFunderPanel userAddress={addr} />
+            ) : null}
+          </>
         )}
 
       </main>
 
       {/* Footer */}
-      <footer className="px-4 py-3 border-t border-border flex items-center justify-between">
+      <footer className="shrink-0 px-4 py-3 border-t border-border flex items-center justify-between">
         <span className="text-xs text-muted-foreground font-mono">
           Acua · WC(480)
         </span>

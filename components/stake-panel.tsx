@@ -576,7 +576,7 @@ export function StakePanel({
                     placeholder={addTab === 'h2o' ? 'Cantidad H2O' : 'Cantidad WLD'}
                     value={addAmount}
                     onChange={e => setAddAmount(e.target.value)}
-                    className="flex-1 rounded-lg border border-border bg-surface-1 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60 transition-colors font-mono"
+                    className="flex-1 min-w-0 rounded-lg border border-border bg-surface-1 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60 transition-colors font-mono"
                   />
                   <button
                     onClick={() => setAddAmount(addTab === 'h2o' ? maxH2O : maxWLD)}
@@ -627,7 +627,7 @@ export function StakePanel({
                   placeholder={tab === 'h2o' ? 'Cantidad H2O' : 'Cantidad WLD'}
                   value={amount}
                   onChange={e => setAmount(e.target.value)}
-                  className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground text-sm outline-none font-mono"
+                  className="flex-1 min-w-0 bg-transparent text-foreground placeholder:text-muted-foreground text-sm outline-none font-mono"
                 />
                 <button
                   onClick={() => setAmount(tab === 'h2o' ? maxH2O : maxWLD)}
@@ -684,7 +684,7 @@ export function StakePanel({
               placeholder="Cantidad H2O a vender"
               value={sellAmount}
               onChange={e => setSellAmount(e.target.value)}
-              className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground text-sm outline-none font-mono"
+              className="flex-1 min-w-0 bg-transparent text-foreground placeholder:text-muted-foreground text-sm outline-none font-mono"
             />
             <button
               onClick={() => setSellAmount(maxH2O)}

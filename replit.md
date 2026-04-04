@@ -20,13 +20,17 @@ Acua Staking is a decentralized application (dApp) for the **World Chain** ecosy
 
 ## App Structure
 
-### Main Navigation (5 tabs always visible)
+### Main Navigation (all users see full public tabs)
 | Tab | Label | Component |
 |-----|-------|-----------|
 | H2O | Stake H2O | `stake-panel.tsx` — H2O staking, swap, 12% APY |
 | Stake+ | Multi-Stake | `multi-staking-panel.tsx` — 8 new tokens |
 | UTH₂ | Minería UTH₂ | `mining-uth2-panel.tsx` — pay UTH2, mine H2O permanently |
 | WLD | Minería WLD | `mining-wld-panel.tsx` — pay WLD, mine 7 tokens |
+| TIME | Minería TIME | `mining-time-panel.tsx` |
+| Tokens | Directorio | `token-directory-panel.tsx` |
+| Swap | DEX Swap | `swap-panel.tsx` — Uniswap V3 + SushiSwap V2 |
+| Admin | Panel Admin | Only for owners & AIR funder |
 | Info | Guía | `info-panel.tsx` — token utilities + how-to |
 
 ### Conditional Tabs (owner-only)

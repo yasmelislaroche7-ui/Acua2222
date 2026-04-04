@@ -160,7 +160,7 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur flex items-end justify-center">
-      <div className="w-full max-w-md bg-background border-t border-border rounded-t-2xl p-4 pb-8">
+      <div className="w-full max-w-md bg-background border-t border-border rounded-t-2xl p-4 pb-8 max-h-[85vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
