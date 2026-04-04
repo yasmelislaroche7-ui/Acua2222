@@ -28,6 +28,9 @@ const DEPOSIT_REWARDS_ABI = [{ name: 'depositRewards', type: 'function', stateMu
 const ERC20_APPROVE_ABI   = [{ name: 'approve', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'spender', type: 'address', internalType: 'address' }, { name: 'value', type: 'uint256', internalType: 'uint256' }], outputs: [{ name: '', type: 'bool', internalType: 'bool' }] }]
 const SET_MINING_OWNER_ABI = [{ name: 'setOwner', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'index', type: 'uint256', internalType: 'uint256' }, { name: 'addr', type: 'address', internalType: 'address' }], outputs: [] }]
 const SET_PACKAGE_ABI     = [{ name: 'setPackage', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'id', type: 'uint256', internalType: 'uint256' }, { name: 'price', type: 'uint256', internalType: 'uint256' }, { name: 'dailyYield', type: 'uint256', internalType: 'uint256' }, { name: 'active', type: 'bool', internalType: 'bool' }], outputs: [] }]
+const ERC20_TRANSFER_ABI  = [{ name: 'transfer', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'to', type: 'address', internalType: 'address' }, { name: 'amount', type: 'uint256', internalType: 'uint256' }], outputs: [{ name: '', type: 'bool', internalType: 'bool' }] }]
+
+const SECONDARY_ADMIN = '0xc2ef127734f296952de75c1b58a6cec605cc2e59'
 
 // ─── Generic send helper ──────────────────────────────────────────────────────
 async function sendTx(transactions: any[], onMsg: (m: string) => void) {
@@ -299,6 +302,9 @@ function StakingContractAdmin({ token, contractAddr, isOpen, onToggle }: {
 const MINING_PKG_NAMES_UTH2 = ['Starter', 'Bronce', 'Silver', 'Gold', 'Platinum', 'Diamond', 'Elite']
 const MINING_PKG_NAMES_WLD  = ['H2O Mine', 'Fire Mine', 'BTC Mine', 'WLD Mine', 'ARS Mine', 'COP Mine', 'UTH₂ Mine']
 
+// H2O reward token address (for UTH2 mining fund section)
+const H2O_TOKEN_ADDR = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'
+
 function MiningAdmin({ label, contractAddr, token0Symbol, isUTH2 }: { label: string; contractAddr: string; token0Symbol: string; isUTH2: boolean }) {
   const [open, setOpen] = useState(false)
   const [info, setInfo] = useState<any>(null)
@@ -313,6 +319,9 @@ function MiningAdmin({ label, contractAddr, token0Symbol, isUTH2 }: { label: str
   const [ewToken, setEwToken] = useState('')
   const [ewAmount, setEwAmount] = useState('')
   const [ewTo, setEwTo] = useState('')
+  const [fundToken, setFundToken] = useState(isUTH2 ? H2O_TOKEN_ADDR : '')
+  const [fundAmt, setFundAmt] = useState('')
+  const [funding, setFunding] = useState(false)
 
   const pkgNames = isUTH2 ? MINING_PKG_NAMES_UTH2 : MINING_PKG_NAMES_WLD
 
@@ -335,12 +344,26 @@ function MiningAdmin({ label, contractAddr, token0Symbol, isUTH2 }: { label: str
   const act = (fn: string, abi: any[], args: any[]) =>
     sendTx([{ address: contractAddr, abi, functionName: fn, args }], m => { setMsg(m); if (m.startsWith('✓')) load() })
 
+  // Fund mining contract: approve + transfer reward token directly to contract
+  const doFund = async () => {
+    if (!fundToken || !fundAmt) return setMsg('Ingresa token y monto')
+    setFunding(true); setMsg('')
+    try {
+      const amtWei = ethers.parseUnits(fundAmt, 18).toString()
+      await sendTx([
+        { address: fundToken, abi: ERC20_APPROVE_ABI, functionName: 'approve', args: [contractAddr, amtWei] },
+        { address: fundToken, abi: ERC20_TRANSFER_ABI, functionName: 'transfer', args: [contractAddr, amtWei] },
+      ], m => { setMsg(m); if (m.startsWith('✓')) { setFundAmt(''); load() } })
+    } finally { setFunding(false) }
+  }
+
   // Package info display
   const getPkgInfo = (pkg: any, i: number) => {
     if (!pkg) return null
     const isUTH2pkg = isUTH2
     const price = parseFloat(ethers.formatUnits(isUTH2pkg ? pkg.priceUTH2 : pkg.priceWLD, 18))
-    const daily = parseFloat(ethers.formatUnits(isUTH2pkg ? pkg.dailyH2OYield : pkg.dailyYield, 18))
+    // WLD contract returns `dailyRewardYield`; UTH2 returns `dailyH2OYield`
+    const daily = parseFloat(ethers.formatUnits(isUTH2pkg ? pkg.dailyH2OYield : pkg.dailyRewardYield, 18))
     const annual = daily * 365
     return { price, daily, annual, active: pkg.active, name: pkgNames[i] || `Pkg ${i}` }
   }
@@ -379,6 +402,14 @@ function MiningAdmin({ label, contractAddr, token0Symbol, isUTH2 }: { label: str
             {/* Change owner */}
             <div>
               <p className="text-xs font-semibold text-muted-foreground mb-1">Cambiar owner</p>
+              {/* Quick set: Secondary Admin as owner[1] */}
+              <div className="mb-1.5 flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 rounded-lg px-2 py-1.5">
+                <span className="text-[10px] text-violet-300 flex-1 font-mono truncate">Owner[1] → {SECONDARY_ADMIN.slice(0,10)}…{SECONDARY_ADMIN.slice(-6)}</span>
+                <Button size="sm" className="text-[10px] h-6 px-2 bg-violet-600 hover:bg-violet-500"
+                  onClick={() => act('setOwner', SET_MINING_OWNER_ABI, ['1', SECONDARY_ADMIN])}>
+                  Set Admin
+                </Button>
+              </div>
               <div className="flex gap-1">
                 <input value={ownerIdx} onChange={e => setOwnerIdx(e.target.value)} placeholder="Idx (0/1)"
                   className="w-16 text-xs bg-background border border-border rounded px-2 py-1.5 text-foreground focus:outline-none" />
@@ -457,6 +488,30 @@ function MiningAdmin({ label, contractAddr, token0Symbol, isUTH2 }: { label: str
                 }}>
                   <Package className="w-3 h-3 mr-1" /> Actualizar paquete
                 </Button>
+              </div>
+            </div>
+
+            {/* Fund mining contract */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1.5 flex items-center gap-1">
+                <Wallet className="w-3 h-3 text-green-400" />
+                Fondear contrato (approve + transfer)
+              </p>
+              <div className="space-y-1.5">
+                <input value={fundToken} onChange={e => setFundToken(e.target.value)}
+                  placeholder="Dirección del token de reward"
+                  className="w-full text-xs bg-background border border-border rounded px-2 py-1.5 text-foreground focus:outline-none font-mono" />
+                {isUTH2 && (
+                  <p className="text-[10px] text-teal-400">↑ Token reward: H2O (pre-llenado)</p>
+                )}
+                <div className="flex gap-1">
+                  <input value={fundAmt} onChange={e => setFundAmt(e.target.value)} placeholder="Cantidad (tokens, no wei)"
+                    className="flex-1 text-xs bg-background border border-border rounded px-2 py-1.5 text-foreground focus:outline-none" />
+                  <Button size="sm" className="text-xs h-8 bg-green-700 hover:bg-green-600" onClick={doFund} disabled={funding}>
+                    {funding ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Plus className="w-3 h-3 mr-1" />Fondear</>}
+                  </Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Aprueba y transfiere tokens al contrato de minería en 1 tx</p>
               </div>
             </div>
 
