@@ -44,7 +44,7 @@ function lsSet(key: string, val: string) {
 const TOKEN_LOGOS: Record<string, string> = {
   WLD:    'https://assets.coingecko.com/coins/images/31069/small/worldcoin.jpeg',
   USDC:   'https://assets.coingecko.com/coins/images/6319/small/usdc.png',
-  SUSHI:  'https://assets.coingecko.com/coins/images/12271/small/512x512_Logo_no_chop.png',
+  SUSHI:  'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f363.svg',
 }
 
 // ─── Token item ───────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ const DEFAULT_TOKENS: TokenItem[] = [
   { symbol: 'WLD',    name: 'Worldcoin',   address: TOKENS.WLD,    decimals: 18, color: '#3b82f6', logoUri: TOKEN_LOGOS.WLD  },
   { symbol: 'H2O',    name: 'H2O Token',   address: TOKENS.H2O,    decimals: 18, color: '#06b6d4' },
   { symbol: 'FIRE',   name: 'Fire Token',  address: TOKENS.FIRE,   decimals: 18, color: '#f97316' },
-  { symbol: 'SUSHI',  name: 'SushiSwap',   address: TOKENS.SUSHI,  decimals: 18, color: '#ec4899', logoUri: TOKEN_LOGOS.SUSHI },
+  { symbol: 'SUSHI',  name: 'Sushi',   address: TOKENS.SUSHI,  decimals: 18, color: '#ec4899', logoUri: TOKEN_LOGOS.SUSHI },
   { symbol: 'USDC',   name: 'USD Coin',    address: TOKENS.USDC,   decimals: 6,  color: '#2563eb', logoUri: TOKEN_LOGOS.USDC },
   { symbol: 'wCOP',   name: 'wCOP',        address: TOKENS.wCOP,   decimals: 18, color: '#f59e0b' },
   { symbol: 'wARS',   name: 'wARS',        address: TOKENS.wARS,   decimals: 18, color: '#10b981' },
