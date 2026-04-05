@@ -457,31 +457,6 @@ export function StakePanel({
         <StatCard label="WLD en cartera" value={formatToken(wldBalance)} sub="Para comprar + stake" />
       </div>
 
-      {/* ── Mode selector: Stake / Sell ── */}
-      <div className="flex rounded-xl overflow-hidden border border-border">
-        <button
-          onClick={() => { setMode('stake'); clearMessages() }}
-          className={cn(
-            'flex-1 py-2.5 text-sm font-semibold flex items-center justify-center gap-2 transition-colors',
-            mode === 'stake'
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-surface-1 text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <Droplets className="w-4 h-4" /> Stake H2O
-        </button>
-        <button
-          onClick={() => { setMode('sell'); clearMessages() }}
-          className={cn(
-            'flex-1 py-2.5 text-sm font-semibold flex items-center justify-center gap-2 transition-colors',
-            mode === 'sell'
-              ? 'bg-amber-500 text-white'
-              : 'bg-surface-1 text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <ArrowLeftRight className="w-4 h-4" /> Vender H2O
-        </button>
-      </div>
 
       {/* ══════════════════════════════════════════ STAKE MODE ══════════════════════════════════════════ */}
       {mode === 'stake' && (
@@ -537,19 +512,6 @@ export function StakePanel({
                   }
                 </Button>
               </div>
-
-              {/* Retirar y vender directamente por WLD */}
-              <Button
-                variant="outline" size="sm"
-                className="w-full border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
-                onClick={handleUnstakeAndSell}
-                disabled={!!loading}
-              >
-                {loading === 'unstake-sell'
-                  ? <Loader2 className="w-4 h-4 animate-spin" />
-                  : <><ArrowLeftRight className="w-4 h-4 mr-1" /> Retirar y vender por WLD</>
-                }
-              </Button>
 
               {/* Agregar al stake existente */}
               <div className="border-t border-primary/20 pt-3 flex flex-col gap-2">
@@ -655,80 +617,6 @@ export function StakePanel({
             </div>
           )}
         </>
-      )}
-
-      {/* ══════════════════════════════════════════ SELL MODE ══════════════════════════════════════════ */}
-      {mode === 'sell' && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <ArrowLeftRight className="w-4 h-4 text-amber-500" />
-            <span className="text-sm font-semibold text-amber-500">Vender H2O → WLD</span>
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            Intercambia H2O de tu cartera por WLD a través del pool. Se aplica un fee de swap del{' '}
-            <span className="text-foreground font-medium">{swapFee}</span>.
-          </p>
-
-          {/* Balance display */}
-          <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-            <span>H2O disponible</span>
-            <span className="font-mono text-foreground">{formatToken(h2oBalance)} H2O</span>
-          </div>
-
-          {/* Amount input */}
-          <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-surface-1 px-3 py-2 focus-within:border-amber-500/60 transition-colors">
-            <Coins className="w-4 h-4 text-amber-500 shrink-0" />
-            <input
-              type="number"
-              placeholder="Cantidad H2O a vender"
-              value={sellAmount}
-              onChange={e => setSellAmount(e.target.value)}
-              className="flex-1 min-w-0 bg-transparent text-foreground placeholder:text-muted-foreground text-sm outline-none font-mono"
-            />
-            <button
-              onClick={() => setSellAmount(maxH2O)}
-              className="text-xs text-amber-500 hover:text-amber-400 transition-colors font-medium"
-            >MAX</button>
-          </div>
-
-          {/* Fee note */}
-          {sellAmount && parseFloat(sellAmount) > 0 && config && (
-            <div className="rounded-lg bg-surface-1 border border-border px-3 py-2 text-xs space-y-1">
-              <div className="flex justify-between text-muted-foreground">
-                <span>H2O a vender</span>
-                <span className="font-mono text-foreground">{sellAmount} H2O</span>
-              </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>Fee de swap ({swapFee})</span>
-                <span className="font-mono text-amber-500">
-                  −{(parseFloat(sellAmount) * Number(config.swapFeeBps) / 10000).toFixed(6)} H2O
-                </span>
-              </div>
-              <div className="flex justify-between font-medium border-t border-border pt-1">
-                <span className="text-muted-foreground">H2O neto al pool</span>
-                <span className="font-mono text-foreground">
-                  {(parseFloat(sellAmount) * (1 - Number(config.swapFeeBps) / 10000)).toFixed(6)} H2O
-                </span>
-              </div>
-              <p className="text-muted-foreground pt-0.5">
-                Recibirás WLD según el precio del pool en el momento de la transacción.
-              </p>
-            </div>
-          )}
-
-          <Button
-            className="w-full bg-amber-500 hover:bg-amber-600 text-white"
-            onClick={handleSellH2O}
-            disabled={!sellAmount || parseFloat(sellAmount) <= 0 || !!loading || h2oBalance === 0n}
-          >
-            {loading === 'sell'
-              ? <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              : <ArrowLeftRight className="w-4 h-4 mr-2" />
-            }
-            Vender {sellAmount || '0'} H2O por WLD
-          </Button>
-        </div>
       )}
 
       {/* ── Feedback ── */}
