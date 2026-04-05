@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react'
 import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
-import { Droplets, TrendingUp, Clock, Loader2, ChevronRight, Coins, ArrowLeftRight } from 'lucide-react'
+import { Droplets, TrendingUp, Clock, Loader2, ChevronRight, Coins, MessageCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   STAKING_CONTRACT,
@@ -538,17 +538,13 @@ export function StakePanel({
                 </Button>
               </div>
 
-              {/* Retirar y vender directamente por WLD */}
+              {/* Comunity Acua — Telegram */}
               <Button
                 variant="outline" size="sm"
-                className="w-full border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
-                onClick={handleUnstakeAndSell}
-                disabled={!!loading}
+                className="w-full border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10"
+                onClick={() => window.open('https://t.me/+DFj-rZvWDgw0YjNh', '_blank')}
               >
-                {loading === 'unstake-sell'
-                  ? <Loader2 className="w-4 h-4 animate-spin" />
-                  : <><ArrowLeftRight className="w-4 h-4 mr-1" /> Retirar y vender por WLD</>
-                }
+                <MessageCircle className="w-4 h-4 mr-1" /> Comunity Acua
               </Button>
 
               {/* Agregar al stake existente */}

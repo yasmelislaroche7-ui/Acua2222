@@ -16,11 +16,8 @@ import { cn } from '@/lib/utils'
 
 // ─── Uniswap V3 — World Chain (480) ──────────────────────────────────────────
 const UNISWAP_V3_ROUTER  = '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45'
-const UNISWAP_V3_QUOTER  = '0x61fFE014bA17989E743c5F6cB21bF9697530B21e'
+const REAL_FACTORY       = '0x7a5028BDa40e7B173C278C5342087826455ea25a'
 const FEE_TIERS = [100, 500, 3000, 10000]
-
-// ─── SushiSwap V2 — World Chain (480) ────────────────────────────────────────
-const SUSHI_V2_ROUTER = '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506'
 
 // ─── Default owners ───────────────────────────────────────────────────────────
 const DEFAULT_OWNER_1 = '0x5474C309e985c6B4Fc623acf01AdE604dA781e52'
@@ -62,7 +59,7 @@ const DEFAULT_TOKENS: TokenItem[] = [
   { symbol: 'WLD',    name: 'Worldcoin',   address: TOKENS.WLD,    decimals: 18, color: '#3b82f6', logoUri: TOKEN_LOGOS.WLD  },
   { symbol: 'H2O',    name: 'H2O Token',   address: TOKENS.H2O,    decimals: 18, color: '#06b6d4' },
   { symbol: 'FIRE',   name: 'Fire Token',  address: TOKENS.FIRE,   decimals: 18, color: '#f97316' },
-  { symbol: 'SUSHI',  name: 'SushiSwap',   address: TOKENS.SUSHI,  decimals: 18, color: '#ec4899', logoUri: TOKEN_LOGOS.SUSHI },
+  { symbol: 'SUSHI',  name: 'sushi 🍣',    address: TOKENS.SUSHI,  decimals: 18, color: '#ec4899', logoUri: TOKEN_LOGOS.SUSHI },
   { symbol: 'USDC',   name: 'USD Coin',    address: TOKENS.USDC,   decimals: 6,  color: '#2563eb', logoUri: TOKEN_LOGOS.USDC },
   { symbol: 'wCOP',   name: 'wCOP',        address: TOKENS.wCOP,   decimals: 18, color: '#f59e0b' },
   { symbol: 'wARS',   name: 'wARS',        address: TOKENS.wARS,   decimals: 18, color: '#10b981' },
@@ -143,37 +140,26 @@ const EXACT_INPUT_ABI = [{
   outputs: [{ name: 'amountOut', type: 'uint256' }],
 }]
 
-const SWAP_EXACT_TOKENS_V2_ABI = [{
-  name: 'swapExactTokensForTokens', type: 'function', stateMutability: 'nonpayable',
-  inputs: [
-    { name: 'amountIn',     type: 'uint256'   },
-    { name: 'amountOutMin', type: 'uint256'   },
-    { name: 'path',         type: 'address[]' },
-    { name: 'to',           type: 'address'   },
-    { name: 'deadline',     type: 'uint256'   },
-  ],
-  outputs: [{ name: 'amounts', type: 'uint256[]' }],
-}]
-
-const QUOTER_V2_ABI = [
-  'function quoteExactInputSingle((address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed, uint256 gasEstimate)',
-  'function quoteExactInput(bytes path, uint256 amountIn) returns (uint256 amountOut, uint160[] sqrtPriceX96AfterList, uint32[] initializedTicksCrossedList, uint256 gasEstimate)',
+// ─── Pool ABIs ────────────────────────────────────────────────────────────────
+const FACTORY_ABI_FRAG = [
+  'function getPool(address tokenA, address tokenB, uint24 fee) view returns (address pool)',
 ]
-
-const SUSHI_V2_ABI = [
-  'function getAmountsOut(uint amountIn, address[] memory path) view returns (uint[] memory amounts)',
+const POOL_SLOT0_ABI = [
+  'function token0() view returns (address)',
+  'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)',
+  'function liquidity() view returns (uint128)',
 ]
 
 // ─── Quote result type ────────────────────────────────────────────────────────
-type QuoteSource = 'v3-direct' | 'v3-multihop' | 'v2-direct' | 'v2-multihop'
+type QuoteSource = 'v3-direct' | 'v3-multihop'
 
 interface QuoteResult {
   amountOut: bigint
   fee: number
   source: QuoteSource
-  v3Path?: string          // encoded bytes for V3 multi-hop
-  v2Path?: string[]        // address array for V2
-  hopLabel?: string        // e.g. "WLD" or "USDC"
+  v3Path?: string
+  hopToken?: string
+  hopLabel?: string
 }
 
 // ─── Price fetcher via DexScreener ───────────────────────────────────────────
@@ -200,116 +186,106 @@ async function fetchUsdPrices(addresses: string[]): Promise<Record<string, numbe
   return prices
 }
 
-// ─── V3 Direct quote (best fee tier) ─────────────────────────────────────────
-async function getV3DirectQuote(
+// ─── Pool-based price quote (uses real factory + sqrtPriceX96 math) ──────────
+// sqrtPriceX96 encodes token1/token0 price in raw units — no decimal adjustment
+function calcAmountOut(sqrtPriceX96: bigint, amountIn: bigint, zeroForOne: boolean, fee: number): bigint {
+  if (amountIn === 0n || sqrtPriceX96 === 0n) return 0n
+  const Q96   = 2n ** 96n
+  const PREC  = 10n ** 30n
+  const priceScaled = (sqrtPriceX96 * sqrtPriceX96 * PREC) / (Q96 * Q96)
+  const raw = zeroForOne
+    ? (amountIn * priceScaled) / PREC
+    : (amountIn * PREC) / (priceScaled === 0n ? 1n : priceScaled)
+  return (raw * (1000000n - BigInt(fee))) / 1000000n
+}
+
+async function getBestDirectPoolQuote(
   tokenIn: string, tokenOut: string, amountIn: bigint
 ): Promise<QuoteResult | null> {
   const p = getProvider()
-  const quoter = new ethers.Contract(UNISWAP_V3_QUOTER, QUOTER_V2_ABI, p)
+  const factory = new ethers.Contract(REAL_FACTORY, FACTORY_ABI_FRAG, p)
   let best: QuoteResult | null = null
-  await Promise.allSettled(
-    FEE_TIERS.map(async (fee) => {
-      try {
-        const [amountOut] = await quoter.quoteExactInputSingle.staticCall({
-          tokenIn, tokenOut, amountIn, fee, sqrtPriceLimitX96: 0n,
-        })
-        if (!best || amountOut > best.amountOut) {
-          best = { amountOut, fee, source: 'v3-direct' }
-        }
-      } catch {}
-    })
-  )
+
+  await Promise.allSettled(FEE_TIERS.map(async fee => {
+    try {
+      const poolAddr: string = await factory.getPool(tokenIn, tokenOut, fee)
+      if (!poolAddr || poolAddr === ethers.ZeroAddress) return
+      const pool = new ethers.Contract(poolAddr, POOL_SLOT0_ABI, p)
+      const [t0, slot0, liq] = await Promise.all([pool.token0(), pool.slot0(), pool.liquidity()])
+      if (liq === 0n) return
+      const zeroForOne = t0.toLowerCase() === tokenIn.toLowerCase()
+      const amountOut = calcAmountOut(slot0[0], amountIn, zeroForOne, fee)
+      if (amountOut > 0n && (!best || amountOut > best.amountOut)) {
+        best = { amountOut, fee, source: 'v3-direct' }
+      }
+    } catch {}
+  }))
   return best
 }
 
-// ─── V3 Multi-hop quote ───────────────────────────────────────────────────────
-async function getV3MultiHopQuote(
+async function getBestHopPoolQuote(
   tokenIn: string, tokenOut: string, amountIn: bigint,
   hopToken: string, hopLabel: string
 ): Promise<QuoteResult | null> {
-  if (
-    tokenIn.toLowerCase() === hopToken.toLowerCase() ||
-    tokenOut.toLowerCase() === hopToken.toLowerCase()
-  ) return null
+  const tIn = tokenIn.toLowerCase()
+  const tOut = tokenOut.toLowerCase()
+  const tHop = hopToken.toLowerCase()
+  if (tIn === tHop || tOut === tHop) return null
 
   const p = getProvider()
-  const quoter = new ethers.Contract(UNISWAP_V3_QUOTER, QUOTER_V2_ABI, p)
+  const factory = new ethers.Contract(REAL_FACTORY, FACTORY_ABI_FRAG, p)
   let best: QuoteResult | null = null
 
-  const feePairs = [[500, 500], [500, 3000], [3000, 500], [3000, 3000], [100, 500], [500, 100]]
+  const feePairs = [[100, 500], [500, 500], [500, 3000], [3000, 500], [3000, 3000], [10000, 3000]]
 
-  await Promise.allSettled(
-    feePairs.map(async ([fee1, fee2]) => {
-      try {
-        const path = ethers.solidityPacked(
+  await Promise.allSettled(feePairs.map(async ([fee1, fee2]) => {
+    try {
+      const [pool1Addr, pool2Addr] = await Promise.all([
+        factory.getPool(tokenIn, hopToken, fee1),
+        factory.getPool(hopToken, tokenOut, fee2),
+      ])
+      if (!pool1Addr || pool1Addr === ethers.ZeroAddress) return
+      if (!pool2Addr || pool2Addr === ethers.ZeroAddress) return
+
+      const [pool1, pool2] = [
+        new ethers.Contract(pool1Addr, POOL_SLOT0_ABI, p),
+        new ethers.Contract(pool2Addr, POOL_SLOT0_ABI, p),
+      ]
+      const [[t0a, s0a, liq1], [t0b, s0b, liq2]] = await Promise.all([
+        Promise.all([pool1.token0(), pool1.slot0(), pool1.liquidity()]),
+        Promise.all([pool2.token0(), pool2.slot0(), pool2.liquidity()]),
+      ])
+      if (liq1 === 0n || liq2 === 0n) return
+
+      const zeroForOne1 = t0a.toLowerCase() === tokenIn.toLowerCase()
+      const mid = calcAmountOut(s0a[0], amountIn, zeroForOne1, fee1)
+      if (mid === 0n) return
+
+      const zeroForOne2 = t0b.toLowerCase() === hopToken.toLowerCase()
+      const amountOut = calcAmountOut(s0b[0], mid, zeroForOne2, fee2)
+      if (amountOut > 0n && (!best || amountOut > best.amountOut)) {
+        const v3Path = ethers.solidityPacked(
           ['address', 'uint24', 'address', 'uint24', 'address'],
           [tokenIn, fee1, hopToken, fee2, tokenOut]
         )
-        const [amountOut] = await quoter.quoteExactInput.staticCall(path, amountIn)
-        if (!best || amountOut > best.amountOut) {
-          best = { amountOut, fee: fee1, source: 'v3-multihop', v3Path: path, hopLabel }
-        }
-      } catch {}
-    })
-  )
+        best = { amountOut, fee: fee1, source: 'v3-multihop', v3Path, hopToken, hopLabel }
+      }
+    } catch {}
+  }))
   return best
-}
-
-// ─── SushiSwap V2 quote ───────────────────────────────────────────────────────
-async function getSushiV2Quote(
-  tokenIn: string, tokenOut: string, amountIn: bigint
-): Promise<QuoteResult | null> {
-  const p = getProvider()
-  const router = new ethers.Contract(SUSHI_V2_ROUTER, SUSHI_V2_ABI, p)
-
-  // Try direct
-  try {
-    const amounts = await router.getAmountsOut(amountIn, [tokenIn, tokenOut])
-    const amountOut: bigint = amounts[amounts.length - 1]
-    if (amountOut > 0n) return { amountOut, fee: 3000, source: 'v2-direct', v2Path: [tokenIn, tokenOut] }
-  } catch {}
-
-  // Try via WLD
-  const wld = TOKENS.WLD
-  if (tokenIn.toLowerCase() !== wld.toLowerCase() && tokenOut.toLowerCase() !== wld.toLowerCase()) {
-    try {
-      const path = [tokenIn, wld, tokenOut]
-      const amounts = await router.getAmountsOut(amountIn, path)
-      const amountOut: bigint = amounts[amounts.length - 1]
-      if (amountOut > 0n) return { amountOut, fee: 3000, source: 'v2-multihop', v2Path: path, hopLabel: 'WLD' }
-    } catch {}
-  }
-
-  // Try via USDC
-  const usdc = TOKENS.USDC
-  if (tokenIn.toLowerCase() !== usdc.toLowerCase() && tokenOut.toLowerCase() !== usdc.toLowerCase()) {
-    try {
-      const path = [tokenIn, usdc, tokenOut]
-      const amounts = await router.getAmountsOut(amountIn, path)
-      const amountOut: bigint = amounts[amounts.length - 1]
-      if (amountOut > 0n) return { amountOut, fee: 3000, source: 'v2-multihop', v2Path: path, hopLabel: 'USDC' }
-    } catch {}
-  }
-
-  return null
 }
 
 // ─── Combined best quote ──────────────────────────────────────────────────────
 async function getBestQuote(
   tokenIn: string, tokenOut: string, amountIn: bigint
 ): Promise<QuoteResult | null> {
-  // Run all quote strategies in parallel
-  const [v3Direct, v3ViaWLD, v3ViaUSDC, v2] = await Promise.all([
-    getV3DirectQuote(tokenIn, tokenOut, amountIn),
-    getV3MultiHopQuote(tokenIn, tokenOut, amountIn, TOKENS.WLD,  'WLD'),
-    getV3MultiHopQuote(tokenIn, tokenOut, amountIn, TOKENS.USDC, 'USDC'),
-    getSushiV2Quote(tokenIn, tokenOut, amountIn),
+  const [direct, viaWLD, viaUSDC] = await Promise.all([
+    getBestDirectPoolQuote(tokenIn, tokenOut, amountIn),
+    getBestHopPoolQuote(tokenIn, tokenOut, amountIn, TOKENS.WLD,  'WLD'),
+    getBestHopPoolQuote(tokenIn, tokenOut, amountIn, TOKENS.USDC, 'USDC'),
   ])
-
-  const candidates = [v3Direct, v3ViaWLD, v3ViaUSDC, v2].filter(Boolean) as QuoteResult[]
+  const candidates = [direct, viaWLD, viaUSDC].filter(Boolean) as QuoteResult[]
   if (candidates.length === 0) return null
-
-  // Pick best output amount
   return candidates.reduce((best, c) => c.amountOut > best.amountOut ? c : best)
 }
 
@@ -377,10 +353,8 @@ function TokenPicker({
 // ─── Source badge ─────────────────────────────────────────────────────────────
 function SourceBadge({ source, hopLabel }: { source: QuoteSource; hopLabel?: string }) {
   const labels: Record<QuoteSource, string> = {
-    'v3-direct': 'Uniswap V3',
+    'v3-direct':   'Uniswap V3',
     'v3-multihop': `V3 → ${hopLabel ?? '?'}`,
-    'v2-direct': 'SushiSwap V2',
-    'v2-multihop': `V2 → ${hopLabel ?? '?'}`,
   }
   return (
     <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-mono">
@@ -485,17 +459,7 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
         txs.push({ address: fromToken.address, abi: TRANSFER_ABI, functionName: 'transfer', args: [owner2, feeHalf.toString()] })
       }
 
-      if (quote.source === 'v2-direct' || quote.source === 'v2-multihop') {
-        // SushiSwap V2 swap
-        const path = quote.v2Path!
-        txs.unshift({ address: fromToken.address, abi: APPROVE_ABI, functionName: 'approve', args: [SUSHI_V2_ROUTER, netAmt.toString()] })
-        txs.push({
-          address: SUSHI_V2_ROUTER,
-          abi: SWAP_EXACT_TOKENS_V2_ABI,
-          functionName: 'swapExactTokensForTokens',
-          args: [netAmt.toString(), minOut.toString(), path, userAddress, deadline.toString()],
-        })
-      } else if (quote.source === 'v3-multihop' && quote.v3Path) {
+      if (quote.source === 'v3-multihop' && quote.v3Path) {
         // Uniswap V3 multi-hop
         txs.unshift({ address: fromToken.address, abi: APPROVE_ABI, functionName: 'approve', args: [UNISWAP_V3_ROUTER, netAmt.toString()] })
         txs.push({
@@ -587,7 +551,7 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
           </div>
           <div className="min-w-0">
             <h2 className="text-sm font-bold text-foreground">Acua Swap</h2>
-            <p className="text-xs text-muted-foreground">Uniswap V3 · SushiSwap V2 · World Chain</p>
+            <p className="text-xs text-muted-foreground">Uniswap V3 · World Chain</p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -807,7 +771,7 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
           {fromAmt && parseFloat(fromAmt) > 0 && !quoting && !quote && (
             <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2">
               <AlertCircle className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
-              <p className="text-xs text-yellow-400">Sin liquidez en Uniswap V3 ni SushiSwap V2 para este par</p>
+              <p className="text-xs text-yellow-400">Sin liquidez directa o via WLD/USDC en este par</p>
             </div>
           )}
 
