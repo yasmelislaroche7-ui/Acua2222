@@ -222,10 +222,15 @@ export default function AcuaApp() {
   // ── Detect MiniKit ─────────────────────────────────────────────────────────
   useEffect(() => {
     console.log('[acua] detect: start', { worldApp: !!(window as any).WorldApp, ua: navigator.userAgent.slice(0, 80) })
+    if (!(window as any).WorldApp) {
+      setIsInstalled(false)
+      return
+    }
+
     let attempts = 0
     const interval = setInterval(() => {
       attempts++
-      const installed = MiniKit.isInstalled()
+      const installed = Boolean((window as any).MiniKit)
       if (installed || attempts >= 15) { clearInterval(interval); setIsInstalled(installed) }
     }, 200)
     return () => clearInterval(interval)

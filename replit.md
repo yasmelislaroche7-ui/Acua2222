@@ -37,7 +37,7 @@ Acua Staking is a decentralized application (dApp) for the **World Chain** ecosy
 | Tab | Condition | Component |
 |-----|-----------|-----------|
 | Admin | isMainOwner | `contracts-owner-panel.tsx` + `owner-panel.tsx` |
-| AIR | isAirFunder | `air-funder-panel.tsx` — deposit AIR rewards only |
+| AIR | isAirFunder | `air-funder-panel.tsx` — deposit rewards only |
 
 ---
 
@@ -85,11 +85,12 @@ User is `owners[1]` (index 1, second owner) of the AIR staking contract.
 | `lib/contract.ts` | H2O Acua staking ABI, address, fetchers |
 | `lib/new-contracts.ts` | New staking + mining ABIs, addresses, fetchers |
 | `components/acua-app.tsx` | Main app: routing, tab navigation, ownership detection |
+| `components/minikit-provider.tsx` | MiniKit initialization with safe Replit preview fallback |
 | `components/stake-panel.tsx` | H2O staking (DO NOT MODIFY) |
 | `components/owner-panel.tsx` | H2O admin panel |
 | `components/multi-staking-panel.tsx` | 8-token staking panel |
 | `components/mining-uth2-panel.tsx` | UTH2 → H2O mining |
-| `components/mining-wld-panel.tsx` | WLD → 7-token mining |
+| `components/mining-wld-panel.tsx` | WLD → 7 tokens mining |
 | `components/contracts-owner-panel.tsx` | Admin for all new contracts |
 | `components/air-funder-panel.tsx` | AIR funder: deposit rewards only |
 | `components/info-panel.tsx` | Token utilities + how-to guide |
@@ -106,6 +107,6 @@ transaction: [{ address: CONTRACT, abi, functionName, args: [..., 'PERMIT2_SIGNA
 
 ## Development
 ```bash
-pnpm dev --port 5000
+npm run dev
 ```
-Must be opened inside World App to use MiniKit features. The app shows "Iniciando..." in browser preview (expected — no MiniKit outside World App).
+Replit runs this app on port 5000 through the `Start application` workflow. MiniKit features require World App; outside World App, the app now displays the not-installed state cleanly without throwing preview errors.
