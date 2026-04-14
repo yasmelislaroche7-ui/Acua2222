@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { StakePanel } from '@/components/stake-panel'
 import { OwnerPanel } from '@/components/owner-panel'
 import { MultiStakingPanel } from '@/components/multi-staking-panel'
+import { StakeV2Panel } from '@/components/stake-v2-panel'
 import { MiningUTH2Panel } from '@/components/mining-uth2-panel'
 import { MiningWLDPanel } from '@/components/mining-wld-panel'
 import { MiningTimePanel } from '@/components/mining-time-panel'
@@ -34,7 +35,7 @@ import {
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
-type Tab = 'h2o' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin'
+type Tab = 'h2o' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin'
 type InstalledState = null | true | false
 
 // ─── Hardcoded special addresses ──────────────────────────────────────────────
@@ -322,12 +323,14 @@ export default function AcuaApp() {
   // Owners (including AIR funder who is an owner) also see the Admin tab
   const mainTabs: { tab: Tab; icon: React.ReactNode; label: string; special?: 'admin' | 'air' }[] = [
     { tab: 'h2o',        icon: <Droplets className="w-3.5 h-3.5" />,    label: 'H2O' },
+    { tab: 'stake-v2',   icon: <Wind className="w-3.5 h-3.5" />,        label: 'Stake V2' },
     { tab: 'stake-plus', icon: <TrendingUp className="w-3.5 h-3.5" />,  label: 'Stake+' },
     { tab: 'uth2',       icon: <Pickaxe className="w-3.5 h-3.5" />,     label: 'UTH₂' },
     { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,        label: 'WLD' },
     { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,       label: 'TIME' },
     { tab: 'tokens',     icon: <BookOpen className="w-3.5 h-3.5" />,    label: 'Tokens' },
     { tab: 'swap',       icon: <Repeat2 className="w-3.5 h-3.5" />,     label: 'Swap' },
+    { tab: 'info',       icon: <HelpCircle className="w-3.5 h-3.5" />,  label: 'Info' },
   ]
 
   if (isMainOwner || isAirFunder) {
@@ -339,7 +342,7 @@ export default function AcuaApp() {
     })
   }
 
-  mainTabs.push({ tab: 'info', icon: <HelpCircle className="w-3.5 h-3.5" />, label: 'Info' })
+  // Info tab is already included in mainTabs
 
   return (
     <div className="h-dvh bg-background flex flex-col max-w-md mx-auto overflow-hidden">
@@ -385,6 +388,8 @@ export default function AcuaApp() {
             onRefresh={loadData}
           />
         )}
+
+        {activeTab === 'stake-v2' && <StakeV2Panel userAddress={addr} />}
 
         {activeTab === 'stake-plus' && <MultiStakingPanel userAddress={addr} />}
 
