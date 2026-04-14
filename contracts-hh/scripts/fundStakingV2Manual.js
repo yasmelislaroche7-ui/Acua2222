@@ -14,14 +14,14 @@ const FUNDING_PLAN = [
   { symbol: "uSOL", amount: "0" },
   { symbol: "VIBE", amount: "0" },
   { symbol: "UTH₂", amount: "0" },
-  { symbol: "DIAMANTE", amount: "0" },
+  { symbol: "DIAMANTE", amount: "0.01" },
   { symbol: "wBRL", amount: "0" },
   { symbol: "BILLBOARD", amount: "0" },
   { symbol: "Cash", amount: "0" },
   { symbol: "AION", amount: "0" },
   { symbol: "SAMA", amount: "0" },
   { symbol: "APE", amount: "0" },
-  { symbol: "GFY", amount: "0" },
+  { symbol: "GFY", amount: "1" },
   { symbol: "VEN", amount: "0" },
 ];
 
