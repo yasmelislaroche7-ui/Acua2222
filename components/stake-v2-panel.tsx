@@ -1,118 +1,187 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
 import {
-  TrendingUp, Coins, Loader2, ChevronRight,
-  Lock, Unlock, Gift, RefreshCw, Zap,
+  Loader2, ChevronRight, Lock, Unlock, Gift, RefreshCw
 } from 'lucide-react'
+
+import stakingV2Addresses from '../contracts-hh/deployed-staking-v2-addresses.json'
 import { Button } from '@/components/ui/button'
-import { getProvider, PERMIT2_ADDRESS } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
-// ─── Stake V2 Contract ABI ───────────────────────────────────────────────────
-const STAKE_V2_ABI = [
-  'function stakedBalance(address) view returns (uint256)',
-  'function pendingWldReward(address staker) view returns (uint256)',
-  'function totalStaked() view returns (uint256)',
-  'function unallocatedWld() view returns (uint256)',
-  'function accWldPerShare() view returns (uint256)',
-  'function timeToken() view returns (address)',
-  'function wldToken() view returns (address)',
-  'function stake(uint256 amount)',
-  'function stakeWithPermit2(uint256 amount, uint256 nonce, uint256 deadline, bytes signature)',
-  'function unstake(uint256 amount)',
-  'function claimWldReward()',
-]
+// ---- INTERFACES Y ARRAY GENERADO AUTOMATICAMENTE ----
+export interface StakeV2Token {
+  id: string;
+  name: string;
+  symbol: string;
+  tokenAddress: string;
+  stakingContract: string;
+  rewardSymbol: string;
+  color: string;
+  decimals: number;
+  logoUrl?: string;
+}
 
-const ERC20_ABI = [
-  'function balanceOf(address) view returns (uint256)',
-  'function decimals() view returns (uint8)',
-  'function symbol() view returns (string)',
-  'function name() view returns (string)',
-]
+export const STAKE_V2_TOKENS: StakeV2Token[] = stakingV2Addresses.tokens.map((t) => ({
+  id: t.key.toLowerCase(),
+  name: `${t.symbol} Staking V2`,
+  symbol: t.symbol,
+  tokenAddress: t.token,
+  stakingContract: stakingV2Addresses.contracts[t.key],
+  rewardSymbol: t.symbol, // El reward es el mismo token staked
+  color: '#8b5cf6', // Personaliza si deseas
+  decimals: t.decimals,
+  logoUrl: `/tokens/${t.symbol.toLowerCase()}.jpg`,
+}));
 
-// ─── PERMIT2 ABI for MiniKit ─────────────────────────────────────────────────
-const STAKE_PERMIT2_ABI = [{
-  name: 'stakeWithPermit2',
-  type: 'function',
-  stateMutability: 'nonpayable',
-  inputs: [
-    { name: 'amount', type: 'uint256', internalType: 'uint256' },
+// ---- ABI FRAGMENTOS ----
+const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
+const PERMIT_TUPLE_INPUT = {
+  name: 'permit',
+  type: 'tuple',
+  internalType: 'struct IPermit2.PermitTransferFrom',
+  components: [
+    {
+      name: 'permitted',
+      type: 'tuple',
+      internalType: 'struct IPermit2.TokenPermissions',
+      components: [
+        { name: 'token', type: 'address', internalType: 'address' },
+        { name: 'amount', type: 'uint256', internalType: 'uint256' },
+      ],
+    },
     { name: 'nonce', type: 'uint256', internalType: 'uint256' },
     { name: 'deadline', type: 'uint256', internalType: 'uint256' },
-    { name: 'signature', type: 'bytes', internalType: 'bytes' },
   ],
+} as const
+
+const STAKE_ABI = [{
+  name: 'stake', type: 'function', stateMutability: 'nonpayable',
+  inputs: [PERMIT_TUPLE_INPUT, { name: 'signature', type: 'bytes', internalType: 'bytes' }],
   outputs: [],
 }] as const
 
 const UNSTAKE_ABI = [{
-  name: 'unstake',
-  type: 'function',
-  stateMutability: 'nonpayable',
-  inputs: [{ name: 'amount', type: 'uint256', internalType: 'uint256' }],
-  outputs: [],
+  name: 'unstake', type: 'function', stateMutability: 'nonpayable',
+  inputs: [], outputs: [],
 }] as const
 
-const CLAIM_WLD_ABI = [{
-  name: 'claimWldReward',
-  type: 'function',
-  stateMutability: 'nonpayable',
-  inputs: [],
-  outputs: [],
+const CLAIM_ABI = [{
+  name: 'claimRewards', type: 'function', stateMutability: 'nonpayable',
+  inputs: [], outputs: [],
 }] as const
 
-// ─── V2 Staking Contracts Configuration ──────────────────────────────────────
-export interface StakeV2Token {
-  id: string
-  name: string
-  symbol: string
-  tokenAddress: string
-  stakingContract: string
-  rewardSymbol: string
-  color: string
-  decimals: number
-  logoUrl?: string
+// ---- STAKING INFO TYPE ----
+export interface StakeV2Info {
+  stakedAmount: bigint
+  stakedAt: bigint
+  lastClaimAt: bigint
+  pendingRewards: bigint
+  apyBps: bigint
+  stakeFeeBps: bigint
+  unstakeFeeBps: bigint
+  claimFeeBps: bigint
+  contractBalance: bigint
+  tokenBalance: bigint
+  paused: boolean
 }
 
-// Universal V2 Staking Contracts - TIME token staking for WLD rewards
-export const STAKE_V2_TOKENS: StakeV2Token[] = [
-  {
-    id: 'time-wld',
-    name: 'TIME Staking V2',
-    symbol: 'TIME',
-    tokenAddress: '0x212d7448720852D8Ad282a5d4A895B3461F9076E',
-    stakingContract: '0x44a8EbCB9a5eDD4A907510F8E791a5F7bd865244',
-    rewardSymbol: 'WLD',
-    color: '#8b5cf6',
-    decimals: 18,
-    logoUrl: '/tokens/time.jpg',
-  },
+// ---- FETCHER ----
+import { ethers as ethersLib } from 'ethers'
+function getProvider() {
+  return new ethers.JsonRpcProvider('https://worldchain-mainnet.g.alchemy.com/public')
+}
+const UNIVERSAL_STAKING_ABI = [
+  'function getStakeInfo(address user) view returns (uint256 stakedAmount, uint256 stakedAt, uint256 lastClaimAt, uint256 pendingRewards, bool active)',
+  'function apyBps() view returns (uint256)',
+  'function stakeFeeBps() view returns (uint256)',
+  'function unstakeFeeBps() view returns (uint256)',
+  'function claimFeeBps() view returns (uint256)',
+  'function totalStaked() view returns (uint256)',
+  'function contractTokenBalance() view returns (uint256)',
+  'function paused() view returns (bool)',
+]
+const ERC20_ABI = [
+  'function balanceOf(address) view returns (uint256)',
 ]
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+export async function fetchStakeV2Info(contractAddr: string, userAddr: string, tokenAddr: string): Promise<StakeV2Info> {
+  const provider = getProvider()
+  const contract = new ethersLib.Contract(contractAddr, UNIVERSAL_STAKING_ABI, provider)
+  const token = new ethersLib.Contract(tokenAddr, ERC20_ABI, provider)
+  const [info, apy, stakeFee, unstakeFee, claimFee, contractBalance, paused, tokenBal] = await Promise.all([
+    contract.getStakeInfo(userAddr),
+    contract.apyBps(),
+    contract.stakeFeeBps(),
+    contract.unstakeFeeBps(),
+    contract.claimFeeBps(),
+    contract.contractTokenBalance(),
+    contract.paused(),
+    token.balanceOf(userAddr),
+  ])
+  return {
+    stakedAmount: info[0],
+    stakedAt: info[1],
+    lastClaimAt: info[2],
+    pendingRewards: info[3],
+    apyBps: apy,
+    stakeFeeBps: stakeFee,
+    unstakeFeeBps: unstakeFee,
+    claimFeeBps: claimFee,
+    contractBalance,
+    tokenBalance: tokenBal,
+    paused,
+  }
+}
+
+// ---- HELPERS (formato igual a multi-staking) ----
+function formatToken(amount: bigint, decimals = 18, precision = 4): string {
+  const formatted = ethers.formatUnits(amount, decimals)
+  const num = parseFloat(formatted)
+  if (num === 0) return '0'
+  if (num < 0.0001) return '< 0.0001'
+  return num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: precision })
+}
+function bpsToPercent(bps: bigint): string {
+  return (Number(bps) / 100).toFixed(2) + '%'
+}
+function formatAPY(bps: bigint): string {
+  const pct = Number(bps) / 100
+  if (pct === 0) return 'Variable'
+  if (pct > 1000) return '> 1000%'
+  return pct.toFixed(1) + '%'
+}
 function randomNonce(): bigint {
   const arr = new Uint32Array(2)
-  crypto.getRandomValues(arr)
+  if (typeof window !== "undefined" && window.crypto) {
+    window.crypto.getRandomValues(arr)
+  }
   return BigInt(arr[0]) * 65536n + BigInt(arr[1] & 0xffff)
 }
-
-function fmt(val: bigint, dec = 18, prec = 6): string {
-  const n = parseFloat(ethers.formatUnits(val, dec))
-  if (n === 0) return '0'
-  if (n < 0.000001) return '< 0.000001'
-  return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: prec })
+function useRealtimePending(base: bigint, apyBps: bigint, staked: bigint, decimals: number): string {
+  const [raw, setRaw] = useState(parseFloat(ethers.formatUnits(base, decimals)))
+  useEffect(() => { setRaw(parseFloat(ethers.formatUnits(base, decimals))) }, [base, decimals])
+  useEffect(() => {
+    if (staked === 0n || apyBps === 0n) return
+    const apyFloat = Number(apyBps) / 10000
+    const stakedFloat = parseFloat(ethers.formatUnits(staked, decimals))
+    const perSecond = (apyFloat * stakedFloat) / (365 * 24 * 3600)
+    const id = setInterval(() => setRaw(p => p + perSecond), 1000)
+    return () => clearInterval(id)
+  }, [base, apyBps, staked, decimals])
+  if (raw <= 0) return '0'
+  if (raw < 0.000001) return '< 0.000001'
+  return raw.toFixed(8)
 }
 
-// ─── Token Badge ──────────────────────────────────────────────────────────────
 function TokenBadge({ symbol, color, logoUrl }: { symbol: string; color: string; logoUrl?: string }) {
   const [imgError, setImgError] = useState(false)
-  
   if (logoUrl && !imgError) {
     return (
-      <img 
-        src={logoUrl} 
+      <img
+        src={logoUrl}
         alt={symbol}
         onError={() => setImgError(true)}
         className="w-10 h-10 rounded-full object-cover shrink-0"
@@ -127,23 +196,13 @@ function TokenBadge({ symbol, color, logoUrl }: { symbol: string; color: string;
   )
 }
 
-// ─── Stake Info Type ──────────────────────────────────────────────────────────
-interface StakeV2Info {
-  stakedBalance: bigint
-  pendingReward: bigint
-  totalStaked: bigint
-  unallocatedWld: bigint
-  tokenBalance: bigint
-}
-
-// ─── Stake V2 Dialog ──────────────────────────────────────────────────────────
+// ---- Dialog modAL ----
 interface StakeV2DialogProps {
   token: StakeV2Token
   info: StakeV2Info | null
   onClose: () => void
   onRefresh: () => void
 }
-
 function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) {
   const [tab, setTab] = useState<'stake' | 'unstake' | 'claim'>('stake')
   const [amount, setAmount] = useState('')
@@ -153,19 +212,21 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
   const decimals = token.decimals
 
   async function doStake() {
-    if (!amount || parseFloat(amount) <= 0) return setMsg('Ingresa una cantidad valida')
+    if (!amount || parseFloat(amount) <= 0) return setMsg('Ingresa un monto válido')
     setLoading(true); setMsg('')
     try {
       const amtWei = ethers.parseUnits(amount, decimals)
-      const nonce = randomNonce()
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
-      
+      const nonce = randomNonce()
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{
           address: token.stakingContract,
-          abi: STAKE_PERMIT2_ABI,
-          functionName: 'stakeWithPermit2',
-          args: [amtWei.toString(), nonce.toString(), deadline.toString(), 'PERMIT2_SIGNATURE_PLACEHOLDER_0'],
+          abi: STAKE_ABI,
+          functionName: 'stake',
+          args: [
+            { permitted: { token: token.tokenAddress, amount: amtWei.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
+          ],
         }],
         permit2: [{
           permitted: { token: token.tokenAddress, amount: amtWei.toString() },
@@ -174,37 +235,33 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
           deadline: deadline.toString(),
         }],
       })
-      
       if (finalPayload.status === 'success') {
-        setMsg('Stake exitoso! Actualizando...')
+        setMsg('✓ ¡Stake hecho! Refrescando...')
         setAmount('')
         setTimeout(onRefresh, 2000)
       } else {
-        setMsg('Transaccion rechazada')
+        setMsg('Transacción rechazada')
       }
     } catch (e: any) { setMsg(e.message || 'Error') }
     finally { setLoading(false) }
   }
 
   async function doUnstake() {
-    if (!amount || parseFloat(amount) <= 0) return setMsg('Ingresa una cantidad valida')
     setLoading(true); setMsg('')
     try {
-      const amtWei = ethers.parseUnits(amount, decimals)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{
           address: token.stakingContract,
           abi: UNSTAKE_ABI,
           functionName: 'unstake',
-          args: [amtWei.toString()],
+          args: [],
         }],
       })
       if (finalPayload.status === 'success') {
-        setMsg('Unstake exitoso! Actualizando...')
-        setAmount('')
+        setMsg('✓ Unstake hecho! Refrescando...')
         setTimeout(onRefresh, 2000)
       } else {
-        setMsg('Transaccion rechazada')
+        setMsg('Transacción rechazada')
       }
     } catch (e: any) { setMsg(e.message || 'Error') }
     finally { setLoading(false) }
@@ -216,36 +273,24 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{
           address: token.stakingContract,
-          abi: CLAIM_WLD_ABI,
-          functionName: 'claimWldReward',
+          abi: CLAIM_ABI,
+          functionName: 'claimRewards',
           args: [],
         }],
       })
       if (finalPayload.status === 'success') {
-        setMsg('Rewards reclamados! Actualizando...')
+        setMsg('✓ Rewards reclamados! Refrescando...')
         setTimeout(onRefresh, 2000)
       } else {
-        setMsg('Transaccion rechazada')
+        setMsg('Transacción rechazada')
       }
     } catch (e: any) { setMsg(e.message || 'Error') }
     finally { setLoading(false) }
   }
 
-  const pending = info?.pendingReward ?? 0n
-  const staked = info?.stakedBalance ?? 0n
+  const pending = info?.pendingRewards ?? 0n
+  const staked = info?.stakedAmount ?? 0n
   const balance = info?.tokenBalance ?? 0n
-
-  // Calculate estimated APR based on pool data
-  const estimatedAPR = info && info.totalStaked > 0n && info.unallocatedWld > 0n 
-    ? (() => {
-        const totalStakedFloat = parseFloat(ethers.formatUnits(info.totalStaked, 18))
-        const unallocFloat = parseFloat(ethers.formatUnits(info.unallocatedWld, 18))
-        // Assuming unallocated distributes over 1 year
-        if (totalStakedFloat === 0) return '—'
-        const apr = (unallocFloat / totalStakedFloat) * 100
-        return apr > 1000 ? '> 1000%' : apr.toFixed(1) + '%'
-      })()
-    : '—'
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur flex items-end justify-center">
@@ -256,44 +301,32 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
             <TokenBadge symbol={token.symbol} color={token.color} logoUrl={token.logoUrl} />
             <div>
               <p className="font-bold text-sm">{token.name}</p>
-              <p className="text-xs text-muted-foreground">{token.symbol} → {token.rewardSymbol} Rewards</p>
+              <p className="text-xs text-muted-foreground">{token.symbol} Staking</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xs">Cerrar</button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xs">✕ Cerrar</button>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-2 mb-4">
           <div className="bg-surface-2 rounded-lg p-2 text-center border border-border">
-            <p className="text-xs text-muted-foreground">APR Est.</p>
-            <p className="text-sm font-bold" style={{ color: token.color }}>{estimatedAPR}</p>
+            <p className="text-xs text-muted-foreground">APY</p>
+            <p className="text-sm font-bold" style={{ color: token.color }}>{info ? formatAPY(info.apyBps) : '—'}</p>
           </div>
           <div className="bg-surface-2 rounded-lg p-2 text-center border border-border">
             <p className="text-xs text-muted-foreground">Staked</p>
-            <p className="text-sm font-bold text-foreground">{info ? fmt(info.stakedBalance, decimals, 4) : '—'}</p>
+            <p className="text-sm font-bold text-foreground">{info ? formatToken(info.stakedAmount, decimals) : '—'}</p>
           </div>
           <div className="bg-surface-2 rounded-lg p-2 text-center border border-border">
             <p className="text-xs text-muted-foreground">Rewards</p>
-            <p className="text-sm font-bold text-green-400">{info ? fmt(info.pendingReward, 18, 6) : '—'}</p>
-          </div>
-        </div>
-
-        {/* Pool Stats */}
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          <div className="bg-surface-2 rounded-lg p-2 text-center border border-border">
-            <p className="text-xs text-muted-foreground">Total Pool</p>
-            <p className="text-sm font-bold text-foreground">{info ? fmt(info.totalStaked, decimals, 2) : '—'} {token.symbol}</p>
-          </div>
-          <div className="bg-surface-2 rounded-lg p-2 text-center border border-border">
-            <p className="text-xs text-muted-foreground">Fondo {token.rewardSymbol}</p>
-            <p className="text-sm font-bold text-blue-400">{info ? fmt(info.unallocatedWld, 18, 2) : '—'}</p>
+            <p className="text-sm font-bold text-green-400">{info ? formatToken(info.pendingRewards, decimals) : '—'}</p>
           </div>
         </div>
 
         {/* Tab bar */}
         <div className="flex border border-border rounded-lg mb-4 overflow-hidden">
           {(['stake', 'unstake', 'claim'] as const).map(t => (
-            <button key={t} onClick={() => { setTab(t); setAmount('') }}
+            <button key={t} onClick={() => setTab(t)}
               className={cn('flex-1 py-2 text-xs font-medium capitalize transition-colors',
                 tab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>
               {t === 'stake' ? 'Stake' : t === 'unstake' ? 'Unstake' : 'Claim'}
@@ -305,7 +338,7 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
         {tab === 'stake' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Balance: {fmt(balance, decimals, 4)} {token.symbol}</span>
+              <span>Balance: {formatToken(balance, decimals)} {token.symbol}</span>
               <button onClick={() => setAmount(ethers.formatUnits(balance, decimals))} className="text-primary">MAX</button>
             </div>
             <input
@@ -313,7 +346,7 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
               placeholder={`Cantidad de ${token.symbol}`}
               className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
             />
-            <div className="text-xs text-muted-foreground">Sin fees - Rewards en {token.rewardSymbol}</div>
+            <div className="text-xs text-muted-foreground">Fee: {info ? bpsToPercent(info.stakeFeeBps) : '2%'}</div>
             <Button className="w-full" onClick={doStake} disabled={loading || !amount}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
               Stake {token.symbol}
@@ -325,18 +358,10 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
           <div className="space-y-3">
             <div className="bg-surface-2 border border-border rounded-lg p-3">
               <p className="text-xs text-muted-foreground mb-1">Tu stake</p>
-              <p className="text-lg font-bold text-foreground">{fmt(staked, decimals, 4)} {token.symbol}</p>
+              <p className="text-lg font-bold text-foreground">{formatToken(staked, decimals)} {token.symbol}</p>
             </div>
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Cantidad a retirar</span>
-              <button onClick={() => setAmount(ethers.formatUnits(staked, decimals))} className="text-primary">MAX</button>
-            </div>
-            <input
-              type="number" value={amount} onChange={e => setAmount(e.target.value)}
-              placeholder={`Cantidad de ${token.symbol}`}
-              className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
-            />
-            <Button className="w-full" variant="destructive" onClick={doUnstake} disabled={loading || staked === 0n || !amount}>
+            <div className="text-xs text-muted-foreground">Fee: {info ? bpsToPercent(info.unstakeFeeBps) : '2%'} · Las rewards se reclaman automáticamente</div>
+            <Button className="w-full" variant="destructive" onClick={doUnstake} disabled={loading || staked === 0n}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Unlock className="w-4 h-4 mr-2" />}
               Unstake {token.symbol}
             </Button>
@@ -347,18 +372,24 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
           <div className="space-y-3">
             <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
               <p className="text-xs text-green-400 mb-1">Rewards pendientes</p>
-              <p className="text-lg font-bold text-green-300">{fmt(pending, 18, 6)} {token.rewardSymbol}</p>
-              <p className="text-xs text-muted-foreground mt-1">Se acumulan continuamente</p>
+              <p className="text-lg font-bold text-green-300">{formatToken(pending, decimals, 6)} {token.symbol}</p>
+              <p className="text-xs text-muted-foreground mt-1">Se acumulan cada segundo - 24/7</p>
             </div>
+            <div className="text-xs text-muted-foreground">Fee: {info ? bpsToPercent(info.claimFeeBps) : '2%'}</div>
+            {pending === 0n && staked > 0n && (
+              <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded-lg p-2">
+                Los rewards se acumulan con el tiempo. Espera un momento para ver tus rewards.
+              </div>
+            )}
             <Button className="w-full bg-green-600 hover:bg-green-700" onClick={doClaim} disabled={loading || pending === 0n}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Gift className="w-4 h-4 mr-2" />}
-              Reclamar {fmt(pending, 18, 4)} {token.rewardSymbol}
+              {pending > 0n ? `Reclamar ${formatToken(pending, decimals, 4)} ${token.symbol}` : 'Sin rewards pendientes'}
             </Button>
           </div>
         )}
 
         {msg && (
-          <p className={cn('text-xs mt-3 text-center', msg.includes('exitoso') || msg.includes('reclamados') ? 'text-green-400' : 'text-red-400')}>
+          <p className={cn('text-xs mt-3 text-center', msg.startsWith('✓') ? 'text-green-400' : 'text-red-400')}>
             {msg}
           </p>
         )}
@@ -367,25 +398,19 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
   )
 }
 
-// ─── Token Card ───────────────────────────────────────────────────────────────
+// ---- TOKEN CARD ----
 function TokenCard({ token, info, onClick }: {
   token: StakeV2Token
   info: StakeV2Info | null
   onClick: () => void
 }) {
-  const isStaked = (info?.stakedBalance ?? 0n) > 0n
-  const pendingReward = info?.pendingReward ?? 0n
-
-  // Calculate estimated APR
-  const estimatedAPR = info && info.totalStaked > 0n && info.unallocatedWld > 0n 
-    ? (() => {
-        const totalStakedFloat = parseFloat(ethers.formatUnits(info.totalStaked, 18))
-        const unallocFloat = parseFloat(ethers.formatUnits(info.unallocatedWld, 18))
-        if (totalStakedFloat === 0) return '—'
-        const apr = (unallocFloat / totalStakedFloat) * 100
-        return apr > 1000 ? '> 1000%' : apr.toFixed(1) + '%'
-      })()
-    : '—'
+  const isStaked = (info?.stakedAmount ?? 0n) > 0n
+  const pending = useRealtimePending(
+    info?.pendingRewards ?? 0n,
+    info?.apyBps ?? 0n,
+    info?.stakedAmount ?? 0n,
+    token.decimals,
+  )
 
   return (
     <button
@@ -397,21 +422,23 @@ function TokenCard({ token, info, onClick }: {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold text-foreground">{token.symbol}</span>
-          <span className="text-[10px] text-muted-foreground bg-surface-1 px-1.5 py-0.5 rounded">V2</span>
+          {info?.paused && (
+            <span className="text-[9px] text-red-400 bg-red-400/20 px-1.5 rounded">PAUSADO</span>
+          )}
         </div>
         <div className="flex items-center gap-3 mt-0.5">
           <span className="text-xs text-muted-foreground">
-            APR: <span style={{ color: token.color }}>{estimatedAPR}</span>
+            APY: <span style={{ color: token.color }}>{info ? formatAPY(info.apyBps) : '…'}</span>
           </span>
           {isStaked && (
             <span className="text-xs text-muted-foreground">
-              Staked: {fmt(info!.stakedBalance, token.decimals, 2)}
+              Staked: {formatToken(info!.stakedAmount, token.decimals, 2)}
             </span>
           )}
         </div>
-        {isStaked && pendingReward > 0n && (
+        {isStaked && (
           <p className="text-xs text-green-400 mt-0.5 font-mono">
-            +{fmt(pendingReward, 18, 6)} {token.rewardSymbol}
+            +{pending} {token.symbol}
           </p>
         )}
       </div>
@@ -422,8 +449,8 @@ function TokenCard({ token, info, onClick }: {
         ) : (
           <>
             <span className="text-xs font-mono text-foreground">
-              {fmt(info.totalStaked, token.decimals, 2)}
-              <span className="text-muted-foreground"> pool</span>
+              {formatToken(info.contractBalance, token.decimals, 2)}
+              <span className="text-muted-foreground"> fondo</span>
             </span>
             <ChevronRight className="w-4 h-4 text-muted-foreground" />
           </>
@@ -433,34 +460,10 @@ function TokenCard({ token, info, onClick }: {
   )
 }
 
-// ─── Fetch Stake V2 Info ──────────────────────────────────────────────────────
-async function fetchStakeV2Info(token: StakeV2Token, userAddr: string): Promise<StakeV2Info> {
-  const provider = getProvider()
-  const contract = new ethers.Contract(token.stakingContract, STAKE_V2_ABI, provider)
-  const tokenContract = new ethers.Contract(token.tokenAddress, ERC20_ABI, provider)
-
-  const [stakedBalance, pendingReward, totalStaked, unallocatedWld, tokenBalance] = await Promise.all([
-    contract.stakedBalance(userAddr),
-    contract.pendingWldReward(userAddr),
-    contract.totalStaked(),
-    contract.unallocatedWld(),
-    tokenContract.balanceOf(userAddr),
-  ])
-
-  return {
-    stakedBalance,
-    pendingReward,
-    totalStaked,
-    unallocatedWld,
-    tokenBalance,
-  }
-}
-
-// ─── Main Panel ───────────────────────────────────────────────────────────────
+// ---- PANEL PRINCIPAL ----
 interface StakeV2PanelProps {
   userAddress: string
 }
-
 export function StakeV2Panel({ userAddress }: StakeV2PanelProps) {
   const [selected, setSelected] = useState<StakeV2Token | null>(null)
   const [infos, setInfos] = useState<Record<string, StakeV2Info | null>>({})
@@ -470,15 +473,17 @@ export function StakeV2Panel({ userAddress }: StakeV2PanelProps) {
     setLoading(true)
     try {
       const results = await Promise.allSettled(
-        STAKE_V2_TOKENS.map(t => fetchStakeV2Info(t, userAddress))
+        STAKE_V2_TOKENS.map(t =>
+          fetchStakeV2Info(t.stakingContract, userAddress, t.tokenAddress)
+        )
       )
       const newInfos: Record<string, StakeV2Info | null> = {}
       results.forEach((r, i) => {
-        const key = STAKE_V2_TOKENS[i].id
+        const key = STAKE_V2_TOKENS[i].symbol
         newInfos[key] = r.status === 'fulfilled' ? r.value : null
       })
       setInfos(newInfos)
-    } catch (e) { console.error('loadInfos', e) }
+    } catch (e) { console.error('stake-v2 loadInfos', e) }
     finally { setLoading(false) }
   }, [userAddress])
 
@@ -489,53 +494,38 @@ export function StakeV2Panel({ userAddress }: StakeV2PanelProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-bold text-foreground">Stake V2</h2>
-            <span className="text-[10px] bg-violet-500/20 text-violet-400 px-2 py-0.5 rounded-full font-medium">Universal</span>
-          </div>
-          <p className="text-xs text-muted-foreground">Nuevo contrato universal - Rewards en WLD</p>
+          <h2 className="text-base font-bold text-foreground">Stake V2</h2>
+          <p className="text-xs text-muted-foreground">
+            Pools oficiales V2 · Rewards en cada token · World App &amp; wallets compatibles
+          </p>
         </div>
         <button onClick={loadInfos} disabled={loading} className="text-muted-foreground hover:text-foreground">
           <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
         </button>
       </div>
 
-      {/* Info Card */}
-      <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
-        <div className="flex items-center gap-2 text-xs">
-          <Zap className="w-3.5 h-3.5 text-violet-400" />
-          <span className="text-violet-300 font-medium">Nuevo Sistema V2</span>
-        </div>
-        <p className="text-xs text-muted-foreground mt-1">
-          Staking con rewards compartidos del pool de WLD. Sin bloqueos, retira cuando quieras.
-        </p>
-      </div>
-
-      {/* Token list */}
+      {/* Cards list */}
       <div className="space-y-2">
         {STAKE_V2_TOKENS.map(token => (
           <TokenCard
-            key={token.id}
+            key={token.symbol}
             token={token}
-            info={infos[token.id] ?? null}
+            info={infos[token.symbol] ?? null}
             onClick={() => setSelected(token)}
           />
         ))}
       </div>
 
-      {/* Info footer */}
       <div className="rounded-xl border border-border bg-surface-2 p-3">
         <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-          <TrendingUp className="w-3.5 h-3.5 text-primary" />
-          Sin fees - Rewards en WLD - Pool compartido
+          Fee 2% · APY y reward variable por pool · Staking seguro
         </div>
       </div>
 
-      {/* Dialog */}
       {selected && (
         <StakeV2Dialog
           token={selected}
-          info={infos[selected.id]}
+          info={infos[selected.symbol]}
           onClose={() => setSelected(null)}
           onRefresh={() => { loadInfos(); setSelected(null) }}
         />
