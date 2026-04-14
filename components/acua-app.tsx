@@ -361,18 +361,49 @@ export default function AcuaApp() {
         </div>
       </header>
 
-      {/* Tab bar — horizontally scrollable */}
-      <div className="shrink-0 flex overflow-x-auto border-b border-border scrollbar-none bg-background/95 backdrop-blur z-10">
-        {mainTabs.map(t => (
-          <TabBtn
-            key={t.tab}
-            active={activeTab === t.tab}
-            onClick={() => setActiveTab(t.tab)}
-            icon={t.icon}
-            label={t.label}
-            special={t.special}
-          />
-        ))}
+      {/* Stake section selector — H2O and Stake V2 as prominent section buttons */}
+      <div className="shrink-0 border-b border-border bg-background/95 backdrop-blur z-10">
+        {/* Section row: H2O | Stake V2 */}
+        <div className="flex gap-2 px-4 pt-3 pb-2">
+          <button
+            onClick={() => setActiveTab('h2o')}
+            className={cn(
+              'flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all border',
+              activeTab === 'h2o'
+                ? 'bg-primary/15 border-primary text-primary'
+                : 'bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
+            )}
+          >
+            <Droplets className="w-4 h-4" />
+            Stake H2O
+          </button>
+          <button
+            onClick={() => setActiveTab('stake-v2')}
+            className={cn(
+              'flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all border',
+              activeTab === 'stake-v2'
+                ? 'bg-violet-500/15 border-violet-500 text-violet-400'
+                : 'bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
+            )}
+          >
+            <Wind className="w-4 h-4" />
+            Stake V2
+          </button>
+        </div>
+
+        {/* Secondary tabs — horizontally scrollable */}
+        <div className="flex overflow-x-auto scrollbar-none border-t border-border/50">
+          {mainTabs.filter(t => t.tab !== 'h2o' && t.tab !== 'stake-v2').map(t => (
+            <TabBtn
+              key={t.tab}
+              active={activeTab === t.tab}
+              onClick={() => setActiveTab(t.tab)}
+              icon={t.icon}
+              label={t.label}
+              special={t.special}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Content */}
