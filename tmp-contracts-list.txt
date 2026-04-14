@@ -1,0 +1,45 @@
+deployed-staking-v2-addresses.json
+      "decimals": 18
+      "token": "0xD76f5Faf6888e24D9F04Bf92a0c8B921FE4390e0",
+      "decimals": 18
+    },
+    {
+      "key": "BILLBOARD",
+      "symbol": "BILLBOARD",
+      "token": "0x7a8892E9687704F7BE8C26dfC5e51B6A86c8098B",
+      "decimals": 18
+    },
+    {
+      "key": "Cash",
+      "symbol": "Cash",
+      "token": "0xbfdA4F50a2d5B9b864511579D7dfa1C72f118575",
+      "decimals": 18
+    },
+    {
+      "key": "AION",
+      "symbol": "AION",
+      "token": "0x26064DD7821f351202c61f0deB97678eef265E36",
+      "decimals": 18
+    },
+    {
+      "key": "SAMA",
+      "symbol": "SAMA",
+      "token": "0x24e2f756AF6558818083E78B1205D156542bCe80",
+      "decimals": 18
+    },
+    {
+      "key": "APE",
+      "symbol": "APE",
+      "token": "0x13e20981D9bd3dC45e99802f06488C5AD7c28360",
+      "decimals": 18
+    },
+    {
+      "key": "GFY",
+      "symbol": "GFY",
+      "token": "0x6A7B33B8A7f7B3535dc832ECD147F6dEC8A8e8Cf",
+      "decimals": 18
+    },
+    {
+      "key": "VEN",
+      "symbol": "VEN",
+      "token": 
