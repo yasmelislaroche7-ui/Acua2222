@@ -1,6 +1,6 @@
 'use client'
 
-import { Droplets, Flame, Coins, Globe, TrendingUp, Pickaxe, Zap, HelpCircle, Info, ArrowRight, Star, Shield } from 'lucide-react'
+import { Droplets, Flame, Coins, Globe, TrendingUp, Pickaxe, Zap, HelpCircle, Info, ArrowRight, Star, Shield, Clock } from 'lucide-react'
 
 interface TokenInfo {
   symbol: string
@@ -28,13 +28,21 @@ const TOKENS_INFO: TokenInfo[] = [
     icon: <Globe className="w-4 h-4" />,
     uses: ['Comprar H2O y stakear automáticamente (buyAndStake)', 'Stakear WLD directamente en el contrato WLD', 'Pagar paquetes de Minería WLD (gana 7 tokens)'],
   },
+{
+  symbol: 'UTH₂',
+  name: 'Ultra Thermo H2O (UTH₂)',
+  description: 'Token de combustible para la Minería H2O. Se usa para comprar paquetes de minería permanentes que generan H2O cada día.',
+  color: '#8b5cf6',
+  icon: <Zap className="w-4 h-4" />,
+  uses: ['Comprar paquetes de Minería UTH₂ (genera H2O diario permanente)', 'También se puede stakear en su contrato propio'],
+  },
   {
-    symbol: 'UTH₂',
-    name: 'Ultra Thermo H2O (UTH₂)',
-    description: 'Token de combustible para la Minería H2O. Se usa para comprar paquetes de minería permanentes que generan H2O cada día.',
+    symbol: 'TIME',
+    name: 'Time Token (TIME)',
+    description: 'Token de tiempo para el nuevo sistema de staking V2. Al stakearlo ganas rewards en WLD de forma continua.',
     color: '#8b5cf6',
-    icon: <Zap className="w-4 h-4" />,
-    uses: ['Comprar paquetes de Minería UTH₂ (genera H2O diario permanente)', 'También se puede stakear en su contrato propio'],
+    icon: <Clock className="w-4 h-4" />,
+    uses: ['Stakear TIME en Stake V2 para ganar WLD', 'Rewards compartidos del pool de WLD', 'Sin bloqueos ni fees'],
   },
   {
     symbol: 'FIRE',
@@ -114,6 +122,20 @@ const GUIDES: GuideStep[] = [
       'Tus rewards se acumulan segundo a segundo',
       'Presiona "Reclamar" para cobrar tus rewards cuando quieras',
       'Para retirar: presiona "Retirar H2O" o "Retirar y vender por WLD"',
+    ],
+  },
+  {
+    title: 'Stake V2 (TIME → WLD)',
+    icon: <Zap className="w-4 h-4" />,
+    color: '#8b5cf6',
+    steps: [
+      'Ve a la pestaña "Stake V2"',
+      'Selecciona el token TIME para stakear',
+      'Ingresa la cantidad de TIME que deseas stakear',
+      'Confirma con Permit2 en World App (sin aprobación previa)',
+      'Tus rewards en WLD se acumulan continuamente',
+      'Reclama tus rewards WLD cuando quieras',
+      'Retira tu TIME sin fees ni bloqueos',
     ],
   },
   {

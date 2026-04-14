@@ -10,9 +10,17 @@ import {
 import { Button } from '@/components/ui/button'
 import {
   STAKING_TOKENS, PERMIT_TUPLE_INPUT, PERMIT2_ADDRESS,
-  fetchStakingInfo, StakingInfo, formatToken, bpsToPercent, formatAPY, randomNonce,
+  fetchStakingInfo, StakingInfo, formatToken, bpsToPercent, randomNonce,
   getProvider, UNIVERSAL_STAKING_ABI, ERC20_ABI,
 } from '@/lib/new-contracts'
+
+// Local formatAPY with better handling
+function formatAPY(bps: bigint): string {
+  const pct = Number(bps) / 100
+  if (pct === 0) return 'Variable'
+  if (pct > 1000) return '> 1000%'
+  return pct.toFixed(1) + '%'
+}
 import { ethers as ethersLib } from 'ethers'
 import { cn } from '@/lib/utils'
 
@@ -52,7 +60,20 @@ function useRealtimePending(base: bigint, apyBps: bigint, staked: bigint, decima
 }
 
 // ─── Token Badge ──────────────────────────────────────────────────────────────
-function TokenBadge({ symbol, color }: { symbol: string; color: string }) {
+function TokenBadge({ symbol, color, logoUrl }: { symbol: string; color: string; logoUrl?: string }) {
+  const [imgError, setImgError] = useState(false)
+  
+  if (logoUrl && !imgError) {
+    return (
+      <img 
+        src={logoUrl} 
+        alt={symbol}
+        onError={() => setImgError(true)}
+        className="w-10 h-10 rounded-full object-cover shrink-0"
+      />
+    )
+  }
+  
   return (
     <div className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
       style={{ backgroundColor: color + '33', border: `1.5px solid ${color}66`, color }}>
@@ -164,7 +185,7 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <TokenBadge symbol={token.symbol} color={token.color} />
+            <TokenBadge symbol={token.symbol} color={token.color} logoUrl={token.logoUrl} />
             <div>
               <p className="font-bold text-sm">{token.name}</p>
               <p className="text-xs text-muted-foreground">{token.symbol} Staking</p>
@@ -238,13 +259,18 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
           <div className="space-y-3">
             <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
               <p className="text-xs text-green-400 mb-1">Rewards pendientes</p>
-              <p className="text-lg font-bold text-green-300">{formatToken(pending, decimals)} {token.symbol}</p>
-              <p className="text-xs text-muted-foreground mt-1">Se acumulan cada segundo · 24/7</p>
+              <p className="text-lg font-bold text-green-300">{formatToken(pending, decimals, 6)} {token.symbol}</p>
+              <p className="text-xs text-muted-foreground mt-1">Se acumulan cada segundo - 24/7</p>
             </div>
             <div className="text-xs text-muted-foreground">Fee: {info ? bpsToPercent(info.claimFeeBps) : '2%'}</div>
+            {pending === 0n && staked > 0n && (
+              <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded-lg p-2">
+                Los rewards se acumulan con el tiempo. Espera un momento para ver tus rewards.
+              </div>
+            )}
             <Button className="w-full bg-green-600 hover:bg-green-700" onClick={doClaim} disabled={loading || pending === 0n}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Gift className="w-4 h-4 mr-2" />}
-              Reclamar {formatToken(pending, decimals)} {token.symbol}
+              {pending > 0n ? `Reclamar ${formatToken(pending, decimals, 4)} ${token.symbol}` : 'Sin rewards pendientes'}
             </Button>
           </div>
         )}
@@ -278,7 +304,7 @@ function TokenCard({ token, info, onClick }: {
       onClick={onClick}
       className="w-full flex items-center gap-3 p-3 rounded-xl border border-border bg-surface-2 hover:border-primary/30 transition-colors text-left"
     >
-      <TokenBadge symbol={token.symbol} color={token.color} />
+      <TokenBadge symbol={token.symbol} color={token.color} logoUrl={token.logoUrl} />
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">

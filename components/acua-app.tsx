@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { StakePanel } from '@/components/stake-panel'
 import { OwnerPanel } from '@/components/owner-panel'
 import { MultiStakingPanel } from '@/components/multi-staking-panel'
+import { StakeV2Panel } from '@/components/stake-v2-panel'
 import { MiningUTH2Panel } from '@/components/mining-uth2-panel'
 import { MiningWLDPanel } from '@/components/mining-wld-panel'
 import { MiningTimePanel } from '@/components/mining-time-panel'
@@ -34,7 +35,7 @@ import {
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
-type Tab = 'h2o' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin'
+type Tab = 'h2o' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin'
 type InstalledState = null | true | false
 
 // ─── Hardcoded special addresses ──────────────────────────────────────────────
@@ -322,12 +323,14 @@ export default function AcuaApp() {
   // Owners (including AIR funder who is an owner) also see the Admin tab
   const mainTabs: { tab: Tab; icon: React.ReactNode; label: string; special?: 'admin' | 'air' }[] = [
     { tab: 'h2o',        icon: <Droplets className="w-3.5 h-3.5" />,    label: 'H2O' },
+    { tab: 'stake-v2',   icon: <Wind className="w-3.5 h-3.5" />,        label: 'Stake V2' },
     { tab: 'stake-plus', icon: <TrendingUp className="w-3.5 h-3.5" />,  label: 'Stake+' },
     { tab: 'uth2',       icon: <Pickaxe className="w-3.5 h-3.5" />,     label: 'UTH₂' },
     { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,        label: 'WLD' },
     { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,       label: 'TIME' },
     { tab: 'tokens',     icon: <BookOpen className="w-3.5 h-3.5" />,    label: 'Tokens' },
     { tab: 'swap',       icon: <Repeat2 className="w-3.5 h-3.5" />,     label: 'Swap' },
+    { tab: 'info',       icon: <HelpCircle className="w-3.5 h-3.5" />,  label: 'Info' },
   ]
 
   if (isMainOwner || isAirFunder) {
@@ -339,7 +342,7 @@ export default function AcuaApp() {
     })
   }
 
-  mainTabs.push({ tab: 'info', icon: <HelpCircle className="w-3.5 h-3.5" />, label: 'Info' })
+  // Info tab is already included in mainTabs
 
   return (
     <div className="h-dvh bg-background flex flex-col max-w-md mx-auto overflow-hidden">
@@ -358,18 +361,49 @@ export default function AcuaApp() {
         </div>
       </header>
 
-      {/* Tab bar — horizontally scrollable */}
-      <div className="shrink-0 flex overflow-x-auto border-b border-border scrollbar-none bg-background/95 backdrop-blur z-10">
-        {mainTabs.map(t => (
-          <TabBtn
-            key={t.tab}
-            active={activeTab === t.tab}
-            onClick={() => setActiveTab(t.tab)}
-            icon={t.icon}
-            label={t.label}
-            special={t.special}
-          />
-        ))}
+      {/* Stake section selector — H2O and Stake V2 as prominent section buttons */}
+      <div className="shrink-0 border-b border-border bg-background/95 backdrop-blur z-10">
+        {/* Section row: H2O | Stake V2 */}
+        <div className="flex gap-2 px-4 pt-3 pb-2">
+          <button
+            onClick={() => setActiveTab('h2o')}
+            className={cn(
+              'flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all border',
+              activeTab === 'h2o'
+                ? 'bg-primary/15 border-primary text-primary'
+                : 'bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
+            )}
+          >
+            <Droplets className="w-4 h-4" />
+            Stake H2O
+          </button>
+          <button
+            onClick={() => setActiveTab('stake-v2')}
+            className={cn(
+              'flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all border',
+              activeTab === 'stake-v2'
+                ? 'bg-violet-500/15 border-violet-500 text-violet-400'
+                : 'bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
+            )}
+          >
+            <Wind className="w-4 h-4" />
+            Stake V2
+          </button>
+        </div>
+
+        {/* Secondary tabs — horizontally scrollable */}
+        <div className="flex overflow-x-auto scrollbar-none border-t border-border/50">
+          {mainTabs.filter(t => t.tab !== 'h2o' && t.tab !== 'stake-v2').map(t => (
+            <TabBtn
+              key={t.tab}
+              active={activeTab === t.tab}
+              onClick={() => setActiveTab(t.tab)}
+              icon={t.icon}
+              label={t.label}
+              special={t.special}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Content */}
@@ -385,6 +419,8 @@ export default function AcuaApp() {
             onRefresh={loadData}
           />
         )}
+
+        {activeTab === 'stake-v2' && <StakeV2Panel userAddress={addr} />}
 
         {activeTab === 'stake-plus' && <MultiStakingPanel userAddress={addr} />}
 

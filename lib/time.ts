@@ -34,7 +34,7 @@ export const TIME_TOKEN_ABI = [
 
 
 // Direcciones y ABI del Stake Time
-export const TIME_STAKING_ADDRESS = "0x17e32C9E063533529F802839B9bA93e70D8953FE";
+export const TIME_STAKING_ADDRESS = "0x44a8EbCB9a5eDD4A907510F8E791a5F7bd865244";
 export const TIME_STAKING_ABI = [
   {"inputs":[{"internalType":"address","name":"_timeToken","type":"address"},{"internalType":"address","name":"_wldToken","type":"address"},{"internalType":"address","name":"_miningAddress","type":"address"},{"internalType":"address","name":"_permit2","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},
   {"inputs":[],"name":"InsufficientBalance","type":"error"},

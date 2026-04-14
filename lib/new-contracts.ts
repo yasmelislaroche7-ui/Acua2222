@@ -42,17 +42,18 @@ export interface TokenMeta {
   stakingContract: string
   color: string
   decimals: number
+  logoUrl?: string
 }
 
 export const STAKING_TOKENS: TokenMeta[] = [
-  { symbol: 'WLD',    name: 'Worldcoin',     address: TOKENS.WLD,    stakingContract: STAKING_CONTRACTS.WLD,    color: '#3b82f6', decimals: 18 },
-  { symbol: 'FIRE',   name: 'Fire Token',    address: TOKENS.FIRE,   stakingContract: STAKING_CONTRACTS.FIRE,   color: '#f97316', decimals: 18 },
-  { symbol: 'SUSHI',  name: 'SushiSwap',     address: TOKENS.SUSHI,  stakingContract: STAKING_CONTRACTS.SUSHI,  color: '#ec4899', decimals: 18 },
-  { symbol: 'USDC',   name: 'USD Coin',      address: TOKENS.USDC,   stakingContract: STAKING_CONTRACTS.USDC,   color: '#2563eb', decimals: 6  },
-  { symbol: 'wCOP',   name: 'Wrapped COP',   address: TOKENS.wCOP,   stakingContract: STAKING_CONTRACTS.wCOP,   color: '#f59e0b', decimals: 18 },
-  { symbol: 'wARS',   name: 'Wrapped ARS',   address: TOKENS.wARS,   stakingContract: STAKING_CONTRACTS.wARS,   color: '#10b981', decimals: 18 },
-  { symbol: 'BTCH2O', name: 'BTC H2O',       address: TOKENS.BTCH2O, stakingContract: STAKING_CONTRACTS.BTCH2O, color: '#f59e0b', decimals: 18 },
-  { symbol: 'AIR',    name: 'AIR Token',     address: TOKENS.AIR,    stakingContract: STAKING_CONTRACTS.AIR,    color: '#8b5cf6', decimals: 18 },
+  { symbol: 'WLD',    name: 'Worldcoin',     address: TOKENS.WLD,    stakingContract: STAKING_CONTRACTS.WLD,    color: '#3b82f6', decimals: 18, logoUrl: 'https://assets.coingecko.com/coins/images/31069/small/worldcoin.jpeg' },
+  { symbol: 'FIRE',   name: 'Fire Token',    address: TOKENS.FIRE,   stakingContract: STAKING_CONTRACTS.FIRE,   color: '#f97316', decimals: 18, logoUrl: '/tokens/fire.jpg' },
+  { symbol: 'SUSHI',  name: 'SushiSwap',     address: TOKENS.SUSHI,  stakingContract: STAKING_CONTRACTS.SUSHI,  color: '#ec4899', decimals: 18, logoUrl: 'https://assets.coingecko.com/coins/images/12271/small/sushi.png' },
+  { symbol: 'USDC',   name: 'USD Coin',      address: TOKENS.USDC,   stakingContract: STAKING_CONTRACTS.USDC,   color: '#2563eb', decimals: 6,  logoUrl: 'https://assets.coingecko.com/coins/images/6319/small/usdc.png' },
+  { symbol: 'wCOP',   name: 'Wrapped COP',   address: TOKENS.wCOP,   stakingContract: STAKING_CONTRACTS.wCOP,   color: '#f59e0b', decimals: 18, logoUrl: '/tokens/wcop.jpg' },
+  { symbol: 'wARS',   name: 'Wrapped ARS',   address: TOKENS.wARS,   stakingContract: STAKING_CONTRACTS.wARS,   color: '#10b981', decimals: 18, logoUrl: '/tokens/wars.jpg' },
+  { symbol: 'BTCH2O', name: 'BTC H2O',       address: TOKENS.BTCH2O, stakingContract: STAKING_CONTRACTS.BTCH2O, color: '#f59e0b', decimals: 18, logoUrl: '/tokens/btch2o.jpg' },
+  { symbol: 'AIR',    name: 'AIR Token',     address: TOKENS.AIR,    stakingContract: STAKING_CONTRACTS.AIR,    color: '#8b5cf6', decimals: 18, logoUrl: '/tokens/air.jpg' },
 ]
 
 // ─── ABIs ─────────────────────────────────────────────────────────────────────
