@@ -150,7 +150,6 @@ function bpsToPercent(bps: bigint): string {
 function formatAPY(bps: bigint): string {
   const pct = Number(bps) / 100
   if (pct === 0) return 'Variable'
-  if (pct > 1000) return '> 1000%'
   return pct.toFixed(1) + '%'
 }
 function randomNonce(): bigint {
@@ -291,6 +290,8 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
   const pending = info?.pendingRewards ?? 0n
   const staked = info?.stakedAmount ?? 0n
   const balance = info?.tokenBalance ?? 0n
+  const livePending = useRealtimePending(pending, info?.apyBps ?? 0n, staked, decimals)
+  const canClaim = pending > 0n || (staked > 0n && (info?.apyBps ?? 0n) > 0n)
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur flex items-end justify-center">
@@ -311,15 +312,15 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
         <div className="grid grid-cols-3 gap-2 mb-4">
           <div className="bg-surface-2 rounded-lg p-2 text-center border border-border">
             <p className="text-xs text-muted-foreground">APY</p>
-            <p className="text-sm font-bold" style={{ color: token.color }}>{info ? formatAPY(info.apyBps) : '—'}</p>
+            <p className="text-sm font-bold text-green-400">{info ? formatAPY(info.apyBps) : '—'}</p>
           </div>
           <div className="bg-surface-2 rounded-lg p-2 text-center border border-border">
             <p className="text-xs text-muted-foreground">Staked</p>
-            <p className="text-sm font-bold text-foreground">{info ? formatToken(info.stakedAmount, decimals) : '—'}</p>
+            <p className="text-sm font-bold text-green-400">{info ? formatToken(info.stakedAmount, decimals) : '—'}</p>
           </div>
           <div className="bg-surface-2 rounded-lg p-2 text-center border border-border">
             <p className="text-xs text-muted-foreground">Rewards</p>
-            <p className="text-sm font-bold text-green-400">{info ? formatToken(info.pendingRewards, decimals) : '—'}</p>
+            <p className="text-sm font-bold text-green-400">{info ? livePending : '—'}</p>
           </div>
         </div>
 
@@ -346,7 +347,6 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
               placeholder={`Cantidad de ${token.symbol}`}
               className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
             />
-            <div className="text-xs text-muted-foreground">Fee: {info ? bpsToPercent(info.stakeFeeBps) : '2%'}</div>
             <Button className="w-full" onClick={doStake} disabled={loading || !amount}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
               Stake {token.symbol}
@@ -358,9 +358,9 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
           <div className="space-y-3">
             <div className="bg-surface-2 border border-border rounded-lg p-3">
               <p className="text-xs text-muted-foreground mb-1">Tu stake</p>
-              <p className="text-lg font-bold text-foreground">{formatToken(staked, decimals)} {token.symbol}</p>
+              <p className="text-lg font-bold text-green-400">{formatToken(staked, decimals)} {token.symbol}</p>
             </div>
-            <div className="text-xs text-muted-foreground">Fee: {info ? bpsToPercent(info.unstakeFeeBps) : '2%'} · Las rewards se reclaman automáticamente</div>
+            <div className="text-xs text-muted-foreground">Las rewards se reclaman automáticamente</div>
             <Button className="w-full" variant="destructive" onClick={doUnstake} disabled={loading || staked === 0n}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Unlock className="w-4 h-4 mr-2" />}
               Unstake {token.symbol}
@@ -372,18 +372,17 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
           <div className="space-y-3">
             <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
               <p className="text-xs text-green-400 mb-1">Rewards pendientes</p>
-              <p className="text-lg font-bold text-green-300">{formatToken(pending, decimals, 6)} {token.symbol}</p>
+              <p className="text-lg font-bold text-green-300">{livePending} {token.symbol}</p>
               <p className="text-xs text-muted-foreground mt-1">Se acumulan cada segundo - 24/7</p>
             </div>
-            <div className="text-xs text-muted-foreground">Fee: {info ? bpsToPercent(info.claimFeeBps) : '2%'}</div>
             {pending === 0n && staked > 0n && (
               <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded-lg p-2">
                 Los rewards se acumulan con el tiempo. Espera un momento para ver tus rewards.
               </div>
             )}
-            <Button className="w-full bg-green-600 hover:bg-green-700" onClick={doClaim} disabled={loading || pending === 0n}>
+            <Button className="w-full bg-green-600 hover:bg-green-700" onClick={doClaim} disabled={loading || !canClaim}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Gift className="w-4 h-4 mr-2" />}
-              {pending > 0n ? `Reclamar ${formatToken(pending, decimals, 4)} ${token.symbol}` : 'Sin rewards pendientes'}
+              {canClaim ? `Reclamar ${livePending} ${token.symbol}` : 'Sin rewards pendientes'}
             </Button>
           </div>
         )}
@@ -428,11 +427,11 @@ function TokenCard({ token, info, onClick }: {
         </div>
         <div className="flex items-center gap-3 mt-0.5">
           <span className="text-xs text-muted-foreground">
-            APY: <span style={{ color: token.color }}>{info ? formatAPY(info.apyBps) : '…'}</span>
+            APY: <span className="text-green-400">{info ? formatAPY(info.apyBps) : '…'}</span>
           </span>
           {isStaked && (
             <span className="text-xs text-muted-foreground">
-              Staked: {formatToken(info!.stakedAmount, token.decimals, 2)}
+              Staked: <span className="text-green-400">{formatToken(info!.stakedAmount, token.decimals, 2)}</span>
             </span>
           )}
         </div>
@@ -449,7 +448,7 @@ function TokenCard({ token, info, onClick }: {
         ) : (
           <>
             <span className="text-xs font-mono text-foreground">
-              {formatToken(info.contractBalance, token.decimals, 2)}
+              <span className="text-green-400">{formatToken(info.contractBalance, token.decimals, 2)}</span>
               <span className="text-muted-foreground"> fondo</span>
             </span>
             <ChevronRight className="w-4 h-4 text-muted-foreground" />
@@ -518,7 +517,7 @@ export function StakeV2Panel({ userAddress }: StakeV2PanelProps) {
 
       <div className="rounded-xl border border-border bg-surface-2 p-3">
         <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-          Fee 2% · APY y reward variable por pool · Staking seguro
+          APY y reward variable por pool · Staking seguro
         </div>
       </div>
 

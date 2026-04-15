@@ -178,6 +178,8 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
   const pending = info?.pendingRewards ?? 0n
   const staked = info?.stakedAmount ?? 0n
   const balance = info?.tokenBalance ?? 0n
+  const livePending = useRealtimePending(pending, info?.apyBps ?? 0n, staked, decimals)
+  const canClaim = pending > 0n || (staked > 0n && (info?.rewardRate ?? 0n) > 0n)
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur flex items-end justify-center">
@@ -259,7 +261,7 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
           <div className="space-y-3">
             <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
               <p className="text-xs text-green-400 mb-1">Rewards pendientes</p>
-              <p className="text-lg font-bold text-green-300">{formatToken(pending, decimals, 6)} {token.symbol}</p>
+              <p className="text-lg font-bold text-green-300">{livePending} {token.symbol}</p>
               <p className="text-xs text-muted-foreground mt-1">Se acumulan cada segundo - 24/7</p>
             </div>
             <div className="text-xs text-muted-foreground">Fee: {info ? bpsToPercent(info.claimFeeBps) : '2%'}</div>
@@ -268,9 +270,9 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
                 Los rewards se acumulan con el tiempo. Espera un momento para ver tus rewards.
               </div>
             )}
-            <Button className="w-full bg-green-600 hover:bg-green-700" onClick={doClaim} disabled={loading || pending === 0n}>
+            <Button className="w-full bg-green-600 hover:bg-green-700" onClick={doClaim} disabled={loading || !canClaim}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Gift className="w-4 h-4 mr-2" />}
-              {pending > 0n ? `Reclamar ${formatToken(pending, decimals, 4)} ${token.symbol}` : 'Sin rewards pendientes'}
+              {canClaim ? `Reclamar ${livePending} ${token.symbol}` : 'Sin rewards pendientes'}
             </Button>
           </div>
         )}
