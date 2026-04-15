@@ -291,7 +291,7 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
   const staked = info?.stakedAmount ?? 0n
   const balance = info?.tokenBalance ?? 0n
   const livePending = useRealtimePending(pending, info?.apyBps ?? 0n, staked, decimals)
-  const canClaim = pending > 0n || (staked > 0n && (info?.apyBps ?? 0n) > 0n)
+  const canClaim = pending > 0n
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur flex items-end justify-center">
@@ -377,7 +377,7 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
             </div>
             {pending === 0n && staked > 0n && (
               <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded-lg p-2">
-                Los rewards se acumulan con el tiempo. Espera un momento para ver tus rewards.
+                Los rewards se acumulan con el tiempo. El botón se activa cuando el contrato ya tiene un monto reclamable.
               </div>
             )}
             <Button className="w-full bg-green-600 hover:bg-green-700" onClick={doClaim} disabled={loading || !canClaim}>

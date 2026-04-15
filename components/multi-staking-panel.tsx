@@ -18,7 +18,6 @@ import {
 function formatAPY(bps: bigint): string {
   const pct = Number(bps) / 100
   if (pct === 0) return 'Variable'
-  if (pct > 1000) return '> 1000%'
   return pct.toFixed(1) + '%'
 }
 import { ethers as ethersLib } from 'ethers'
@@ -179,7 +178,7 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
   const staked = info?.stakedAmount ?? 0n
   const balance = info?.tokenBalance ?? 0n
   const livePending = useRealtimePending(pending, info?.apyBps ?? 0n, staked, decimals)
-  const canClaim = pending > 0n || (staked > 0n && (info?.rewardRate ?? 0n) > 0n)
+  const canClaim = pending > 0n
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur flex items-end justify-center">
@@ -267,7 +266,7 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
             <div className="text-xs text-muted-foreground">Fee: {info ? bpsToPercent(info.claimFeeBps) : '2%'}</div>
             {pending === 0n && staked > 0n && (
               <div className="text-xs text-yellow-400 bg-yellow-400/10 rounded-lg p-2">
-                Los rewards se acumulan con el tiempo. Espera un momento para ver tus rewards.
+                Los rewards se acumulan con el tiempo. El botón se activa cuando el contrato ya tiene un monto reclamable.
               </div>
             )}
             <Button className="w-full bg-green-600 hover:bg-green-700" onClick={doClaim} disabled={loading || !canClaim}>
