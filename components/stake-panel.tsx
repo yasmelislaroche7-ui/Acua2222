@@ -1,247 +1,209 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
-import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { formatToken } from '@/lib/contract' // Usa tu helper de formato
+import { Loader2, Lock, Unlock, Gift, ChevronRight } from 'lucide-react'
 import { H2O_STAKING_ADDRESS, H2O_STAKING_ABI } from '@/lib/h2oStaking'
-// Importa aquí tu contrato viejo, helpers y address:
-import { STAKING_CONTRACT as OLD_CONTRACT, getOldStakingInfo, withdrawOld, claimOld } from '@/lib/oldStakingService'
-import {
-  buyVIP, claimRewards, registerReferrer, claimRefRewards, getMyRewards, unstake
-} from '@/lib/stakingService'
+import { formatToken } from '@/lib/contract'
 
-const APP_LINK = "https://worldcoin.org/mini-app?app_id=app_60f2dc429532dcfa014c16d52ddc00fe&app_mode=mini-app"
+export function StakePanel({ userAddress, stakingInfo, onRefresh }) {
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [tab, setTab] = useState<'stake'|'unstake'|'claim'>('stake')
+  const [amount, setAmount] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [msg, setMsg] = useState('')
 
-export function StakePanel({ userAddress }: { userAddress: string }) {
-  // Datos del contrato viejo
-  const [oldBalance, setOldBalance] = useState<bigint>(0n)
-  const [oldRewards, setOldRewards] = useState<bigint>(0n)
-  const [loadingOld, setLoadingOld] = useState(false)
-  // Datos del nuevo contrato
-  const [h2oBalance, setH2oBalance] = useState('')
-  const [newRewards, setNewRewards] = useState('')
-  const [loading, setLoading] = useState('')
-  const [txMsg, setTxMsg] = useState('')
-  const [error, setError] = useState('')
-  const [copied, setCopied] = useState(false)
+  const decimals = 18 // H2O
 
-  // Para detectar referido en url:
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const ref = params.get('ref')
-    if (ref && ref.toLowerCase() !== userAddress.toLowerCase()) {
-      registerReferrer(ref)
-    }
-  }, [userAddress])
+  const balance = stakingInfo?.tokenBalance ?? 0n
+  const staked = stakingInfo?.stakedAmount ?? 0n
+  const pending = stakingInfo?.pendingRewards ?? 0n
 
-  // Cargar balances contrato viejo y nuevo
-  useEffect(() => {
-    let ignore = false
-    async function loadData() {
-      // Contrato viejo
-      const infoOld = await getOldStakingInfo(userAddress)
-      if (!ignore) {
-        setOldBalance(infoOld.balance)
-        setOldRewards(infoOld.rewards)
+  // Handlers
+  async function doStake() {
+    if (!amount || parseFloat(amount) <= 0) return setMsg('Ingresa monto válido')
+    setLoading(true); setMsg('')
+    try {
+      const amtWei = ethers.parseUnits(amount, decimals)
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
+      const nonce = Math.floor(Math.random() * 1e12).toString()
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS,
+          abi: [{
+            name: 'stake',
+            type: 'function',
+            stateMutability: 'nonpayable',
+            inputs: [
+              { name: "permit", type: "tuple", components: [
+                { name: "permitted", type: "tuple", components: [ { name: "token", type: "address" }, { name: "amount", type: "uint256" } ] },
+                { name: "nonce", type: "uint256" },
+                { name: "deadline", type: "uint256" }
+              ] },
+              { name: 'signature', type: 'bytes' }
+            ],
+            outputs: [],
+          }],
+          functionName: 'stake',
+          args: [
+            { permitted: { token: H2O_STAKING_ADDRESS, amount: amtWei.toString() }, nonce, deadline: deadline.toString() },
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0'
+          ],
+        }],
+        permit2: [{
+          permitted: { token: H2O_STAKING_ADDRESS, amount: amtWei.toString() },
+          spender: H2O_STAKING_ADDRESS,
+          nonce,
+          deadline: deadline.toString(),
+        }]
+      })
+      if (finalPayload.status === 'success') {
+        setMsg('Stake realizado exitosamente')
+        setAmount('')
+        setTimeout(() => { setMsg(''); onRefresh() }, 2000)
+      } else {
+        setMsg(finalPayload.message || 'Transacción rechazada')
       }
-      // Contrato nuevo
-      const contract = new ethers.Contract(H2O_STAKING_ADDRESS, H2O_STAKING_ABI, ethers.getDefaultProvider())
-      const bal = await contract.balanceOf(userAddress)
-      setH2oBalance(formatToken(bal))
-      getMyRewards(userAddress).then(val => setNewRewards(formatToken(val)))
-    }
-    loadData()
-    return () => { ignore = true }
-  }, [userAddress])
-
-  // Funciones para contrato viejo
-  async function handleOldWithdraw() {
-    setLoadingOld(true)
-    setError('')
-    try {
-      await withdrawOld()
-      setTxMsg('¡Retiro completado!')
-    } catch (e: any) {
-      setError(e.message ?? e)
-    }
-    setLoadingOld(false)
-  }
-  async function handleOldClaim() {
-    setLoadingOld(true)
-    setError('')
-    try {
-      await claimOld()
-      setTxMsg('¡Rewards reclamados!')
-    } catch (e: any) {
-      setError(e.message ?? e)
-    }
-    setLoadingOld(false)
+    } catch(e: any) { setMsg(e.message || 'Error') }
+    setLoading(false)
   }
 
-  // Funciones para nuevo staking/vip
-  async function handleStakeH2O(amount: string) {
-    setLoading('stake')
-    setError('')
+  async function doUnstake() {
+    setLoading(true); setMsg('')
     try {
-      // Aquí deberías armar el permit2 con MiniKit/ethers y firmar
-      // Ejemplo: await staking.stake(permit, signature)
-      setTxMsg('Stake realizado') // Cambia por la TX real
-    } catch (e: any) {
-      setError(e.message ?? e)
-    }
-    setLoading('')
-  }
-  async function handleUnstake(amount: string) {
-    setLoading('unstake')
-    setError('')
-    try {
-      await unstake(amount)
-      setTxMsg('Unstake realizado')
-    } catch (e: any) {
-      setError(e.message ?? e)
-    }
-    setLoading('')
-  }
-  async function handleClaimNew() {
-    setLoading('claim')
-    setError('')
-    try {
-      await claimRewards()
-      setTxMsg('Rewards nuevos reclamados')
-    } catch (e: any) {
-      setError(e.message ?? e)
-    }
-    setLoading('')
-  }
-  async function handleBuyVip() {
-    setLoading('vip')
-    setError('')
-    try {
-      await buyVIP(1)
-      setTxMsg('VIP comprado')
-    } catch (e: any) {
-      setError(e.message ?? e)
-    }
-    setLoading('')
-  }
-  async function handleClaimRef() {
-    setLoading('ref')
-    setError('')
-    try {
-      await claimRefRewards()
-      setTxMsg('Rewards de referido reclamados')
-    } catch (e: any) {
-      setError(e.message ?? e)
-    }
-    setLoading('')
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS,
+          abi: [{ name: 'unstake', type: 'function', stateMutability: 'nonpayable', inputs: [], outputs: [] }],
+          functionName: 'unstake',
+          args: [],
+        }]
+      })
+      if (finalPayload.status === 'success') {
+        setMsg('Retiro realizado exitosamente')
+        setTimeout(() => { setMsg(''); onRefresh() }, 2000)
+      } else {
+        setMsg(finalPayload.message || 'Transacción rechazada')
+      }
+    } catch(e: any) { setMsg(e.message || 'Error') }
+    setLoading(false)
   }
 
-  // Copiar link de referido
-  function copyLink() {
-    navigator.clipboard.writeText(APP_LINK + `&ref=${userAddress}`)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1600)
+  async function doClaim() {
+    setLoading(true); setMsg('')
+    try {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS,
+          abi: [{ name: 'claimRewards', type: 'function', stateMutability: 'nonpayable', inputs: [], outputs: [] }],
+          functionName: 'claimRewards',
+          args: [],
+        }]
+      })
+      if (finalPayload.status === 'success') {
+        setMsg('Rewards reclamados exitosamente')
+        setTimeout(() => { setMsg(''); onRefresh() }, 2000)
+      } else {
+        setMsg(finalPayload.message || 'Transacción rechazada')
+      }
+    } catch(e: any) { setMsg(e.message || 'Error') }
+    setLoading(false)
   }
-
-  // Mostrar UI: contrato viejo primero si hay saldo, luego el nuevo si no
-  const hasOld = oldBalance > 0n || oldRewards > 0n
 
   return (
-    <div className="flex flex-col gap-6">
-
-      {/* --- MIGRACIÓN --- */}
-      {hasOld && (
-        <div className="p-4 border-l-4 border-yellow-400 bg-yellow-100 rounded-lg space-y-2">
-          <b>🚨 Migración: Retira tus H2O y/o reclama tus recompensas del sistema anterior antes de continuar.</b>
-          <div>
-            {oldBalance > 0n && (
-              <div className="flex items-center justify-between">
-                <div>H2O Pendiente: <span className="font-mono">{formatToken(oldBalance)}</span></div>
-                <Button onClick={handleOldWithdraw} disabled={loadingOld}>
-                  {loadingOld ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
-                  Retirar
-                </Button>
-              </div>
-            )}
-            {oldRewards > 0n && (
-              <div className="flex items-center justify-between mt-2">
-                <div>Rewards Pendientes: <span className="font-mono">{formatToken(oldRewards)}</span></div>
-                <Button onClick={handleOldClaim} disabled={loadingOld}>
-                  {loadingOld && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
-                  Reclamar rewards
-                </Button>
-              </div>
-            )}
+    <>
+      <div className="flex flex-col items-center space-y-4 px-1">
+        <div className="w-full text-center text-xl font-bold mb-2">Staking H2O</div>
+        <div className="w-full flex items-center gap-2">
+          <div className="flex-1 text-xs text-muted-foreground">
+            Balance: {formatToken(balance, decimals)} H2O
           </div>
-          {txMsg && <div className="text-green-600 text-xs mt-1">{txMsg}</div>}
-          {error && <div className="text-red-600 text-xs mt-1">{error}</div>}
-          <div className="text-xs text-gray-700 mt-1">
-            Una vez retires y reclames, tu acceso al nuevo sistema estará habilitado.
+          <Button size="sm" variant="secondary" onClick={() => setDialogOpen(true)}>
+            <ChevronRight className="w-4 h-4 mr-2" />
+            Gestionar Stake
+          </Button>
+        </div>
+      </div>
+
+      {/* Dialog modal */}
+      {dialogOpen && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur flex items-end justify-center">
+          <div className="w-full max-w-md bg-background border-t border-border rounded-t-2xl p-4 pb-8 max-h-[85vh] overflow-y-auto">
+            {/* Tabs */}
+            <div className="flex border border-border rounded-lg mb-4 overflow-hidden">
+              {(['stake', 'unstake', 'claim'] as const).map(t => (
+                <button key={t} onClick={() => setTab(t)}
+                  className={"flex-1 py-2 text-xs font-medium capitalize transition-colors " +
+                    (tab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                  {t === 'stake' ? 'Stake' : t === 'unstake' ? 'Unstake' : 'Claim'}
+                </button>
+              ))}
+            </div>
+
+            {tab === 'stake' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Balance: {formatToken(balance, decimals)} H2O</span>
+                  <button onClick={() => setAmount(ethers.formatUnits(balance, decimals))} className="text-primary">MAX</button>
+                </div>
+                <input
+                  type="number" value={amount} onChange={e => setAmount(e.target.value)}
+                  placeholder={`Cantidad de H2O`}
+                  className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+                />
+                <div className="text-xs text-muted-foreground">Fee: 2%</div>
+                <Button className="w-full" onClick={doStake} disabled={loading || !amount}>
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
+                  Stake H2O
+                </Button>
+              </div>
+            )}
+
+            {tab === 'unstake' && (
+              <div className="space-y-3">
+                <div className="bg-surface-2 border border-border rounded-lg p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Tu stake</p>
+                  <p className="text-lg font-bold text-foreground">{formatToken(staked, decimals)} H2O</p>
+                </div>
+                <div className="text-xs text-muted-foreground">Fee: 2%</div>
+                <Button className="w-full" variant="destructive" onClick={doUnstake} disabled={loading || staked === 0n}>
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Unlock className="w-4 h-4 mr-2" />}
+                  Unstake H2O
+                </Button>
+              </div>
+            )}
+
+            {tab === 'claim' && (
+              <div className="space-y-3">
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                  <p className="text-xs text-green-400 mb-1">Rewards pendientes</p>
+                  <p className="text-lg font-bold text-green-300">{formatToken(pending, decimals)} H2O</p>
+                  <p className="text-xs text-muted-foreground mt-1">Se acumulan cada segundo - 24/7</p>
+                </div>
+                <div className="text-xs text-muted-foreground">Fee: 2%</div>
+                <Button className="w-full bg-green-600 hover:bg-green-700"
+                  onClick={doClaim} disabled={loading || pending === 0n}>
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Gift className="w-4 h-4 mr-2" />}
+                  {pending === 0n ? 'Sin rewards' : `Reclamar ${formatToken(pending, decimals)} H2O`}
+                </Button>
+              </div>
+            )}
+
+            {msg && (
+              <p className={"text-xs mt-3 text-center " +
+                (msg.startsWith('Stake') || msg.startsWith('Retiro') || msg.startsWith('Rewards')
+                  ? 'text-green-400' : 'text-red-400')}>
+                {msg}
+              </p>
+            )}
+            <div className="w-full flex justify-end">
+              <Button size="sm" variant="outline" onClick={() => setDialogOpen(false)} className="mt-6">Cerrar</Button>
+            </div>
           </div>
         </div>
       )}
-
-      {/* --- NUEVO STAKE Y BENEFICIOS --- */}
-      {!hasOld && (
-        <>
-          {/* REFERIDOS */}
-          <div className="rounded-lg border border-blue-400 bg-blue-50 p-3 mb-1">
-            <b>🎉 Invita a tu amigo y ambos ganan el 5% de sus reclamos</b>
-            <div className="flex items-center gap-2 text-xs mt-2">
-              <span className="font-mono bg-blue-100 px-2 py-1 rounded">{APP_LINK + `&ref=${userAddress}`}</span>
-              <Button variant="outline" size="sm" onClick={copyLink}>{copied ? 'Copiado' : 'Copiar link'}</Button>
-            </div>
-          </div>
-          {/* VIP */}
-          <div className="rounded-lg border border-purple-400 bg-purple-50 p-3 mb-4">
-            <b className="block">🔥 Pase VIP: 1 UTH2/mes</b>
-            <span className="block text-xs mb-2">Ganancias estimadas entre 3 y 5 dólares en H2O.<br />Hazte socio de la app y recibe parte del 5% de todas las comisiones del stake.</span>
-            <Button className="mt-1" onClick={handleBuyVip} disabled={loading === 'vip'}>
-              {loading === 'vip' && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
-              Activar pase VIP
-            </Button>
-          </div>
-          {/* NUEVO STAKING */}
-          <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex flex-col gap-4">
-            <div>
-              <b className="text-base text-primary">Staking H2O</b>
-              <div>En tu cartera: <span className="font-mono">{h2oBalance} H2O</span></div>
-              <div>Rewards pendientes: <span className="font-mono">{newRewards} H2O</span></div>
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                placeholder="Cantidad H2O"
-                className="flex-1 rounded-lg border border-border bg-surface-1 px-3 py-2"
-                min={0}
-                onChange={e => setH2oBalance(e.target.value)}
-              />
-              <Button onClick={() => handleStakeH2O(h2oBalance)} disabled={loading === 'stake'}>
-                {loading === 'stake' && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
-                Stakear H2O
-              </Button>
-              <Button onClick={handleClaimNew} disabled={loading === 'claim'}>
-                {loading === 'claim' && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
-                Reclamar Rewards
-              </Button>
-              <Button onClick={() => handleUnstake(h2oBalance)} disabled={loading === 'unstake'}>
-                {loading === 'unstake' && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
-                Retirar
-              </Button>
-            </div>
-            <div>
-              <Button variant="outline" size="sm" onClick={handleClaimRef} disabled={loading === 'ref'}>
-                {loading === 'ref' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-                Reclamar rewards de referido
-              </Button>
-            </div>
-            {txMsg && <div className="text-green-600 text-xs mt-1">{txMsg}</div>}
-            {error && <div className="text-red-600 text-xs mt-1">{error}</div>}
-          </div>
-        </>
-      )}
-    </div>
+    </>
   )
 }
