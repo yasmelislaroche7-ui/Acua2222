@@ -6,7 +6,9 @@
     "compile": "hardhat compile",
     "deploy": "hardhat run scripts/deploy.js --network worldchain",
     "deploy:v2": "hardhat run scripts/deploy-staking-v2.js --network worldchain",
+    "deploy:vip": "hardhat run scripts/deploy-vip.js --network worldchain",
     "fund:v2": "hardhat run scripts/fundStakingV2Manual.js --network worldchain",
+    "withdraw:uth2": "hardhat run scripts/withdraw-uth2.js --network worldchain",
     "verify": "hardhat verify --network worldchain"
   },
   "keywords": [],
