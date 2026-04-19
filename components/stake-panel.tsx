@@ -12,11 +12,11 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
-  H2O_STAKING_ADDRESS, H2O_TOKEN, UTH2_TOKEN,
+  H2O_STAKING_ADDRESS, H2O_VIP_ADDRESS, H2O_TOKEN, UTH2_TOKEN,
   PERMIT2_ADDRESS, PERMIT_TUPLE_INPUT, WORLD_CHAIN_RPC,
   STAKE_ABI_FRAG, UNSTAKE_ABI_FRAG, CLAIM_ABI_FRAG,
-  CLAIM_REF_ABI_FRAG, REGISTER_REF_ABI_FRAG, BUY_VIP_ABI_FRAG,
-  CLAIM_OWNER_VIP_ABI_FRAG, APPROVE_ABI_FRAG,
+  CLAIM_REF_ABI_FRAG, REGISTER_REF_ABI_FRAG,
+  BUY_VIP_PERMIT2_ABI_FRAG, CLAIM_OWNER_VIP_ABI_FRAG,
   fetchH2OStakeInfo, calcAPY, formatToken, shortenAddress, randomNonce,
   H2OStakeInfo,
 } from '@/lib/h2oStaking'
@@ -705,109 +705,69 @@ export function StakePanel({ userAddress }: StakePanelProps) {
     finally { setTxLoading(false) }
   }
 
-  // ── BUY VIP ──────────────────────────────────────────────────────────────
-  // buyVIP uses IERC20(UTH2).transferFrom. MiniKit only marks approve as
-  // "submitted" (not confirmed). We use MaxUint256 so the user approves once
-  // forever, then poll on-chain allowance before sending buyVIP so World App's
-  // simulation runs against confirmed state.
+  // ── BUY VIP via Permit2 (H2OVIPSubscription contract) ────────────────────
+  // Uses the same Permit2 flow as doStake — one signature, no approve needed.
+  // The spender is H2O_VIP_ADDRESS (standalone VIP contract), not the staking one.
   async function doBuyVIP(months: number) {
     const vipPrice = info?.vipPrice ?? 0n
     if (vipPrice === 0n) return showMsg('Precio VIP no disponible', false)
     const totalCost = vipPrice * BigInt(months)
+    const deadline  = BigInt(Math.floor(Date.now() / 1000) + 3600)
+    const nonce     = randomNonce()
 
     setTxLoading(true)
     try {
-      const provider = new ethers.JsonRpcProvider(WORLD_CHAIN_RPC)
-      const uth2Read = new ethers.Contract(
-        UTH2_TOKEN,
-        ['function allowance(address,address) view returns (uint256)'],
-        provider,
-      )
-
-      // ── Step 1: approve MaxUint256 if needed (once per wallet, forever) ──
-      let onChainAllowance: bigint = await uth2Read.allowance(userAddress, H2O_STAKING_ADDRESS)
-      console.log('[buyVIP] current allowance:', onChainAllowance.toString(), 'needed:', totalCost.toString())
-
-      if (onChainAllowance < totalCost) {
-        showProgress('Paso 1/2 · Confirma el permiso UTH2 en World App…')
-
-        const maxApproval = ethers.MaxUint256.toString()
-        const { finalPayload: ap } = await MiniKit.commandsAsync.sendTransaction({
-          transaction: [{
-            address:      UTH2_TOKEN,
-            abi:          APPROVE_ABI_FRAG,
-            functionName: 'approve',
-            args:         [H2O_STAKING_ADDRESS, maxApproval],
-          }],
-        })
-
-        console.log('[buyVIP] approve result:', JSON.stringify(ap))
-
-        if (ap.status !== 'success') {
-          const code = (ap as any).error_code ?? 'unknown'
-          console.error('[buyVIP] approve failed:', ap)
-          return showMsg(`Permiso rechazado en World App (${code})`, false)
-        }
-
-        // Poll every 1s until the approve is on-chain (up to 60s)
-        showProgress('Paso 1/2 · Confirmando permiso en cadena…')
-        let confirmed = false
-        for (let i = 0; i < 60; i++) {
-          await new Promise(r => setTimeout(r, 1000))
-          onChainAllowance = await uth2Read.allowance(userAddress, H2O_STAKING_ADDRESS)
-          if (onChainAllowance >= totalCost) { confirmed = true; break }
-          if (i % 5 === 4) showProgress(`Paso 1/2 · Confirmando permiso… ${i + 1}s`)
-        }
-
-        if (!confirmed) {
-          return showMsg('El permiso tardó demasiado. Intenta de nuevo.', false)
-        }
-
-        // Extra wait so the RPC node syncs before simulation
-        await new Promise(r => setTimeout(r, 2000))
-      }
-
-      // ── Step 2: buyVIP — allowance confirmed on-chain ──────────────────
-      showProgress('Paso 2/2 · Confirma la compra VIP en World App…')
+      showProgress('Confirma la compra VIP en World App…')
 
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{
-          address:      H2O_STAKING_ADDRESS,
-          abi:          BUY_VIP_ABI_FRAG,
-          functionName: 'buyVIP',
-          args:         [months.toString()],
+          address:      H2O_VIP_ADDRESS,
+          abi:          BUY_VIP_PERMIT2_ABI_FRAG,
+          functionName: 'buyVIPWithPermit2',
+          args: [
+            months.toString(),
+            {
+              permitted: { token: UTH2_TOKEN, amount: totalCost.toString() },
+              nonce:     nonce.toString(),
+              deadline:  deadline.toString(),
+            },
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
+          ],
+        }],
+        permit2: [{
+          permitted: { token: UTH2_TOKEN, amount: totalCost.toString() },
+          spender:   H2O_VIP_ADDRESS,
+          nonce:     nonce.toString(),
+          deadline:  deadline.toString(),
         }],
       })
-
-      console.log('[buyVIP] buyVIP result:', JSON.stringify(finalPayload))
 
       if (finalPayload.status === 'success') {
         showMsg(`✓ VIP activado por ${months} mes${months !== 1 ? 'es' : ''}! Bienvenido`, true)
         setTimeout(loadInfo, 2500)
       } else {
         const code = (finalPayload as any).error_code ?? 'unknown'
-        console.error('[buyVIP] buyVIP failed:', finalPayload)
         showMsg(`La compra no se completó (${code})`, false)
       }
     } catch (e: any) {
-      console.error('[buyVIP] exception:', e)
       showMsg(e.message || 'No se pudo completar la compra VIP', false)
-    }
-    finally { setTxLoading(false) }
+    } finally { setTxLoading(false) }
   }
 
-  // ── CLAIM OWNER VIP POOL ─────────────────────────────────────────────────
+  // ── CLAIM OWNER VIP POOL (H2OVIPSubscription contract) ───────────────────
   async function doClaimOwnerVip() {
     setTxLoading(true)
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{
-          address: H2O_STAKING_ADDRESS, abi: CLAIM_OWNER_VIP_ABI_FRAG,
-          functionName: 'claimOwnerVip', args: [],
+          address:      H2O_VIP_ADDRESS,
+          abi:          CLAIM_OWNER_VIP_ABI_FRAG,
+          functionName: 'claimOwnerVip',
+          args:         [],
         }],
       })
       if (finalPayload.status === 'success') {
-        showMsg('✓ Ganancias VIP pool reclamadas en UTH2', true)
+        showMsg('✓ Ganancias VIP pool reclamadas en H2O', true)
         setTimeout(loadInfo, 2000)
       } else {
         const code = (finalPayload as any).error_code ?? 'unknown'

@@ -237,6 +237,46 @@
         "H2OUniversalStakingFinal",
         "IERC20"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/H2OVIPSubscription.sol": {
+      "lastModificationDate": 1776621543353,
+      "contentHash": "173c7a020d7fb89cad4c388009f66edd",
+      "sourceName": "contracts/H2OVIPSubscription.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "H2OVIPSubscription",
+        "IERC20"
+      ]
     }
   }
 }
