@@ -1,53 +1,92 @@
-import { ethers } from "ethers";
+// lib/oldStakingService.ts
 
-// ¡Pon la dirección y ABI de tu contrato viejo aquí!
-export const OLD_STAKING_ADDRESS = "0x..."; // tu contrato v1
-export const OLD_STAKING_ABI = [
-  // ABI mínima, agrega métodos según necesidad
-  "function balanceOf(address) view returns (uint256)",
-  "function pending(address) view returns (uint256)",
-  "function unstake()",
-  "function claimRewards()"
-];
+import { ethers } from 'ethers';
+import { MiniKit } from '@worldcoin/minikit-js';
+import { STAKING_CONTRACT, StakeInfo } from './contract'; // Asumiendo que STAKING_CONTRACT es la dirección del contrato antiguo
+import { OLD_STAKING_ABI } from './h2oStaking'; // ABI del contrato antiguo
 
-// Llama al provider que uses (window.ethereum, etc.)
-export function getOldStakingContract(signerOrProvider: ethers.Signer | ethers.Provider) {
-  return new ethers.Contract(OLD_STAKING_ADDRESS, OLD_STAKING_ABI, signerOrProvider);
-}
+// Define las interfaces si no están en contract.ts
+// interface StakeInfo {
+//     stakedAmount: bigint;
+//     pending: bigint;
+//     // ... otras propiedades de tu stake antiguo
+// }
 
-// Obtiene balance y rewards del usuario
-export async function getOldStakingInfo(address: string): Promise<{ balance: bigint, rewards: bigint }> {
-  try {
-    // Usa el provider público para solo lectura
-    const provider = new ethers.JsonRpcProvider("https://worldchain-mainnet.g.alchemy.com/public");
-    const contract = getOldStakingContract(provider);
+export class OldStakingService {
+    private provider: ethers.Provider;
+    private signer: ethers.Signer | null = null;
+    private oldStakingContract: ethers.Contract;
 
-    const [bal, rew] = await Promise.all([
-      contract.balanceOf(address),
-      contract.pending(address)
-    ]);
-    return { balance: bal as bigint, rewards: rew as bigint };
-  } catch (e) {
-    return { balance: 0n, rewards: 0n }; // fallback seguro
-  }
-}
+    constructor(provider: ethers.Provider, signer: ethers.Signer | null) {
+        this.provider = provider;
+        this.signer = signer;
+        this.oldStakingContract = new ethers.Contract(STAKING_CONTRACT, OLD_STAKING_ABI, signer || provider);
+    }
 
-// Retirar todo (via unstake)
-export async function withdrawOld() {
-  if (!(window as any).ethereum) throw new Error("Wallet no detectada");
-  const provider = new ethers.BrowserProvider((window as any).ethereum);
-  const signer = await provider.getSigner();
-  const contract = getOldStakingContract(signer);
-  const tx = await contract.unstake();
-  return tx.wait();
-}
+    // Puedes agregar una función para obtener el stakeInfo del contrato antiguo si es necesario
+    // async getOldStakeInfo(userAddress: string): Promise<StakeInfo | null> {
+    //     // Implementa la lógica para leer el estado del contrato antiguo
+    //     // Esto dependerá de cómo tu contrato antiguo expone la información del stake
+    //     try {
+    //         const balance = await this.oldStakingContract.users(userAddress).balance;
+    //         const pending = await this.oldStakingContract.earned(userAddress);
+    //         return {
+    //             stakedAmount: balance,
+    //             pending: pending,
+    //             // ... otras propiedades
+    //             active: balance > 0n // Ejemplo de cómo determinar si hay stake
+    //         };
+    //     } catch (error) {
+    //         console.error("Error fetching old stake info:", error);
+    //         return null;
+    //     }
+    // }
 
-// Reclamar rewards
-export async function claimOld() {
-  if (!(window as any).ethereum) throw new Error("Wallet no detectada");
-  const provider = new ethers.BrowserProvider((window as any).ethereum);
-  const signer = await provider.getSigner();
-  const contract = getOldStakingContract(signer);
-  const tx = await contract.claimRewards();
-  return tx.wait();
+    async unstakeOld(): Promise<string> {
+        if (!this.signer) throw new Error("No signer available for transaction.");
+
+        try {
+            const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+                transaction: [{
+                    address: STAKING_CONTRACT,
+                    abi: OLD_STAKING_ABI, // Usa el ABI que contenga la función 'unstake' del contrato antiguo
+                    functionName: 'unstake',
+                    args: [], // Asumiendo que 'unstake' en el contrato antiguo no requiere argumentos o retira todo
+                }],
+            });
+
+            if (finalPayload.status === 'success') {
+                return (finalPayload as any).transaction_id ?? 'ok';
+            } else {
+                throw new Error((finalPayload as any).message ?? 'Transacción de retiro fallida del contrato antiguo');
+            }
+        } catch (error: any) {
+            console.error("[OldStakingService] ERROR unstaking from old contract:", error);
+            throw new Error(error?.message ?? 'Error desconocido al retirar del contrato antiguo');
+        }
+    }
+
+    async claimRewardsOld(): Promise<string> {
+        if (!this.signer) throw new Error("No signer available for transaction.");
+
+        try {
+            const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+                transaction: [{
+                    address: STAKING_CONTRACT,
+                    abi: OLD_STAKING_ABI, // Usa el ABI que contenga la función 'claimRewards' del contrato antiguo
+                    functionName: 'claimRewards',
+                    args: [],
+                }],
+            });
+
+            if (finalPayload.status === 'success') {
+                return (finalPayload as any).transaction_id ?? 'ok';
+            } else {
+                throw new Error((finalPayload as any).message ?? 'Transacción de reclamo fallida del contrato antiguo');
+            }
+        } catch (error: any) {
+            console.error("[OldStakingService] ERROR claiming rewards from old contract:", error);
+            throw new Error(error?.message ?? 'Error desconocido al reclamar del contrato antiguo');
+        }
+    }
 }
