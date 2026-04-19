@@ -1,100 +1,122 @@
 'use client'
-
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
 import { Button } from '@/components/ui/button'
-import { Loader2, Lock, Unlock, Gift, ChevronRight, Users, Star, Link as LinkIcon } from 'lucide-react'
-import { H2O_STAKING_ADDRESS, H2O_STAKING_ABI } from '@/lib/h2oStaking'
-import { getOldStakingInfo, withdrawOld, claimOld } from '@/lib/oldStakingService'
-import { formatToken } from '@/lib/contract'
+import {
+  Loader2, ChevronRight, Lock, Unlock, Gift, Link as LinkIcon
+} from 'lucide-react'
 
-const REF_BASE = "https://worldcoin.org/mini-app?app_id=app_60f2dc429532dcfa014c16d52ddc00fe&app_mode=mini-app"
+function formatToken(value: bigint = 0n, decimals = 18, maxDec = 4) {
+  let float = Number(ethers.formatUnits(value, decimals))
+  return float.toLocaleString(undefined, { maximumFractionDigits: maxDec })
+}
+function formatAPY(bps: bigint = 0n) {
+  return `${(Number(bps) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`
+}
 
-export function StakePanel({ userAddress, stakingInfo = {}, onRefresh }) {
-  // Estado para migración
-  const [oldBalance, setOldBalance] = useState<bigint>(0n)
-  const [oldRewards, setOldRewards] = useState<bigint>(0n)
+interface StakingInfo {
+  tokenBalance: bigint
+  stakedAmount: bigint
+  pendingRewards: bigint
+  apyBps?: bigint
+  stakeFeeBps?: bigint
+  unstakeFeeBps?: bigint
+  claimFeeBps?: bigint
+}
+
+interface StakePanelProps {
+  userAddress: string
+  info: StakingInfo
+  oldInfo?: { stakedAmount: bigint, pendingRewards: bigint }
+  onRefresh: () => void
+}
+
+const H2O_STAKING_ADDRESS = "0x7730583E492D520CcBb3C06325A77EccAbAFa98e"
+const H2O_STAKING_ABI = [
+  {
+    name: "stake", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      { name: "permit", type: "tuple", components: [
+        { name: "permitted", type: "tuple", components: [
+          { name: "token", type: "address" }, { name: "amount", type: "uint256" }
+        ]},
+        { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }
+      ]},
+      { name: "signature", type: "bytes" }
+    ], outputs: []
+  },
+  { name: "unstake", type: "function", inputs: [], outputs: [], stateMutability: "nonpayable" },
+  { name: "claimRewards", type: "function", inputs: [], outputs: [], stateMutability: "nonpayable" },
+]
+
+const ACUA_BLUE = "#3B7ACB"
+const ACUA_SKY = "#e6f1fb"
+const ACUA_BORDER = "#93c5fd"
+const ACUA_GRAD = "linear-gradient(90deg,#a2bfff,#eaf6ff 90%)"
+const ACUA_LINK = "#1976d2"
+const ACUA_GREEN = "#3BCB8B"
+
+// --- PANEL ---
+export function StakePanel({ userAddress, info, oldInfo, onRefresh }: StakePanelProps) {
+  // Migración
   const [loadingOld, setLoadingOld] = useState('')
-  const [msg, setMsg] = useState('')
-  const [error, setError] = useState('')
+  const [msgOld, setMsgOld] = useState('')
+  const [errOld, setErrOld] = useState('')
 
-  // Estado para referido y VIP
-  const [copied, setCopied] = useState(false)
+  // Nuevo staking
   const [dialogOpen, setDialogOpen] = useState(false)
   const [tab, setTab] = useState<'stake'|'unstake'|'claim'>('stake')
   const [amount, setAmount] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [msgNew, setMsgNew] = useState('')
+  const [loading, setLoading] = useState('')
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+  const [copied, setCopied] = useState(false)
 
-  // Balances H2O del contrato nuevo
-  const decimals = 18 // H2O
-  const balance = stakingInfo?.tokenBalance ?? 0n
-  const staked = stakingInfo?.stakedAmount ?? 0n
-  const pending = stakingInfo?.pendingRewards ?? 0n
-
-  // --- MIGRACIÓN: Consulta saldo/pendiente del contrato viejo ---
-
-  useEffect(() => {
-    let active = true;
-    async function loadOld() {
-      try {
-        const { balance, rewards } = await getOldStakingInfo(userAddress)
-        if (active) { setOldBalance(balance); setOldRewards(rewards) }
-      } catch {}
-    }
-    loadOld()
-    return () => { active = false }
-  }, [userAddress, msg, error])
-
-  // --- Acciones migración ---
-
+  // --- Migración TXs
   async function handleOldUnstake() {
-    setLoadingOld('unstake'); setMsg(''); setError('')
+    setLoadingOld('unstake'); setMsgOld(''); setErrOld('')
     try {
-      await withdrawOld()
-      setMsg('¡Retiro realizado! Revisa tu wallet.')
-    } catch (e: any) {
-      setError(e?.message ?? e)
-    }
+      await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS,
+          abi: H2O_STAKING_ABI,
+          functionName: 'unstake',
+          args: [],
+        }]
+      })
+      setMsgOld("¡Retiro realizado!"); onRefresh()
+    } catch (e: any) { setErrOld(e?.message ?? e) }
     setLoadingOld('')
   }
   async function handleOldClaim() {
-    setLoadingOld('claim'); setMsg(''); setError('')
+    setLoadingOld('claim'); setMsgOld(''); setErrOld('')
     try {
-      await claimOld()
-      setMsg('¡Rewards reclamados!')
-    } catch (e: any) {
-      setError(e?.message ?? e)
-    }
+      await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS,
+          abi: H2O_STAKING_ABI,
+          functionName: 'claimRewards',
+          args: [],
+        }]
+      })
+      setMsgOld("¡Rewards reclamados!"); onRefresh()
+    } catch (e: any) { setErrOld(e?.message ?? e) }
     setLoadingOld('')
   }
 
-  // --- Acciones staking H2O nuevo ---
+  // --- Nuevo staking TXs
   async function doStake() {
-    if (!amount || parseFloat(amount) <= 0) return setMsgNew('Ingresa monto válido')
-    setLoading(true); setMsgNew('')
+    if (!amount || parseFloat(amount) <= 0) return setMsg("Ingresa monto válido")
+    setLoading('stake'); setMsg(''); setErr('')
     try {
-      const amtWei = ethers.parseUnits(amount, decimals)
+      const amtWei = ethers.parseUnits(amount, 18)
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
       const nonce = Math.floor(Math.random() * 1e12).toString()
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{
           address: H2O_STAKING_ADDRESS,
-          abi: [{
-            name: 'stake',
-            type: 'function',
-            stateMutability: 'nonpayable',
-            inputs: [
-              { name: "permit", type: "tuple", components: [
-                { name: "permitted", type: "tuple", components: [ { name: "token", type: "address" }, { name: "amount", type: "uint256" } ] },
-                { name: "nonce", type: "uint256" },
-                { name: "deadline", type: "uint256" }
-              ] },
-              { name: 'signature', type: 'bytes' }
-            ],
-            outputs: [],
-          }],
+          abi: [H2O_STAKING_ABI[0]],
           functionName: 'stake',
           args: [
             { permitted: { token: H2O_STAKING_ADDRESS, amount: amtWei.toString() }, nonce, deadline: deadline.toString() },
@@ -103,230 +125,196 @@ export function StakePanel({ userAddress, stakingInfo = {}, onRefresh }) {
         }],
         permit2: [{
           permitted: { token: H2O_STAKING_ADDRESS, amount: amtWei.toString() },
-          spender: H2O_STAKING_ADDRESS,
-          nonce,
-          deadline: deadline.toString(),
+          spender: H2O_STAKING_ADDRESS, nonce, deadline: deadline.toString(),
         }]
       })
       if (finalPayload.status === 'success') {
-        setMsgNew('Stake realizado exitosamente')
+        setMsg("Stake realizado exitosamente")
         setAmount('')
-        setTimeout(() => { setMsgNew(''); onRefresh() }, 2000)
+        setTimeout(() => { setMsg(''); onRefresh() }, 1600)
       } else {
-        setMsgNew(finalPayload.message || 'Transacción rechazada')
+        setErr(finalPayload.message || "Transacción rechazada")
       }
-    } catch(e: any) { setMsgNew(e.message || 'Error') }
-    setLoading(false)
+    } catch (e: any) { setErr(e.message || "Error") }
+    setLoading('')
   }
-
   async function doUnstake() {
-    setLoading(true); setMsgNew('')
+    setLoading('unstake'); setMsg(''); setErr('')
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{
           address: H2O_STAKING_ADDRESS,
-          abi: [{ name: 'unstake', type: 'function', stateMutability: 'nonpayable', inputs: [], outputs: [] }],
+          abi: [H2O_STAKING_ABI[1]],
           functionName: 'unstake',
           args: [],
         }]
       })
       if (finalPayload.status === 'success') {
-        setMsgNew('Retiro realizado exitosamente')
-        setTimeout(() => { setMsgNew(''); onRefresh() }, 2000)
-      } else {
-        setMsgNew(finalPayload.message || 'Transacción rechazada')
-      }
-    } catch(e: any) { setMsgNew(e.message || 'Error') }
-    setLoading(false)
+        setMsg("Retiro exitoso")
+        setTimeout(() => { setMsg(''); onRefresh() }, 1600)
+      } else setErr(finalPayload.message || "Transacción rechazada")
+    } catch(e: any) { setErr(e.message || "Error") }
+    setLoading('')
   }
-
   async function doClaim() {
-    setLoading(true); setMsgNew('')
+    setLoading('claim'); setMsg(''); setErr('')
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{
           address: H2O_STAKING_ADDRESS,
-          abi: [{ name: 'claimRewards', type: 'function', stateMutability: 'nonpayable', inputs: [], outputs: [] }],
+          abi: [H2O_STAKING_ABI[2]],
           functionName: 'claimRewards',
           args: [],
         }]
       })
       if (finalPayload.status === 'success') {
-        setMsgNew('Rewards reclamados exitosamente')
-        setTimeout(() => { setMsgNew(''); onRefresh() }, 2000)
-      } else {
-        setMsgNew(finalPayload.message || 'Transacción rechazada')
-      }
-    } catch(e: any) { setMsgNew(e.message || 'Error') }
-    setLoading(false)
+        setMsg("Rewards reclamados exitosamente")
+        setTimeout(() => { setMsg(''); onRefresh() }, 1600)
+      } else setErr(finalPayload.message || "Transacción rechazada")
+    } catch(e: any) { setErr(e.message || "Error") }
+    setLoading('')
   }
 
-  // Referido UX
   function handleCopyRef() {
-    navigator.clipboard.writeText(`${REF_BASE}&ref=${userAddress}`)
+    navigator.clipboard.writeText(`https://worldcoin.org/mini-app?app_id=app_60f2dc429532dcfa014c16d52ddc00fe&app_mode=mini-app&ref=${userAddress}`)
     setCopied(true)
     setTimeout(() => setCopied(false), 1600)
   }
 
-  // Panel migración solo cuando el usuario tiene saldo/rewards en el anterior
-  const mustMigrate = oldBalance > 0n || oldRewards > 0n
+  // ¿Migración pendiente?
+  const mustMigrate = !!oldInfo && (oldInfo.stakedAmount > 0n || oldInfo.pendingRewards > 0n)
 
   return (
-    <div className="max-w-md w-full mx-auto flex flex-col gap-6 pt-4 px-2">
-      {/* == MIGRACIÓN DEL SISTEMA VIEJO == */}
+    <div className="w-full max-w-md mx-auto flex flex-col gap-8 pt-4 px-2">
+
+      {/* ==== MIGRACIÓN ==== */}
       {mustMigrate && (
-        <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-lg">
-          <h2 className="text-yellow-800 font-bold mb-2">Migración de staking</h2>
-          <div className="text-yellow-900 mb-2">
+        <div
+          className="border-l-4 rounded-lg p-4 shadow"
+          style={{ borderColor: ACUA_LINK, background: "#e3f2ff" }}
+        >
+          <h2 className="font-bold text-base text-blue-900 mb-1">Migración de staking</h2>
+          <div className="text-blue-800 mb-3">
             Antes de usar el nuevo stake, primero <b>retira y reclama tus recompensas</b> del sistema anterior.
           </div>
           <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between bg-yellow-100 px-3 py-2 rounded">
+            <div className="flex items-center justify-between bg-blue-100 px-3 py-2 rounded">
               <span>H2O pendiente:</span>
-              <b>{formatToken(oldBalance, decimals, 4)} H2O</b>
-              <Button onClick={handleOldUnstake} disabled={loadingOld === 'unstake' || oldBalance === 0n} className="ml-2" variant="secondary">
-                {loadingOld === 'unstake' ? <Loader2 className="w-4 h-4 animate-spin mr-1 inline" /> : <Lock className="w-4 h-4 mr-1 inline" />}
+              <span style={{ color: ACUA_GREEN, fontWeight: 'bold' }}>{formatToken(oldInfo.stakedAmount, 18, 4)} H2O</span>
+              <Button onClick={handleOldUnstake}
+                      disabled={loadingOld === 'unstake' || oldInfo.stakedAmount === 0n}
+                      className="ml-2">{loadingOld === 'unstake' ? <Loader2 className="w-4 h-4 animate-spin mr-1 inline" /> : <Lock className="w-4 h-4 mr-1 inline" />}Retirar</Button>
+            </div>
+            <div className="flex items-center justify-between bg-blue-100 px-3 py-2 rounded">
+              <span>Rewards:</span>
+              <span style={{ color: ACUA_GREEN, fontWeight: 'bold' }}>{formatToken(oldInfo.pendingRewards, 18, 4)} H2O</span>
+              <Button onClick={handleOldClaim}
+                      disabled={loadingOld === 'claim' || oldInfo.pendingRewards === 0n}
+                      className="ml-2">{loadingOld === 'claim' ? <Loader2 className="w-4 h-4 animate-spin mr-1 inline" /> : <Gift className="w-4 h-4 mr-1 inline" />}Reclamar</Button>
+            </div>
+            {msgOld && <div className="text-green-700 bg-green-100 border border-green-300 rounded px-3 py-2 mt-1">{msgOld}</div>}
+            {errOld && <div className="text-red-600 bg-red-100 border border-red-300 rounded px-3 py-2 mt-1">{errOld}</div>}
+          </div>
+          <div className="text-xs mt-2 text-blue-600">Cuando termines, tendrás acceso al nuevo staking, referidos y pase VIP.</div>
+        </div>
+      )}
+
+      {/* ==== PANEL NUEVO ==== */}
+      {!mustMigrate && (
+        <div className="flex flex-col gap-4">
+          {/* REFERIDO */}
+          <div className="rounded-lg border border-blue-400 bg-blue-50 p-3 flex flex-col gap-1">
+            <span className="flex items-center gap-2 mb-1 font-bold text-blue-900">
+              <LinkIcon size={18} className="text-blue-400" /> Enlace de referido
+            </span>
+            <div className="flex items-center gap-2 bg-blue-100 px-2 py-1 rounded text-base">
+              <span className="font-mono truncate flex-1 select-all" style={{ color: ACUA_LINK, fontWeight: 700 }}>
+                https://worldcoin.org/mini-app?app_id=app_60f2dc429532dcfa014c16d52ddc00fe&app_mode=mini-app&ref={userAddress}
+              </span>
+              <Button size="sm" variant="outline" onClick={handleCopyRef}>{copied ? '¡Copiado!' : 'Copiar'}</Button>
+            </div>
+            <span className="text-xs mt-1 text-blue-800">Invita a tus amigos y ambos ganan <b>5%</b> extra en sus reclamos.</span>
+          </div>
+          {/* VIP */}
+          <div className="p-3 rounded-lg border border-blue-300 bg-gradient-to-b from-blue-50 via-white to-acua-skydark flex items-center">
+            <div>
+              <div className="font-bold text-[#174178] flex items-center gap-2"><Star size={18} className="text-blue-400" /> Pase VIP</div>
+              <div className="text-xs text-blue-800">
+                Precio: <b>1 UTH2</b> al mes · Gana entre <b>3 y 5 dólares en H2O</b> y parte del <b>5%</b> de todas las comisiones.
+              </div>
+            </div>
+          </div>
+          {/* PANEL */}
+          <div className="rounded-xl border-2 border-blue-300 bg-blue-50 p-4 flex flex-col gap-4 shadow"
+            style={{ background: ACUA_GRAD }}>
+            <div className="flex flex-col justify-center items-center gap-2 mb-3">
+              <div className="font-bold text-xl mb-1" style={{ color: ACUA_BLUE }}>Staking H2O</div>
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-8 text-base justify-center items-center">
+                <span className="text-xs text-blue-800">En cartera:
+                  <span style={{ color: ACUA_GREEN, fontWeight: 700, marginLeft: 8 }}>
+                    {formatToken(info.tokenBalance, 18, 4)} H2O
+                  </span>
+                </span>
+                <span className="text-xs text-blue-800">Staked:
+                  <span style={{ color: ACUA_GREEN, fontWeight: 700, marginLeft: 8 }}>
+                    {formatToken(info.stakedAmount, 18, 4)} H2O
+                  </span>
+                </span>
+                <span className="text-xs text-blue-800">Rewards:
+                  <span style={{ color: ACUA_GREEN, fontWeight: 700, marginLeft: 8 }}>
+                    {formatToken(info.pendingRewards, 18, 4)} H2O
+                  </span>
+                </span>
+              </div>
+              {/* Stats */}
+              <div className="flex gap-6 text-xs mt-2 mb-3">
+                <span className="font-bold" style={{ color: 'green' }}>
+                  APY: {formatAPY(info.apyBps)}
+                </span>
+                <span style={{ color: '#23615e' }}>Fee: {(Number(info.stakeFeeBps ?? 200n) / 100) || 2}%</span>
+              </div>
+            </div>
+            <div className="flex flex-row flex-wrap gap-3 items-end">
+              <input
+                type="number"
+                placeholder="Cantidad H2O"
+                value={amount}
+                min={0}
+                step="any"
+                onChange={e => setAmount(e.target.value)}
+                className="flex-1 p-2 rounded border border-blue-300 bg-white font-mono text-base outline-blue-400"
+              />
+              <Button onClick={() => setAmount(formatToken(info.tokenBalance, 18, 4))} size="sm" variant="secondary" className="rounded">MAX</Button>
+              <Button className="font-bold px-6 py-2 rounded-lg" style={{
+                background: ACUA_BLUE,
+                color: 'white'
+              }}
+                onClick={doStake} disabled={loading === 'stake' || !amount}>
+                {loading === 'stake' ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
+                Stakear H2O
+              </Button>
+              <Button onClick={doUnstake}
+                className="font-bold bg-white border border-blue-400 text-blue-700 px-4 py-2 rounded-lg hover:bg-blue-50"
+                style={{}}
+                disabled={loading === 'unstake' || info.stakedAmount === 0n}>
+                {loading === 'unstake' ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Unlock className="w-4 h-4 mr-2" />}
                 Retirar
               </Button>
-            </div>
-            <div className="flex items-center justify-between bg-yellow-100 px-3 py-2 rounded">
-              <span>Rewards:</span>
-              <b>{formatToken(oldRewards, decimals, 4)} H2O</b>
-              <Button onClick={handleOldClaim} disabled={loadingOld === 'claim' || oldRewards === 0n} className="ml-2" variant="outline">
-                {loadingOld === 'claim' ? <Loader2 className="w-4 h-4 animate-spin mr-1 inline" /> : <Gift className="w-4 h-4 mr-1 inline" />}
+              <Button onClick={doClaim}
+                className="font-bold bg-green-600 hover:bg-green-700 text-white border border-green-700 px-4 py-2 rounded-lg"
+                disabled={loading === 'claim' || info.pendingRewards === 0n}>
+                {loading === 'claim' ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Gift className="w-4 h-4 mr-2" />}
                 Reclamar
               </Button>
             </div>
-            {msg && <div className="text-green-700 bg-green-100 border border-green-300 rounded px-3 py-2 mt-1">{msg}</div>}
-            {error && <div className="text-red-600 bg-red-100 border border-red-300 rounded px-3 py-2 mt-1">{error}</div>}
-          </div>
-          <div className="text-xs mt-2 text-yellow-600">
-            Cuando termines, tendrás acceso al nuevo Staking, referidos y VIP.
-          </div>
-        </div>
-      )}
-
-      {/* == REFERIDO + VIP (si ya migró)== */}
-      {!mustMigrate && (
-        <div className="flex flex-col gap-6">
-          {/* REFERIDO */}
-          <div className="rounded-lg border border-blue-400 bg-blue-50 p-3">
-            <b className="flex items-center gap-2 mb-2">
-              <LinkIcon size={18} className="text-blue-400" /> Enlace de referido
-            </b>
-            <div className="flex items-center gap-2 bg-blue-100 px-2 py-1 rounded">
-              <span className="font-mono text-sm truncate flex-1 select-all">{REF_BASE}&ref={userAddress}</span>
-              <Button size="sm" variant="outline" onClick={handleCopyRef}>{copied ? '¡Copiado!' : 'Copiar'}</Button>
-            </div>
-            <div className="text-xs mt-1 text-blue-800">
-              Invita a tus amigos y ambos ganan <b>5% extra</b> en sus reclamos de rewards.
-            </div>
-          </div>
-          {/* VIP */}
-          <div className="p-3 rounded-lg border border-purple-400 bg-purple-50 mt-1 flex items-center">
-            <Star className="text-purple-400 mr-2" /> 
-            <div>
-              <div className="font-bold text-purple-800">Pase VIP</div>
-              <div className="text-xs text-purple-800">Precio: <b>1 UTH2</b> al mes · Gana entre <b>3 y 5 dólares en H2O</b> y parte del <b>5% de todas las comisiones</b>.</div>
-            </div>
+            {msg && (
+              <div className="text-green-700 bg-green-100 border border-green-300 rounded px-3 py-2 mt-1">{msg}</div>
+            )}
+            {err && (
+              <div className="text-red-600 bg-red-100 border border-red-300 rounded px-3 py-2 mt-1">{err}</div>
+            )}
           </div>
         </div>
-      )}
-
-      {/* == PANEL STAKING == */}
-      {!mustMigrate && (
-        <>
-          <div className="flex flex-col items-center space-y-4 px-1">
-            <div className="w-full text-center text-xl font-bold mb-2 mt-4">Staking H2O</div>
-            <div className="w-full flex items-center gap-2">
-              <div className="flex-1 text-xs text-muted-foreground">
-                Balance: {formatToken(balance, decimals)} H2O
-              </div>
-              <Button size="sm" variant="secondary" onClick={() => setDialogOpen(true)}>
-                <ChevronRight className="w-4 h-4 mr-2" />
-                Gestionar Stake
-              </Button>
-            </div>
-          </div>
-
-          {/* Dialog modal */}
-          {dialogOpen && (
-            <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur flex items-end justify-center">
-              <div className="w-full max-w-md bg-background border-t border-border rounded-t-2xl p-4 pb-8 max-h-[85vh] overflow-y-auto">
-                {/* Tabs */}
-                <div className="flex border border-border rounded-lg mb-4 overflow-hidden">
-                  {(['stake', 'unstake', 'claim'] as const).map(t => (
-                    <button key={t} onClick={() => setTab(t)}
-                      className={"flex-1 py-2 text-xs font-medium capitalize transition-colors " +
-                        (tab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>
-                      {t === 'stake' ? 'Stake' : t === 'unstake' ? 'Unstake' : 'Claim'}
-                    </button>
-                  ))}
-                </div>
-
-                {tab === 'stake' && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Balance: {formatToken(balance, decimals)} H2O</span>
-                      <button onClick={() => setAmount(ethers.formatUnits(balance, decimals))} className="text-primary">MAX</button>
-                    </div>
-                    <input
-                      type="number" value={amount} onChange={e => setAmount(e.target.value)}
-                      placeholder={`Cantidad de H2O`}
-                      className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
-                    />
-                    <div className="text-xs text-muted-foreground">Fee: 2%</div>
-                    <Button className="w-full" onClick={doStake} disabled={loading || !amount}>
-                      {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
-                      Stake H2O
-                    </Button>
-                  </div>
-                )}
-
-                {tab === 'unstake' && (
-                  <div className="space-y-3">
-                    <div className="bg-surface-2 border border-border rounded-lg p-3">
-                      <p className="text-xs text-muted-foreground mb-1">Tu stake</p>
-                      <p className="text-lg font-bold text-foreground">{formatToken(staked, decimals)} H2O</p>
-                    </div>
-                    <div className="text-xs text-muted-foreground">Fee: 2%</div>
-                    <Button className="w-full" variant="destructive" onClick={doUnstake} disabled={loading || staked === 0n}>
-                      {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Unlock className="w-4 h-4 mr-2" />}
-                      Unstake H2O
-                    </Button>
-                  </div>
-                )}
-
-                {tab === 'claim' && (
-                  <div className="space-y-3">
-                    <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
-                      <p className="text-xs text-green-400 mb-1">Rewards pendientes</p>
-                      <p className="text-lg font-bold text-green-300">{formatToken(pending, decimals)} H2O</p>
-                      <p className="text-xs text-muted-foreground mt-1">Se acumulan cada segundo - 24/7</p>
-                    </div>
-                    <div className="text-xs text-muted-foreground">Fee: 2%</div>
-                    <Button className="w-full bg-green-600 hover:bg-green-700"
-                      onClick={doClaim} disabled={loading || pending === 0n}>
-                      {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Gift className="w-4 h-4 mr-2" />}
-                      {pending === 0n ? 'Sin rewards' : `Reclamar ${formatToken(pending, decimals)} H2O`}
-                    </Button>
-                  </div>
-                )}
-
-                {msgNew && (
-                  <p className={"text-xs mt-3 text-center " +
-                    (msgNew.startsWith('Stake') || msgNew.startsWith('Retiro') || msgNew.startsWith('Rewards')
-                      ? 'text-green-400' : 'text-red-400')}>
-                    {msgNew}
-                  </p>
-                )}
-                <div className="w-full flex justify-end">
-                  <Button size="sm" variant="outline" onClick={() => setDialogOpen(false)} className="mt-6">Cerrar</Button>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
       )}
     </div>
   )
