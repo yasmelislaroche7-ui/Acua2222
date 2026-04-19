@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   H2O_STAKING_ADDRESS, H2O_TOKEN, UTH2_TOKEN,
-  PERMIT2_ADDRESS, PERMIT_TUPLE_INPUT,
+  PERMIT2_ADDRESS, PERMIT_TUPLE_INPUT, WORLD_CHAIN_RPC,
   STAKE_ABI_FRAG, UNSTAKE_ABI_FRAG, CLAIM_ABI_FRAG,
   CLAIM_REF_ABI_FRAG, REGISTER_REF_ABI_FRAG, BUY_VIP_ABI_FRAG,
   APPROVE_ABI_FRAG,
@@ -181,8 +181,11 @@ function VIPBanner({ vipPrice, vipExpiry, uth2Balance, onBuy, loading }: VIPBann
                 disabled={loading || !canAfford}
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Crown className="w-4 h-4 mr-2" />}
-                Activar VIP {months} mes{months !== 1 ? 'es' : ''}
+                {loading ? 'Procesando…' : `Activar VIP ${months} mes${months !== 1 ? 'es' : ''}`}
               </Button>
+              <p className="text-[10px] text-center text-muted-foreground">
+                Se pedirán 2 confirmaciones en World App: aprobar UTH2 → activar VIP
+              </p>
             </>
           )}
         </div>
@@ -660,34 +663,61 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   }
 
   // ── BUY VIP ──────────────────────────────────────────────────────────────
-  // buyVIP uses UTH2.transferFrom → needs approve first (batched in MiniKit)
+  // buyVIP needs UTH2.approve first. We send TWO separate sendTransaction calls
+  // so World App can simulate each one independently (batch simulation fails when
+  // the approve and transferFrom are bundled — allowance isn't reflected yet).
   async function doBuyVIP(months: number) {
     const vipPrice = info?.vipPrice ?? 0n
     if (vipPrice === 0n) return showMsg('Precio VIP no disponible', false)
     const totalCost = vipPrice * BigInt(months)
-    const maxUint = '115792089237316195423570985008687907853269984665640564039457584007913129639935'
 
     setTxLoading(true)
     try {
-      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [
-          {
-            address: UTH2_TOKEN, abi: APPROVE_ABI_FRAG,
+      // 1. Check current on-chain allowance to skip approve if already sufficient
+      const provider   = new ethers.JsonRpcProvider(WORLD_CHAIN_RPC)
+      const uth2Read   = new ethers.Contract(
+        UTH2_TOKEN,
+        ['function allowance(address,address) view returns (uint256)'],
+        provider,
+      )
+      const allowance: bigint = await uth2Read.allowance(userAddress, H2O_STAKING_ADDRESS)
+
+      if (allowance < totalCost) {
+        // TX 1 — Approve the exact amount needed
+        showMsg('Paso 1/2 · Aprobando UTH2…', true)
+        const { finalPayload: ap } = await MiniKit.commandsAsync.sendTransaction({
+          transaction: [{
+            address: UTH2_TOKEN,
+            abi: APPROVE_ABI_FRAG,
             functionName: 'approve',
-            args: [H2O_STAKING_ADDRESS, maxUint],
-          },
-          {
-            address: H2O_STAKING_ADDRESS, abi: BUY_VIP_ABI_FRAG,
-            functionName: 'buyVIP',
-            args: [months.toString()],
-          },
-        ],
+            args: [H2O_STAKING_ADDRESS, totalCost.toString()],
+          }],
+        })
+        if (ap.status !== 'success') {
+          setTxLoading(false)
+          return showMsg('Aprobación cancelada', false)
+        }
+        // Brief pause so the node sees the approval before simulating buyVIP
+        await new Promise(r => setTimeout(r, 2000))
+      }
+
+      // TX 2 — buyVIP (separate TX, World App simulates with the allowance already on-chain)
+      showMsg('Paso 2/2 · Activando VIP…', true)
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS,
+          abi: BUY_VIP_ABI_FRAG,
+          functionName: 'buyVIP',
+          args: [months.toString()],
+        }],
       })
       if (finalPayload.status === 'success') {
-        showMsg(`✓ ¡VIP activado por ${months} mes${months !== 1 ? 'es' : ''}! Bienvenido 👑`, true)
-        setTimeout(loadInfo, 2000)
-      } else showMsg('Transacción cancelada', false)
-    } catch (e: any) { showMsg(e.message || 'Error', false) }
+        showMsg(`✓ ¡VIP activado por ${months} mes${months !== 1 ? 'es' : ''}! 👑 Bienvenido`, true)
+        setTimeout(loadInfo, 2500)
+      } else {
+        showMsg('VIP cancelado', false)
+      }
+    } catch (e: any) { showMsg(e.message || 'Error al comprar VIP', false) }
     finally { setTxLoading(false) }
   }
 
