@@ -161,7 +161,7 @@ function VIPBanner({ vipPrice, vipExpiry, uth2Balance, ownerVipPending, onBuy, o
             <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-[10px] text-yellow-400 font-semibold uppercase tracking-wide">Ganancias VIP pool</p>
-                <p className="text-base font-bold text-yellow-300">{formatToken(ownerVipPending, 18, 4)} UTH2</p>
+                <p className="text-base font-bold text-yellow-300">{formatToken(ownerVipPending, 18, 4)} H2O</p>
                 <p className="text-[10px] text-muted-foreground">pendiente de reclamar</p>
               </div>
               <Button size="sm" className="bg-yellow-500 hover:bg-yellow-400 text-black font-bold shrink-0"
