@@ -35,6 +35,15 @@ const OLD_CLAIM_ABI = [{
   inputs: [], outputs: [],
 }] as const
 
+// ── Telegram icon ─────────────────────────────────────────────────────────
+function TelegramIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.289c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.656-.643.136-.953l11.57-4.461c.537-.194 1.006.121.833.932z" />
+    </svg>
+  )
+}
+
 // ── Live pending counter (Synthetix-style) ────────────────────────────────
 // rewardRate is total wei/second across all stakers
 // userShare = staked / totalStaked
@@ -805,6 +814,32 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   return (
     <div className="space-y-4">
 
+      {/* ── Invite banner: visible al tope cuando el usuario llegó con link ── */}
+      {pendingRef && (!info?.referrer || info.referrer === ethers.ZeroAddress) && (
+        <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-cyan-950/70 to-blue-950/50 p-3 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-cyan-500/20 flex items-center justify-center shrink-0">
+            <Users className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-cyan-300">🔗 ¡Alguien te invitó a Acua!</p>
+            <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+              Invitador: <span className="font-mono text-cyan-400">{shortenAddress(pendingRef)}</span>
+              {' · '}Confirma 1 tx y ambos ganan comisiones.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            className="shrink-0 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold px-3"
+            onClick={() => doRegisterRef(pendingRef)}
+            disabled={txLoading}
+          >
+            {txLoading
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : 'Registrar'}
+          </Button>
+        </div>
+      )}
+
       {/* ── Hero card ─────────────────────────────────────────────────── */}
       <div className="relative rounded-2xl overflow-hidden border border-cyan-500/20 bg-gradient-to-br from-cyan-950/50 via-blue-950/40 to-indigo-950/50">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-cyan-500/10 via-transparent to-transparent pointer-events-none" />
@@ -842,9 +877,20 @@ export function StakePanel({ userAddress }: StakePanelProps) {
                 </div>
               </div>
             </div>
-            <button onClick={loadInfo} disabled={loadingData} className="text-muted-foreground hover:text-cyan-400 transition-colors">
-              <RefreshCw className={cn('w-4 h-4', loadingData && 'animate-spin')} />
-            </button>
+            <div className="flex items-center gap-2.5">
+              <a
+                href="https://t.me/AcuaCompany"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground hover:text-[#2AABEE] transition-colors"
+                title="Comunidad Telegram"
+              >
+                <TelegramIcon className="w-4 h-4" />
+              </a>
+              <button onClick={loadInfo} disabled={loadingData} className="text-muted-foreground hover:text-cyan-400 transition-colors">
+                <RefreshCw className={cn('w-4 h-4', loadingData && 'animate-spin')} />
+              </button>
+            </div>
           </div>
 
           {/* Stats */}

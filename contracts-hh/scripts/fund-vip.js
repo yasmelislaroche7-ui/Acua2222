@@ -14,7 +14,7 @@ const { ethers } = require("hardhat");
 // ── Configuración ──────────────────────────────────────────────────────────
 const VIP_CONTRACT = "0x4cA4073b15177A5c84635158Bc9D8B9698115184";
 const H2O_TOKEN    = "0x17392e5483983945dEB92e0518a8F2C4eB6bA59d";
-const FUND_AMOUNT  = "10000"; // H2O a depositar como rewards (ajusta según necesites)
+const FUND_AMOUNT  = "1000"; // H2O a depositar como rewards (ajusta según necesites)
 // ──────────────────────────────────────────────────────────────────────────
 
 const ERC20_ABI = [
