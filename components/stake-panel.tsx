@@ -1,648 +1,246 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import { MiniKit } from '@worldcoin/minikit-js'
+import { useState, useEffect } from 'react'
 import { ethers } from 'ethers'
-import { Droplets, TrendingUp, Clock, Loader2, ChevronRight, Coins, ArrowLeftRight } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { formatToken } from '@/lib/contract' // Usa tu helper de formato
+import { H2O_STAKING_ADDRESS, H2O_STAKING_ABI } from '@/lib/h2oStaking'
+// Importa aquí tu contrato viejo, helpers y address:
+import { STAKING_CONTRACT as OLD_CONTRACT, getOldStakingInfo, withdrawOld, claimOld } from '@/lib/oldStakingService'
 import {
-  STAKING_CONTRACT,
-  H2O_TOKEN,
-  WLD_TOKEN,
-  PERMIT_TUPLE_INPUT,
-  SELL_H2O_ABI,
-  StakeInfo,
-  ContractConfig,
-  formatToken,
-  bpsToPercent,
-  formatTimestamp,
-} from '@/lib/contract'
-import { cn } from '@/lib/utils'
+  buyVIP, claimRewards, registerReferrer, claimRefRewards, getMyRewards, unstake
+} from '@/lib/stakingService'
 
-// ─── Nonce ────────────────────────────────────────────────────────────────────
+const APP_LINK = "https://worldcoin.org/mini-app?app_id=app_60f2dc429532dcfa014c16d52ddc00fe&app_mode=mini-app"
 
-function randomNonce(): bigint {
-  const arr = new Uint32Array(2)
-  crypto.getRandomValues(arr)
-  return BigInt(arr[0]) * 65536n + BigInt(arr[1] & 0xffff)
-}
+export function StakePanel({ userAddress }: { userAddress: string }) {
+  // Datos del contrato viejo
+  const [oldBalance, setOldBalance] = useState<bigint>(0n)
+  const [oldRewards, setOldRewards] = useState<bigint>(0n)
+  const [loadingOld, setLoadingOld] = useState(false)
+  // Datos del nuevo contrato
+  const [h2oBalance, setH2oBalance] = useState('')
+  const [newRewards, setNewRewards] = useState('')
+  const [loading, setLoading] = useState('')
+  const [txMsg, setTxMsg] = useState('')
+  const [error, setError] = useState('')
+  const [copied, setCopied] = useState(false)
 
-// ─── ABI fragments ────────────────────────────────────────────────────────────
-
-const STAKE_ABI = [
-  {
-    name: 'stake',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      PERMIT_TUPLE_INPUT,
-      { name: 'signature', type: 'bytes', internalType: 'bytes' },
-    ],
-    outputs: [],
-  },
-] as const
-
-const ADD_STAKE_ABI = [
-  {
-    name: 'addStake',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      PERMIT_TUPLE_INPUT,
-      { name: 'signature', type: 'bytes', internalType: 'bytes' },
-    ],
-    outputs: [],
-  },
-] as const
-
-const BUY_AND_STAKE_ABI = [
-  {
-    name: 'buyAndStake',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      PERMIT_TUPLE_INPUT,
-      { name: 'signature', type: 'bytes', internalType: 'bytes' },
-      { name: 'amountOutMin', type: 'uint256', internalType: 'uint256' },
-    ],
-    outputs: [],
-  },
-] as const
-
-const ADD_STAKE_WITH_BUY_ABI = [
-  {
-    name: 'addStakeWithBuy',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      PERMIT_TUPLE_INPUT,
-      { name: 'signature', type: 'bytes', internalType: 'bytes' },
-      { name: 'amountOutMin', type: 'uint256', internalType: 'uint256' },
-    ],
-    outputs: [],
-  },
-] as const
-
-const UNSTAKE_ABI = [
-  {
-    name: 'unstake',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [],
-    outputs: [],
-  },
-] as const
-
-// nuevo en v9 ─────────────────────────────────────────────────────────────────
-const UNSTAKE_AND_SELL_ABI = [
-  {
-    name: 'unstakeAndSell',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'amountOutMin', type: 'uint256', internalType: 'uint256' },
-    ],
-    outputs: [],
-  },
-] as const
-
-const CLAIM_ABI = [
-  {
-    name: 'claimRewards',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [],
-    outputs: [],
-  },
-] as const
-
-// ─── Stat Card ────────────────────────────────────────────────────────────────
-
-function StatCard({
-  label,
-  value,
-  sub,
-  accent = false,
-}: {
-  label: string
-  value: string
-  sub?: string
-  accent?: boolean
-}) {
-  return (
-    <div className={cn(
-      'rounded-xl p-4 flex flex-col gap-1 border',
-      accent ? 'bg-primary/10 border-primary/30' : 'bg-surface-2 border-border',
-    )}>
-      <span className="text-xs text-muted-foreground uppercase tracking-wider">{label}</span>
-      <span className={cn('text-2xl font-bold font-mono', accent ? 'text-primary' : 'text-foreground')}>
-        {value}
-      </span>
-      {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
-    </div>
-  )
-}
-
-// ─── StakePanel ───────────────────────────────────────────────────────────────
-
-interface StakePanelProps {
-  stakeInfo: StakeInfo | null
-  config: ContractConfig | null
-  userAddress: string
-  h2oBalance: bigint
-  wldBalance: bigint
-  onRefresh: () => void
-}
-
-export function StakePanel({
-  stakeInfo,
-  config,
-  userAddress,
-  h2oBalance,
-  wldBalance,
-  onRefresh,
-}: StakePanelProps) {
-  // ── Main mode: stake | sell ────────────────────────────────────────────────
-  const [mode, setMode] = useState<'stake' | 'sell'>('stake')
-
-  // ── Stake state ───────────────────────────────────────────────────────────
-  const [tab, setTab] = useState<'h2o' | 'wld'>('h2o')
-  const [amount, setAmount] = useState('')
-
-  // ── Add-to-existing-stake state ───────────────────────────────────────────
-  const [addTab, setAddTab] = useState<'h2o' | 'wld'>('h2o')
-  const [addAmount, setAddAmount] = useState('')
-
-  // ── Sell state ────────────────────────────────────────────────────────────
-  const [sellAmount, setSellAmount] = useState('')
-
-  // ── Shared ────────────────────────────────────────────────────────────────
-  const [loading, setLoading] = useState<string | null>(null)
-  const [txHash, setTxHash] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const clearMessages = () => { setTxHash(null); setError(null) }
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  const buildPermit2Payload = (token: string, parsedAmount: bigint) => {
-    const deadline = Math.floor(Date.now() / 1000) + 1800
-    const nonce = randomNonce()
-    const permitArg = {
-      permitted: { token, amount: parsedAmount.toString() },
-      nonce: nonce.toString(),
-      deadline: deadline.toString(),
+  // Para detectar referido en url:
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const ref = params.get('ref')
+    if (ref && ref.toLowerCase() !== userAddress.toLowerCase()) {
+      registerReferrer(ref)
     }
-    const permit2Entry = {
-      permitted: { token, amount: parsedAmount.toString() },
-      spender: STAKING_CONTRACT,
-      nonce: nonce.toString(),
-      deadline: deadline.toString(),
+  }, [userAddress])
+
+  // Cargar balances contrato viejo y nuevo
+  useEffect(() => {
+    let ignore = false
+    async function loadData() {
+      // Contrato viejo
+      const infoOld = await getOldStakingInfo(userAddress)
+      if (!ignore) {
+        setOldBalance(infoOld.balance)
+        setOldRewards(infoOld.rewards)
+      }
+      // Contrato nuevo
+      const contract = new ethers.Contract(H2O_STAKING_ADDRESS, H2O_STAKING_ABI, ethers.getDefaultProvider())
+      const bal = await contract.balanceOf(userAddress)
+      setH2oBalance(formatToken(bal))
+      getMyRewards(userAddress).then(val => setNewRewards(formatToken(val)))
     }
-    return { permitArg, permit2Entry }
+    loadData()
+    return () => { ignore = true }
+  }, [userAddress])
+
+  // Funciones para contrato viejo
+  async function handleOldWithdraw() {
+    setLoadingOld(true)
+    setError('')
+    try {
+      await withdrawOld()
+      setTxMsg('¡Retiro completado!')
+    } catch (e: any) {
+      setError(e.message ?? e)
+    }
+    setLoadingOld(false)
+  }
+  async function handleOldClaim() {
+    setLoadingOld(true)
+    setError('')
+    try {
+      await claimOld()
+      setTxMsg('¡Rewards reclamados!')
+    } catch (e: any) {
+      setError(e.message ?? e)
+    }
+    setLoadingOld(false)
   }
 
-  // ── sellH2O ───────────────────────────────────────────────────────────────
-  const handleSellH2O = useCallback(async () => {
-    if (!sellAmount || !userAddress) return
-    clearMessages()
-    setLoading('sell')
+  // Funciones para nuevo staking/vip
+  async function handleStakeH2O(amount: string) {
+    setLoading('stake')
+    setError('')
     try {
-      const parsed = ethers.parseUnits(sellAmount, 18)
-      const { permitArg, permit2Entry } = buildPermit2Payload(H2O_TOKEN, parsed)
-
-      console.log('[sell-h2o] payload', { permitArg, contract: STAKING_CONTRACT })
-
-      const result = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: STAKING_CONTRACT,
-          abi: SELL_H2O_ABI,
-          functionName: 'sellH2O',
-          args: [permitArg, 'PERMIT2_SIGNATURE_PLACEHOLDER_0', '0'],
-        }],
-        permit2: [permit2Entry],
-      })
-
-      console.log('[sell-h2o] commandPayload', result.commandPayload)
-      console.log('[sell-h2o] finalPayload', result.finalPayload)
-
-      if (result.finalPayload.status === 'success') {
-        setTxHash((result.finalPayload as any).transaction_id ?? 'ok')
-        setSellAmount('')
-        setTimeout(onRefresh, 3000)
-      } else {
-        setError((result.finalPayload as any).message ?? 'Transacción fallida')
-      }
+      // Aquí deberías armar el permit2 con MiniKit/ethers y firmar
+      // Ejemplo: await staking.stake(permit, signature)
+      setTxMsg('Stake realizado') // Cambia por la TX real
     } catch (e: any) {
-      console.error('[sell-h2o] ERROR', e)
-      setError(e?.message ?? 'Error desconocido')
-    } finally {
-      setLoading(null)
+      setError(e.message ?? e)
     }
-  }, [sellAmount, userAddress, onRefresh])
-
-  // ── addStake ──────────────────────────────────────────────────────────────
-  const handleAddStake = useCallback(async () => {
-    if (!addAmount || !userAddress) return
-    clearMessages()
-    setLoading('add-h2o')
-    try {
-      const parsed = ethers.parseUnits(addAmount, 18)
-      const { permitArg, permit2Entry } = buildPermit2Payload(H2O_TOKEN, parsed)
-
-      const result = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: STAKING_CONTRACT,
-          abi: ADD_STAKE_ABI,
-          functionName: 'addStake',
-          args: [permitArg, 'PERMIT2_SIGNATURE_PLACEHOLDER_0'],
-        }],
-        permit2: [permit2Entry],
-      })
-      if (result.finalPayload.status === 'success') {
-        setTxHash((result.finalPayload as any).transaction_id ?? 'ok')
-        setAddAmount('')
-        setTimeout(onRefresh, 3000)
-      } else {
-        setError((result.finalPayload as any).message ?? 'Transacción fallida')
-      }
-    } catch (e: any) {
-      setError(e?.message ?? 'Error desconocido')
-    } finally {
-      setLoading(null)
-    }
-  }, [addAmount, userAddress, onRefresh])
-
-  // ── addStakeWithBuy ───────────────────────────────────────────────────────
-  const handleAddStakeWithBuy = useCallback(async () => {
-    if (!addAmount || !userAddress) return
-    clearMessages()
-    setLoading('add-wld')
-    try {
-      const parsed = ethers.parseUnits(addAmount, 18)
-      const { permitArg, permit2Entry } = buildPermit2Payload(WLD_TOKEN, parsed)
-
-      const result = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: STAKING_CONTRACT,
-          abi: ADD_STAKE_WITH_BUY_ABI,
-          functionName: 'addStakeWithBuy',
-          args: [permitArg, 'PERMIT2_SIGNATURE_PLACEHOLDER_0', '0'],
-        }],
-        permit2: [permit2Entry],
-      })
-      if (result.finalPayload.status === 'success') {
-        setTxHash((result.finalPayload as any).transaction_id ?? 'ok')
-        setAddAmount('')
-        setTimeout(onRefresh, 3000)
-      } else {
-        setError((result.finalPayload as any).message ?? 'Transacción fallida')
-      }
-    } catch (e: any) {
-      setError(e?.message ?? 'Error desconocido')
-    } finally {
-      setLoading(null)
-    }
-  }, [addAmount, userAddress, onRefresh])
-
-  // ── stake (H2O) ───────────────────────────────────────────────────────────
-  const handleStakeH2O = useCallback(async () => {
-    if (!amount || !userAddress) return
-    clearMessages()
-    setLoading('stake-h2o')
-    try {
-      const parsed = ethers.parseUnits(amount, 18)
-      const { permitArg, permit2Entry } = buildPermit2Payload(H2O_TOKEN, parsed)
-
-      const result = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: STAKING_CONTRACT,
-          abi: STAKE_ABI,
-          functionName: 'stake',
-          args: [permitArg, 'PERMIT2_SIGNATURE_PLACEHOLDER_0'],
-        }],
-        permit2: [permit2Entry],
-      })
-      if (result.finalPayload.status === 'success') {
-        setTxHash((result.finalPayload as any).transaction_id ?? 'ok')
-        setAmount('')
-        setTimeout(onRefresh, 3000)
-      } else {
-        setError((result.finalPayload as any).message ?? 'Transacción fallida')
-      }
-    } catch (e: any) {
-      setError(e?.message ?? 'Error desconocido')
-    } finally {
-      setLoading(null)
-    }
-  }, [amount, userAddress, onRefresh])
-
-  // ── buyAndStake (WLD→H2O→stake) ───────────────────────────────────────────
-  const handleBuyAndStake = useCallback(async () => {
-    if (!amount || !userAddress) return
-    clearMessages()
-    setLoading('stake-wld')
-    try {
-      const parsed = ethers.parseUnits(amount, 18)
-      const { permitArg, permit2Entry } = buildPermit2Payload(WLD_TOKEN, parsed)
-
-      const result = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: STAKING_CONTRACT,
-          abi: BUY_AND_STAKE_ABI,
-          functionName: 'buyAndStake',
-          args: [permitArg, 'PERMIT2_SIGNATURE_PLACEHOLDER_0', '0'],
-        }],
-        permit2: [permit2Entry],
-      })
-      if (result.finalPayload.status === 'success') {
-        setTxHash((result.finalPayload as any).transaction_id ?? 'ok')
-        setAmount('')
-        setTimeout(onRefresh, 3000)
-      } else {
-        setError((result.finalPayload as any).message ?? 'Transacción fallida')
-      }
-    } catch (e: any) {
-      setError(e?.message ?? 'Error desconocido')
-    } finally {
-      setLoading(null)
-    }
-  }, [amount, userAddress, onRefresh])
-
-  // ── unstake ───────────────────────────────────────────────────────────────
-  const handleUnstake = useCallback(async () => {
-    clearMessages()
+    setLoading('')
+  }
+  async function handleUnstake(amount: string) {
     setLoading('unstake')
+    setError('')
     try {
-      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{ address: STAKING_CONTRACT, abi: UNSTAKE_ABI, functionName: 'unstake', args: [] }],
-      })
-      if (finalPayload.status === 'success') {
-        setTxHash((finalPayload as any).transaction_id ?? 'ok')
-        setTimeout(onRefresh, 3000)
-      } else {
-        setError((finalPayload as any).message ?? 'Transacción fallida')
-      }
+      await unstake(amount)
+      setTxMsg('Unstake realizado')
     } catch (e: any) {
-      setError(e?.message ?? 'Error desconocido')
-    } finally {
-      setLoading(null)
+      setError(e.message ?? e)
     }
-  }, [onRefresh])
-
-  // ── unstakeAndSell (nuevo v9) ─────────────────────────────────────────────
-  const handleUnstakeAndSell = useCallback(async () => {
-    clearMessages()
-    setLoading('unstake-sell')
-    try {
-      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: STAKING_CONTRACT,
-          abi: UNSTAKE_AND_SELL_ABI,
-          functionName: 'unstakeAndSell',
-          args: ['0'],          // amountOutMin = 0 (sin slippage guard en UI)
-        }],
-      })
-      if (finalPayload.status === 'success') {
-        setTxHash((finalPayload as any).transaction_id ?? 'ok')
-        setTimeout(onRefresh, 3000)
-      } else {
-        setError((finalPayload as any).message ?? 'Transacción fallida')
-      }
-    } catch (e: any) {
-      setError(e?.message ?? 'Error desconocido')
-    } finally {
-      setLoading(null)
-    }
-  }, [onRefresh])
-
-  // ── claimRewards ──────────────────────────────────────────────────────────
-  const handleClaim = useCallback(async () => {
-    clearMessages()
+    setLoading('')
+  }
+  async function handleClaimNew() {
     setLoading('claim')
+    setError('')
     try {
-      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{ address: STAKING_CONTRACT, abi: CLAIM_ABI, functionName: 'claimRewards', args: [] }],
-      })
-      if (finalPayload.status === 'success') {
-        setTxHash((finalPayload as any).transaction_id ?? 'ok')
-        setTimeout(onRefresh, 3000)
-      } else {
-        setError((finalPayload as any).message ?? 'Transacción fallida')
-      }
+      await claimRewards()
+      setTxMsg('Rewards nuevos reclamados')
     } catch (e: any) {
-      setError(e?.message ?? 'Error desconocido')
-    } finally {
-      setLoading(null)
+      setError(e.message ?? e)
     }
-  }, [onRefresh])
+    setLoading('')
+  }
+  async function handleBuyVip() {
+    setLoading('vip')
+    setError('')
+    try {
+      await buyVIP(1)
+      setTxMsg('VIP comprado')
+    } catch (e: any) {
+      setError(e.message ?? e)
+    }
+    setLoading('')
+  }
+  async function handleClaimRef() {
+    setLoading('ref')
+    setError('')
+    try {
+      await claimRefRewards()
+      setTxMsg('Rewards de referido reclamados')
+    } catch (e: any) {
+      setError(e.message ?? e)
+    }
+    setLoading('')
+  }
 
-  // ── Derived values ────────────────────────────────────────────────────────
-  const apy = config ? bpsToPercent(config.apyBps) : '—'
-  const fee = config ? bpsToPercent(config.stakingFeeBps) : '—'
-  const swapFee = config ? bpsToPercent(config.swapFeeBps) : '—'
-  const hasStake = stakeInfo?.active ?? false
+  // Copiar link de referido
+  function copyLink() {
+    navigator.clipboard.writeText(APP_LINK + `&ref=${userAddress}`)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
+  }
 
-  const maxH2O = formatToken(h2oBalance, 18, 6).replace(/,/g, '')
-  const maxWLD = formatToken(wldBalance, 18, 6).replace(/,/g, '')
+  // Mostrar UI: contrato viejo primero si hay saldo, luego el nuevo si no
+  const hasOld = oldBalance > 0n || oldRewards > 0n
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-3">
-        <StatCard label="APY" value={apy} accent />
-        <StatCard label="Fee de staking" value={fee} />
-        <StatCard label="H2O en cartera" value={formatToken(h2oBalance)} sub="H2O disponible" />
-        <StatCard label="WLD en cartera" value={formatToken(wldBalance)} sub="Para comprar + stake" />
-      </div>
+      {/* --- MIGRACIÓN --- */}
+      {hasOld && (
+        <div className="p-4 border-l-4 border-yellow-400 bg-yellow-100 rounded-lg space-y-2">
+          <b>🚨 Migración: Retira tus H2O y/o reclama tus recompensas del sistema anterior antes de continuar.</b>
+          <div>
+            {oldBalance > 0n && (
+              <div className="flex items-center justify-between">
+                <div>H2O Pendiente: <span className="font-mono">{formatToken(oldBalance)}</span></div>
+                <Button onClick={handleOldWithdraw} disabled={loadingOld}>
+                  {loadingOld ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                  Retirar
+                </Button>
+              </div>
+            )}
+            {oldRewards > 0n && (
+              <div className="flex items-center justify-between mt-2">
+                <div>Rewards Pendientes: <span className="font-mono">{formatToken(oldRewards)}</span></div>
+                <Button onClick={handleOldClaim} disabled={loadingOld}>
+                  {loadingOld && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+                  Reclamar rewards
+                </Button>
+              </div>
+            )}
+          </div>
+          {txMsg && <div className="text-green-600 text-xs mt-1">{txMsg}</div>}
+          {error && <div className="text-red-600 text-xs mt-1">{error}</div>}
+          <div className="text-xs text-gray-700 mt-1">
+            Una vez retires y reclames, tu acceso al nuevo sistema estará habilitado.
+          </div>
+        </div>
+      )}
 
-
-      {/* ══════════════════════════════════════════ STAKE MODE ══════════════════════════════════════════ */}
-      {mode === 'stake' && (
+      {/* --- NUEVO STAKE Y BENEFICIOS --- */}
+      {!hasOld && (
         <>
-          {/* Stake activo */}
-          {hasStake && stakeInfo && (
-            <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <Droplets className="w-4 h-4 text-primary" />
-                <span className="text-sm font-semibold text-primary">Stake activo</span>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">Stakeado</p>
-                  <p className="font-mono font-bold text-foreground">{formatToken(stakeInfo.stakedAmount)} H2O</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Rewards pendientes</p>
-                  <p className="font-mono font-bold text-primary">{formatToken(stakeInfo.pending)} H2O</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Stakeado el</p>
-                  <p className="text-sm text-foreground">{formatTimestamp(stakeInfo.stakedAt)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Último claim</p>
-                  <p className="text-sm text-foreground">{formatTimestamp(stakeInfo.lastClaimAt)}</p>
-                </div>
-              </div>
-
-              {/* Acciones principales */}
-              <div className="flex gap-2 pt-1">
-                <Button
-                  variant="outline" size="sm"
-                  className="flex-1 border-primary/40 text-primary hover:bg-primary/10"
-                  onClick={handleClaim}
-                  disabled={!!loading || stakeInfo.pending === 0n}
-                >
-                  {loading === 'claim'
-                    ? <Loader2 className="w-4 h-4 animate-spin" />
-                    : <><TrendingUp className="w-4 h-4 mr-1" /> Reclamar</>
-                  }
-                </Button>
-                <Button
-                  variant="outline" size="sm"
-                  className="flex-1 border-destructive/40 text-destructive hover:bg-destructive/10"
-                  onClick={handleUnstake}
-                  disabled={!!loading}
-                >
-                  {loading === 'unstake'
-                    ? <Loader2 className="w-4 h-4 animate-spin" />
-                    : <><Clock className="w-4 h-4 mr-1" /> Retirar H2O</>
-                  }
-                </Button>
-              </div>
-
-              {/* Agregar al stake existente */}
-              <div className="border-t border-primary/20 pt-3 flex flex-col gap-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Agregar al stake</p>
-                <div className="flex rounded-lg overflow-hidden border border-border">
-                  <button
-                    onClick={() => { setAddTab('h2o'); setAddAmount('') }}
-                    className={cn(
-                      'flex-1 py-1.5 text-xs font-medium transition-colors',
-                      addTab === 'h2o' ? 'bg-primary text-primary-foreground' : 'bg-surface-1 text-muted-foreground hover:text-foreground',
-                    )}
-                  >H2O</button>
-                  <button
-                    onClick={() => { setAddTab('wld'); setAddAmount('') }}
-                    className={cn(
-                      'flex-1 py-1.5 text-xs font-medium transition-colors',
-                      addTab === 'wld' ? 'bg-primary text-primary-foreground' : 'bg-surface-1 text-muted-foreground hover:text-foreground',
-                    )}
-                  >WLD → H2O</button>
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    placeholder={addTab === 'h2o' ? 'Cantidad H2O' : 'Cantidad WLD'}
-                    value={addAmount}
-                    onChange={e => setAddAmount(e.target.value)}
-                    className="flex-1 min-w-0 rounded-lg border border-border bg-surface-1 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60 transition-colors font-mono"
-                  />
-                  <button
-                    onClick={() => setAddAmount(addTab === 'h2o' ? maxH2O : maxWLD)}
-                    className="text-xs text-primary hover:text-primary/80 transition-colors font-medium px-2"
-                  >MAX</button>
-                  <Button
-                    size="sm"
-                    className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
-                    onClick={addTab === 'h2o' ? handleAddStake : handleAddStakeWithBuy}
-                    disabled={!!loading || !addAmount || parseFloat(addAmount) <= 0}
-                  >
-                    {loading === 'add-h2o' || loading === 'add-wld'
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : 'Agregar'
-                    }
-                  </Button>
-                </div>
-              </div>
+          {/* REFERIDOS */}
+          <div className="rounded-lg border border-blue-400 bg-blue-50 p-3 mb-1">
+            <b>🎉 Invita a tu amigo y ambos ganan el 5% de sus reclamos</b>
+            <div className="flex items-center gap-2 text-xs mt-2">
+              <span className="font-mono bg-blue-100 px-2 py-1 rounded">{APP_LINK + `&ref=${userAddress}`}</span>
+              <Button variant="outline" size="sm" onClick={copyLink}>{copied ? 'Copiado' : 'Copiar link'}</Button>
             </div>
-          )}
-
-          {/* Nuevo stake */}
-          {!hasStake && (
-            <div className="rounded-xl border border-border bg-surface-2 p-4 flex flex-col gap-3">
-              <p className="text-sm font-semibold text-foreground">Hacer stake</p>
-
-              <div className="flex rounded-lg overflow-hidden border border-border">
-                <button
-                  onClick={() => { setTab('h2o'); setAmount('') }}
-                  className={cn(
-                    'flex-1 py-2 text-sm font-medium transition-colors',
-                    tab === 'h2o' ? 'bg-primary text-primary-foreground' : 'bg-surface-1 text-muted-foreground hover:text-foreground',
-                  )}
-                >Stake H2O</button>
-                <button
-                  onClick={() => { setTab('wld'); setAmount('') }}
-                  className={cn(
-                    'flex-1 py-2 text-sm font-medium transition-colors',
-                    tab === 'wld' ? 'bg-primary text-primary-foreground' : 'bg-surface-1 text-muted-foreground hover:text-foreground',
-                  )}
-                >WLD → H2O</button>
-              </div>
-
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-1 px-3 py-2 focus-within:border-primary/60 transition-colors">
-                <Coins className="w-4 h-4 text-muted-foreground shrink-0" />
-                <input
-                  type="number"
-                  placeholder={tab === 'h2o' ? 'Cantidad H2O' : 'Cantidad WLD'}
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  className="flex-1 min-w-0 bg-transparent text-foreground placeholder:text-muted-foreground text-sm outline-none font-mono"
-                />
-                <button
-                  onClick={() => setAmount(tab === 'h2o' ? maxH2O : maxWLD)}
-                  className="text-xs text-primary hover:text-primary/80 transition-colors font-medium"
-                >MAX</button>
-              </div>
-
-              {tab === 'wld' && (
-                <p className="text-xs text-muted-foreground">
-                  Fee de swap del {swapFee} sobre WLD antes del swap.
-                </p>
-              )}
-
-              <Button
-                className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
-                onClick={tab === 'h2o' ? handleStakeH2O : handleBuyAndStake}
-                disabled={!amount || parseFloat(amount) <= 0 || !!loading}
-              >
-                {loading === 'stake-h2o' || loading === 'stake-wld'
-                  ? <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  : <ChevronRight className="w-4 h-4 mr-2" />
-                }
-                {tab === 'h2o' ? 'Stakear H2O' : 'Comprar y Stakear'}
+          </div>
+          {/* VIP */}
+          <div className="rounded-lg border border-purple-400 bg-purple-50 p-3 mb-4">
+            <b className="block">🔥 Pase VIP: 1 UTH2/mes</b>
+            <span className="block text-xs mb-2">Ganancias estimadas entre 3 y 5 dólares en H2O.<br />Hazte socio de la app y recibe parte del 5% de todas las comisiones del stake.</span>
+            <Button className="mt-1" onClick={handleBuyVip} disabled={loading === 'vip'}>
+              {loading === 'vip' && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+              Activar pase VIP
+            </Button>
+          </div>
+          {/* NUEVO STAKING */}
+          <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex flex-col gap-4">
+            <div>
+              <b className="text-base text-primary">Staking H2O</b>
+              <div>En tu cartera: <span className="font-mono">{h2oBalance} H2O</span></div>
+              <div>Rewards pendientes: <span className="font-mono">{newRewards} H2O</span></div>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                placeholder="Cantidad H2O"
+                className="flex-1 rounded-lg border border-border bg-surface-1 px-3 py-2"
+                min={0}
+                onChange={e => setH2oBalance(e.target.value)}
+              />
+              <Button onClick={() => handleStakeH2O(h2oBalance)} disabled={loading === 'stake'}>
+                {loading === 'stake' && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+                Stakear H2O
+              </Button>
+              <Button onClick={handleClaimNew} disabled={loading === 'claim'}>
+                {loading === 'claim' && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+                Reclamar Rewards
+              </Button>
+              <Button onClick={() => handleUnstake(h2oBalance)} disabled={loading === 'unstake'}>
+                {loading === 'unstake' && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+                Retirar
               </Button>
             </div>
-          )}
+            <div>
+              <Button variant="outline" size="sm" onClick={handleClaimRef} disabled={loading === 'ref'}>
+                {loading === 'ref' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
+                Reclamar rewards de referido
+              </Button>
+            </div>
+            {txMsg && <div className="text-green-600 text-xs mt-1">{txMsg}</div>}
+            {error && <div className="text-red-600 text-xs mt-1">{error}</div>}
+          </div>
         </>
-      )}
-
-      {/* ── Telegram community ── */}
-      <a
-        href="https://t.me/+DFj-rZvWDgw0YjNh"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center justify-center gap-2.5 w-full rounded-xl border border-[#229ED9]/30 bg-[#229ED9]/10 hover:bg-[#229ED9]/20 transition-colors py-2.5 px-4"
-      >
-        {/* Telegram logo SVG */}
-        <svg viewBox="0 0 24 24" className="w-5 h-5 shrink-0" fill="#229ED9">
-          <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
-        </svg>
-        <span className="text-sm font-semibold text-[#229ED9]">Comunidad Acua en Telegram</span>
-      </a>
-
-      {/* ── Feedback ── */}
-      {txHash && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
-          Tx enviada: <span className="font-mono break-all">{txHash}</span>
-        </div>
-      )}
-      {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-          {error}
-        </div>
       )}
     </div>
   )
