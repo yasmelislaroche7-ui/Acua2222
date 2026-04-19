@@ -192,31 +192,43 @@ function VIPBanner({ vipPrice, vipExpiry, uth2Balance, onBuy, loading }: VIPBann
 }
 
 // ── Referral section ──────────────────────────────────────────────────────
+const MINIAPP_URL = 'https://worldcoin.org/mini-app?app_id=app_60f2dc429532dcfa014c16d52ddc00fe&app_mode=mini-app'
+
 interface ReferralSectionProps {
   userAddress: string
   referrer: string
+  refCount: bigint
   refPending: bigint
+  pendingRef: string | null   // ?ref= from URL — auto-propose registration
   onRegister: (addr: string) => Promise<void>
   onClaimRef: () => Promise<void>
   loading: boolean
 }
-function ReferralSection({ userAddress, referrer, refPending, onRegister, onClaimRef, loading }: ReferralSectionProps) {
+function ReferralSection({ userAddress, referrer, refCount, refPending, pendingRef, onRegister, onClaimRef, loading }: ReferralSectionProps) {
   const [expanded, setExpanded]   = useState(false)
   const [refInput, setRefInput]   = useState('')
   const [refMsg, setRefMsg]       = useState('')
   const { copied, copy }          = useCopy()
-  const hasReferrer  = referrer && referrer !== ethers.ZeroAddress
+  const hasReferrer   = referrer && referrer !== ethers.ZeroAddress
   const hasRefRewards = refPending > 0n
+  const myRefCount    = Number(refCount)
 
-  const referralLink = typeof window !== 'undefined'
-    ? `${window.location.origin}?ref=${userAddress}`
-    : `https://acua.world/stake?ref=${userAddress}`
+  // Auto-expand and pre-fill if pending ref from URL
+  useEffect(() => {
+    if (pendingRef && !hasReferrer) {
+      setExpanded(true)
+      setRefInput(pendingRef)
+    }
+  }, [pendingRef, hasReferrer])
 
-  const handleRegister = async () => {
-    if (!ethers.isAddress(refInput)) { setRefMsg('Dirección inválida'); return }
-    if (refInput.toLowerCase() === userAddress.toLowerCase()) { setRefMsg('No puedes referirte a ti mismo'); return }
+  const referralLink = `${MINIAPP_URL}&ref=${userAddress}`
+
+  const handleRegister = async (addr?: string) => {
+    const target = addr ?? refInput
+    if (!ethers.isAddress(target)) { setRefMsg('Dirección inválida'); return }
+    if (target.toLowerCase() === userAddress.toLowerCase()) { setRefMsg('No puedes referirte a ti mismo'); return }
     setRefMsg('')
-    await onRegister(refInput)
+    await onRegister(target)
     setRefInput('')
   }
 
@@ -231,6 +243,11 @@ function ReferralSection({ userAddress, referrer, refPending, onRegister, onClai
           <div className="text-left">
             <div className="flex items-center gap-2">
               <p className="text-sm font-bold text-cyan-300">Invita · Ambos ganan</p>
+              {myRefCount > 0 && (
+                <span className="text-[9px] font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-1.5 py-0.5 rounded-full">
+                  {myRefCount} referido{myRefCount !== 1 ? 's' : ''}
+                </span>
+              )}
               {hasRefRewards && (
                 <span className="text-[9px] font-bold bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded-full animate-pulse">
                   REWARDS!
@@ -247,19 +264,51 @@ function ReferralSection({ userAddress, referrer, refPending, onRegister, onClai
 
       {expanded && (
         <div className="px-4 pb-4 space-y-3 border-t border-border/50 pt-3">
+
+          {/* Auto-register banner from URL ref param */}
+          {pendingRef && !hasReferrer && (
+            <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-3">
+              <p className="text-xs font-semibold text-cyan-300 mb-1">🔗 ¡Te invitó alguien!</p>
+              <p className="text-xs text-muted-foreground mb-2">
+                Registra a <span className="font-mono text-cyan-400">{shortenAddress(pendingRef)}</span> como tu referido para que ambos ganen comisiones.
+              </p>
+              <Button size="sm" className="w-full bg-cyan-600 hover:bg-cyan-700 text-white"
+                onClick={() => handleRegister(pendingRef)} disabled={loading}>
+                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Check className="w-3.5 h-3.5 mr-1" />}
+                Registrar referido
+              </Button>
+            </div>
+          )}
+
+          {/* Stats: mis referidos */}
+          {myRefCount > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-black/20 rounded-xl p-2.5 text-center border border-white/5">
+                <p className="text-[10px] text-muted-foreground mb-0.5">Mis referidos</p>
+                <p className="text-lg font-bold text-cyan-300">{myRefCount}</p>
+                <p className="text-[9px] text-muted-foreground">personas</p>
+              </div>
+              <div className="bg-black/20 rounded-xl p-2.5 text-center border border-white/5">
+                <p className="text-[10px] text-muted-foreground mb-0.5">Comisiones</p>
+                <p className="text-lg font-bold text-green-300">{formatToken(refPending, 18, 4)}</p>
+                <p className="text-[9px] text-muted-foreground">H2O pendiente</p>
+              </div>
+            </div>
+          )}
+
           {/* How it works */}
           <div className="bg-black/20 rounded-xl p-3 space-y-1.5">
             <p className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" /> ¿Cómo funciona?
             </p>
             <p className="text-xs text-muted-foreground">🔗 Comparte tu enlace con amigos</p>
-            <p className="text-xs text-muted-foreground">✅ Tu amigo te registra como referido</p>
-            <p className="text-xs text-muted-foreground">💰 Cada vez que reclame, 5% va al pool de referidos que tú cobras</p>
+            <p className="text-xs text-muted-foreground">✅ Tu amigo abre el link y confirma en 1 clic</p>
+            <p className="text-xs text-muted-foreground">💰 Cada vez que reclame, 5% va al pool de referidos para ti</p>
           </div>
 
           {/* Referral link */}
           <div>
-            <p className="text-xs text-muted-foreground mb-1.5">Tu enlace de referido</p>
+            <p className="text-xs text-muted-foreground mb-1.5">Tu enlace de referido (World App)</p>
             <div className="flex items-center gap-2 bg-black/30 border border-border rounded-lg px-3 py-2">
               <span className="text-xs text-cyan-300 truncate flex-1 font-mono">{referralLink}</span>
               <button onClick={() => copy(referralLink)}
@@ -269,33 +318,33 @@ function ReferralSection({ userAddress, referrer, refPending, onRegister, onClai
             </div>
           </div>
 
-          {/* Register referrer */}
-          {!hasReferrer ? (
+          {/* Register referrer — for existing users without a referrer */}
+          {!hasReferrer && !pendingRef ? (
             <div>
-              <p className="text-xs text-muted-foreground mb-1.5">¿Alguien te invitó? Registra su dirección y gana ambos</p>
+              <p className="text-xs text-muted-foreground mb-1.5">¿Alguien te invitó? Ingresa su wallet y ganan ambos</p>
               <div className="flex gap-2">
                 <input type="text" value={refInput} onChange={e => setRefInput(e.target.value)}
                   placeholder="Dirección 0x..."
                   className="flex-1 bg-black/30 border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-cyan-500" />
                 <Button size="sm" className="bg-cyan-600 hover:bg-cyan-700 text-white shrink-0"
-                  onClick={handleRegister} disabled={loading || !refInput}>
+                  onClick={() => handleRegister()} disabled={loading || !refInput}>
                   {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Registrar'}
                 </Button>
               </div>
               {refMsg && <p className="text-xs text-red-400 mt-1">{refMsg}</p>}
             </div>
-          ) : (
+          ) : hasReferrer ? (
             <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
               <Check className="w-3.5 h-3.5 text-green-400 shrink-0" />
-              <p className="text-xs text-green-300">Referido activo: {shortenAddress(referrer)}</p>
+              <p className="text-xs text-green-300">Tu referido: {shortenAddress(referrer)}</p>
             </div>
-          )}
+          ) : null}
 
           {/* Pending ref rewards */}
           {hasRefRewards && (
             <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-3 flex items-center justify-between">
               <div>
-                <p className="text-xs text-green-400">Tus comisiones pendientes</p>
+                <p className="text-xs text-green-400">Comisiones pendientes</p>
                 <p className="text-base font-bold text-green-300">{formatToken(refPending)} H2O</p>
               </div>
               <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={onClaimRef} disabled={loading}>
@@ -440,6 +489,15 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   const [amount, setAmount]       = useState('')
   const [txLoading, setTxLoading] = useState(false)
   const [msg, setMsg]             = useState<{ text: string; ok: boolean } | null>(null)
+  const [pendingRef, setPendingRef] = useState<string | null>(null)
+
+  // Read ?ref= param from URL on mount (Worldcoin mini-app passes it)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const ref = params.get('ref')
+    if (ref && ethers.isAddress(ref)) setPendingRef(ref)
+  }, [])
 
   const staked       = info?.staked       ?? 0n
   const earned       = info?.earned       ?? 0n
@@ -575,7 +633,8 @@ export function StakePanel({ userAddress }: StakePanelProps) {
         }],
       })
       if (finalPayload.status === 'success') {
-        showMsg('✓ Referido registrado correctamente', true)
+        showMsg('✓ ¡Referido registrado! Ambos ganarán comisiones', true)
+        setPendingRef(null)   // clear URL param banner once registered
         setTimeout(loadInfo, 2000)
       } else showMsg('Transacción cancelada', false)
     } catch (e: any) { showMsg(e.message || 'Error', false) }
@@ -653,14 +712,18 @@ export function StakePanel({ userAddress }: StakePanelProps) {
                 <h2 className="text-base font-bold text-foreground">Stake H2O V2</h2>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className={cn(
-                    'text-[10px] font-bold px-1.5 py-0.5 rounded-full border',
+                    'text-xs font-bold px-2 py-0.5 rounded-full border',
                     apyDisplay === '—'
                       ? 'bg-muted/20 text-muted-foreground border-border'
-                      : apyDisplay === 'Pool activo'
-                        ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                        : 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                      : 'bg-green-500/20 text-green-400 border-green-500/30'
                   )}>
-                    APY {loadingData ? '…' : apyDisplay}
+                    APY{' '}
+                    <span className={cn(
+                      'font-extrabold',
+                      apyDisplay === '—' ? 'text-muted-foreground' : 'text-green-300 text-sm'
+                    )}>
+                      {loadingData ? '…' : apyDisplay}
+                    </span>
                   </span>
                   <span className="text-[10px] text-muted-foreground">
                     Fee depósito {Number(depFee) / 100}% · Retiro {Number(withFee) / 100}% · Claim {Number(clmFee) / 100}%
@@ -856,7 +919,13 @@ export function StakePanel({ userAddress }: StakePanelProps) {
       <ReferralSection
         userAddress={userAddress}
         referrer={info?.referrer ?? ethers.ZeroAddress}
+        refCount={info?.refCount ?? 0n}
         refPending={info?.refPending ?? 0n}
+        pendingRef={
+          pendingRef && (info?.referrer === ethers.ZeroAddress || !info?.referrer)
+            ? pendingRef
+            : null
+        }
         onRegister={doRegisterRef}
         onClaimRef={doClaimRef}
         loading={txLoading}
@@ -868,7 +937,11 @@ export function StakePanel({ userAddress }: StakePanelProps) {
       {/* ── Footer ────────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border bg-black/20 p-3">
         <div className="flex items-center justify-center gap-3 flex-wrap text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3 text-cyan-400" />APY {apyDisplay}</span>
+          <span className="flex items-center gap-1">
+            <TrendingUp className="w-3 h-3 text-green-400" />
+            <span>APY </span>
+            <span className={apyDisplay !== '—' ? 'text-green-400 font-bold' : ''}>{apyDisplay}</span>
+          </span>
           <span className="w-px h-3 bg-border" />
           <span className="flex items-center gap-1"><Star className="w-3 h-3 text-yellow-400" />VIP Pool UTH2</span>
           <span className="w-px h-3 bg-border" />

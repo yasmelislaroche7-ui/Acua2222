@@ -119,6 +119,7 @@ export interface H2OStakeInfo {
   staked: bigint          // users[addr].balance
   earned: bigint          // earned(addr)  — real-time
   refPending: bigint      // refCount * (refPerShare - refRewardDebt) / 1e18
+  refCount: bigint        // refCount[addr] — number of people who registered you as referrer
   referrer: string        // referrerOf[addr]
   vipExpiry: bigint       // vipExpire[addr]
   vipPrice: bigint        // vipPrice()
@@ -182,6 +183,7 @@ export async function fetchH2OStakeInfo(userAddress: string): Promise<H2OStakeIn
     staked,
     earned:        ok<bigint>(3,  0n),
     refPending,
+    refCount:      ok<bigint>(9,  0n),
     referrer:      ok<string>(8,  ethers.ZeroAddress),
     vipExpiry:     ok<bigint>(12, 0n),
     vipPrice:      ok<bigint>(13, 0n),
