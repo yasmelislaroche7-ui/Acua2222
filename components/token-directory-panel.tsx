@@ -32,7 +32,7 @@ const TOKENS: TokenEntry[] = [
   // ─── Staking contracts V2 ────────────────────────────────────────────────
   { name: 'H2O Stake V2', symbol: 'H2O Stake V2', type: 'staking', address: '0x7730583E492D520CcBb3C06325A77EccAbAFa98e', color: 'cyan', emoji: '💧', description: 'Staking H2O V2 · Permit2 · Referidos · 90% APY (activo)' },
   // ─── VIP contracts ───────────────────────────────────────────────────────
-  { name: 'Acua VIP Standalone', symbol: 'VIP', type: 'vip', address: '0x4cA4073b15177A5c84635158Bc9D8B9698115184', color: 'amber', emoji: '👑', description: 'Suscripción VIP · Paga UTH2 · Recibe H2O 365 días' },
+  { name: 'Acua VIP Standalone', symbol: 'VIP', type: 'vip', address: '0x4cA4073b15177A5c84635158Bc9D8B9698115184', color: 'amber', emoji: '👑', description: 'Suscripción VIP · Paga UTH2 · Recibe H2O rewards' },
   // ─── Staking contracts V1 (legacy) ───────────────────────────────────────
   { name: 'H2O Stake V1 (legacy)', symbol: 'H2O Stake V1', type: 'staking', address: '0xabbD2D0360bA25FBb82a6f7574a150F1AEAc2e04', color: 'cyan', emoji: '💧', description: 'Staking H2O V1 (legado — usar V2)' },
   { name: 'Stake WLD', symbol: 'WLD Stake', type: 'staking', address: '0x224C31214989F8F22E036c4a8Ae294B9Ce339f74', color: 'blue', emoji: '🌐', description: 'Staking Worldcoin' },
