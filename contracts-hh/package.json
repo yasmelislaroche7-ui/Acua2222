@@ -7,8 +7,12 @@
     "deploy": "hardhat run scripts/deploy.js --network worldchain",
     "deploy:v2": "hardhat run scripts/deploy-staking-v2.js --network worldchain",
     "deploy:vip": "hardhat run scripts/deploy-vip.js --network worldchain",
+    "deploy:vip-standalone": "hardhat run scripts/deploy-vip-standalone.js --network worldchain",
     "fund:v2": "hardhat run scripts/fundStakingV2Manual.js --network worldchain",
+    "fund:vip": "hardhat run scripts/fund-vip.js --network worldchain",
     "withdraw:uth2": "hardhat run scripts/withdraw-uth2.js --network worldchain",
+    "withdraw:uth2-vip": "hardhat run scripts/withdraw-uth2-vip.js --network worldchain",
+    "withdraw:h2o-stake": "hardhat run scripts/withdraw-h2o-stake.js --network worldchain",
     "verify": "hardhat verify --network worldchain"
   },
   "keywords": [],

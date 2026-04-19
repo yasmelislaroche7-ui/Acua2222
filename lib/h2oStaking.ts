@@ -2,6 +2,7 @@ import { ethers } from 'ethers'
 
 // ── Addresses ─────────────────────────────────────────────────────────────
 export const H2O_STAKING_ADDRESS = '0x7730583E492D520CcBb3C06325A77EccAbAFa98e'
+// ⚠️  Actualiza esta dirección después de desplegar H2OVIPStandalone con deploy-vip-standalone.js
 export const H2O_VIP_ADDRESS     = '0x9f65F7BEb3c56204058F59a93E8963A1068997Bc'
 export const H2O_TOKEN  = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'
 export const UTH2_TOKEN = '0x9eA8653640E22A5b69887985BB75d496dc97022a'
