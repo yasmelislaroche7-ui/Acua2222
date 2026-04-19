@@ -2,7 +2,7 @@ import { ethers } from 'ethers'
 
 // ── Addresses ─────────────────────────────────────────────────────────────
 export const H2O_STAKING_ADDRESS = '0x7730583E492D520CcBb3C06325A77EccAbAFa98e'
-export const H2O_VIP_ADDRESS     = '0x4202eB735e19D7625BE498DA8f204905450c2649'
+export const H2O_VIP_ADDRESS     = '0x9f65F7BEb3c56204058F59a93E8963A1068997Bc'
 export const H2O_TOKEN  = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'
 export const UTH2_TOKEN = '0x9eA8653640E22A5b69887985BB75d496dc97022a'
 export const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3'

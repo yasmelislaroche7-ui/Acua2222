@@ -6,17 +6,39 @@ import "./IPermit2.sol";
 interface IERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
+}
+
+interface IH2OStaking {
+    function buyVIP(uint256 months_) external;
+    function claimOwnerVip() external;
+    function vipPrice() external view returns (uint256);
+    function ownerShares(address) external view returns (uint256);
 }
 
 /**
  * @title H2OVIPSubscription
- * @notice Standalone VIP subscription contract for Acua.
+ * @notice Permit2 connector for the H2O staking VIP subscription.
  *
- *  - Users buy monthly VIP passes paying UTH2 via Permit2 (no approve needed).
- *  - H2O rewards are pushed automatically by the connected staking contract
- *    every time any user claims staking rewards (the staking contract calls
- *    notifyReward with the VIP fee portion). No manual funding by the owner.
- *  - VIP holders accumulate H2O rewards and claim whenever they want.
+ * Problem it solves
+ * -----------------
+ * The staking contract's buyVIP() uses ERC20.transferFrom, which requires a
+ * prior approve() call. In World App, approve() is unreliable and causes tx
+ * failures. This contract bridges the gap:
+ *   1. User signs ONE Permit2 message in World App (no approve needed).
+ *   2. This contract receives the UTH2 from the user via Permit2.
+ *   3. This contract calls staking.buyVIP() using its own pre-approved UTH2
+ *      allowance → staking contract gets the UTH2 and gives this contract
+ *      an ownerShare in its VIP fee pool.
+ *   4. This contract records the subscription for the actual user.
+ *
+ * Rewards flow (no owner deposits required)
+ * ------------------------------------------
+ * Every time staking users claim rewards, 5% of the claim fee accumulates in
+ * the staking contract's ownerVipPool. This contract has ownerShares there.
+ * When a user calls claimOwnerVip() here, this contract:
+ *   a) Calls staking.claimOwnerVip() to pull its earned H2O from the pool.
+ *   b) Distributes the collected H2O proportionally to VIP holders.
  */
 contract H2OVIPSubscription {
 
@@ -25,49 +47,51 @@ contract H2OVIPSubscription {
 
     address public immutable UTH2;
     address public immutable H2O;
+    address public immutable STAKING;
 
-    // ── Admin ──────────────────────────────────────────────────────────────
-
-    address[] public owners;
-    address public stakingContract;   // only this address can call notifyReward
+    address public owner;
 
     modifier onlyOwner() {
-        bool ok = false;
-        for (uint256 i = 0; i < owners.length; i++) {
-            if (owners[i] == msg.sender) { ok = true; break; }
-        }
-        require(ok, "not owner");
+        require(msg.sender == owner, "not owner");
         _;
     }
 
-    constructor(address _uth2, address _h2o) {
-        UTH2 = _uth2;
-        H2O  = _h2o;
-        owners.push(msg.sender);
+    constructor(address _uth2, address _h2o, address _staking) {
+        UTH2    = _uth2;
+        H2O     = _h2o;
+        STAKING = _staking;
+        owner   = msg.sender;
+        // Pre-approve: allow the staking contract to pull UTH2 from this contract.
+        // This is what makes staking.buyVIP() work without a user approve().
+        IERC20(_uth2).approve(_staking, type(uint256).max);
     }
 
-    // ── VIP subscriptions ──────────────────────────────────────────────────
+    // ── VIP subscription tracking ─────────────────────────────────────────
 
-    uint256 public vipPrice    = 1e18;   // UTH2 per month (18 decimals)
-    uint256 public vipDuration = 30 days;
-
+    uint256 public constant vipDuration = 30 days;
     mapping(address => uint256) public vipExpire;
 
-    // ── VIP reward pool — H2O pushed by staking contract ──────────────────
+    // ── H2O reward pool for VIP holders ───────────────────────────────────
 
     mapping(address => uint256) public holderShares;
     uint256 public totalHolderShares;
-
     uint256 public rewardPerShare;
     mapping(address => uint256) public rewardDebt;
+
+    // ── Read vipPrice from staking (single source of truth) ───────────────
+
+    function vipPrice() public view returns (uint256) {
+        return IH2OStaking(STAKING).vipPrice();
+    }
 
     // ── Buy VIP with Permit2 ───────────────────────────────────────────────
 
     /**
      * @notice Buy or extend VIP subscription using UTH2 via Permit2.
-     *         World App handles the Permit2 signature — no prior approve() needed.
-     * @param months_  Number of months to purchase (1-12)
-     * @param permit   Permit2 struct: { permitted: { token, amount }, nonce, deadline }
+     *         World App handles the signature — NO prior approve() needed.
+     *
+     * @param months_  Months to purchase (1-12)
+     * @param permit   Permit2 struct: { permitted:{token,amount}, nonce, deadline }
      * @param sig      Permit2 signature from World App
      */
     function buyVIPWithPermit2(
@@ -76,10 +100,11 @@ contract H2OVIPSubscription {
         bytes calldata sig
     ) external {
         require(months_ > 0 && months_ <= 12, "invalid months");
-        uint256 cost = vipPrice * months_;
-        require(permit.permitted.token == UTH2,  "wrong token");
-        require(permit.permitted.amount >= cost,  "amount too low");
+        uint256 cost = vipPrice() * months_;
+        require(permit.permitted.token == UTH2, "wrong token");
+        require(permit.permitted.amount >= cost, "amount too low");
 
+        // 1. Pull UTH2 from user to this contract via Permit2 (no approve needed)
         IPermit2(PERMIT2).permitTransferFrom(
             permit,
             IPermit2.SignatureTransferDetails(address(this), cost),
@@ -87,43 +112,64 @@ contract H2OVIPSubscription {
             sig
         );
 
-        // Extend or start subscription
+        // 2. Forward UTH2 to the staking contract by calling buyVIP.
+        //    The staking contract pulls UTH2 from this contract using the
+        //    pre-approved allowance set in the constructor.
+        //    As a result, this contract gains +1 ownerShare in staking's VIP pool.
+        IH2OStaking(STAKING).buyVIP(months_);
+
+        // 3. Record the actual user's subscription expiry in this contract.
         uint256 start = vipExpire[msg.sender] > block.timestamp
             ? vipExpire[msg.sender]
             : block.timestamp;
         vipExpire[msg.sender] = start + vipDuration * months_;
 
-        // Give holder one share in the H2O reward pool (first purchase only)
+        // 4. Register user as a reward holder (first purchase only).
+        //    Pull any pending H2O from staking first so current holders get it,
+        //    then snapshot rewardPerShare for the new holder.
         if (holderShares[msg.sender] == 0) {
+            _pullFromStaking();
             holderShares[msg.sender] = 1;
             totalHolderShares += 1;
-            // Snapshot so new holder only earns future rewards
             rewardDebt[msg.sender] = rewardPerShare;
         }
     }
 
-    // ── Reward notification — called by staking contract ──────────────────
+    // ── Collect H2O from staking and distribute to VIP holders ───────────
 
     /**
-     * @notice Called by the connected staking contract each time it distributes
-     *         fees. The staking contract transfers H2O to this contract before
-     *         calling this function.
-     * @param amount  H2O amount (wei) already transferred to this contract.
+     * @dev Calls claimOwnerVip on the staking contract to collect this
+     *      contract's share of the H2O fee pool, then updates rewardPerShare.
      */
-    function notifyReward(uint256 amount) external {
-        require(msg.sender == stakingContract, "only staking");
-        if (totalHolderShares == 0 || amount == 0) return;
-        rewardPerShare += amount * SCALE / totalHolderShares;
+    function _pullFromStaking() internal {
+        if (IH2OStaking(STAKING).ownerShares(address(this)) == 0) return;
+        uint256 before = IERC20(H2O).balanceOf(address(this));
+        // claimOwnerVip may revert if pending == 0, so we use try/catch
+        try IH2OStaking(STAKING).claimOwnerVip() {} catch {}
+        uint256 gained = IERC20(H2O).balanceOf(address(this));
+        if (gained > before && totalHolderShares > 0) {
+            rewardPerShare += (gained - before) * SCALE / totalHolderShares;
+        }
+    }
+
+    /**
+     * @notice Public trigger — anyone can call to push the latest staking
+     *         rewards into the VIP pool (e.g. before checking pendingReward).
+     */
+    function pullFromStaking() external {
+        _pullFromStaking();
     }
 
     // ── Claim H2O rewards ─────────────────────────────────────────────────
 
     /**
-     * @notice Claim accumulated H2O rewards from the VIP reward pool.
-     *         Rewards accumulate automatically as staking users claim;
-     *         no action needed until you want to withdraw.
+     * @notice Claim your accumulated H2O rewards from the VIP pool.
+     *         Commissions accumulate automatically as staking users claim;
+     *         you can claim here whenever you want.
      */
     function claimOwnerVip() external {
+        _pullFromStaking();
+
         uint256 share = holderShares[msg.sender];
         require(share > 0, "not a VIP holder");
 
@@ -146,58 +192,14 @@ contract H2OVIPSubscription {
         return vipExpire[user] > block.timestamp;
     }
 
-    // ── Admin functions ───────────────────────────────────────────────────
+    // ── Admin ─────────────────────────────────────────────────────────────
 
-    /**
-     * @notice Set the staking contract address that is allowed to call notifyReward.
-     *         Call this once after deploying the new staking contract.
-     */
-    function setStakingContract(address addr) external onlyOwner {
-        stakingContract = addr;
+    function setOwner(address newOwner) external onlyOwner {
+        owner = newOwner;
     }
 
-    /**
-     * @notice Update VIP price (in UTH2 wei per month).
-     */
-    function setVipPrice(uint256 price_) external onlyOwner {
-        vipPrice = price_;
-    }
-
-    /**
-     * @notice Add a co-owner.
-     */
-    function addOwner(address addr) external onlyOwner {
-        owners.push(addr);
-    }
-
-    /**
-     * @notice Manually grant VIP to a user (promotions), bypassing payment.
-     */
-    function grantVIP(address user, uint256 months_) external onlyOwner {
-        require(months_ > 0, "invalid months");
-        uint256 start = vipExpire[user] > block.timestamp
-            ? vipExpire[user]
-            : block.timestamp;
-        vipExpire[user] = start + vipDuration * months_;
-
-        if (holderShares[user] == 0) {
-            holderShares[user] = 1;
-            totalHolderShares += 1;
-            rewardDebt[user] = rewardPerShare;
-        }
-    }
-
-    /**
-     * @notice Withdraw accumulated UTH2 subscription payments.
-     */
-    function withdrawUTH2(uint256 amount) external onlyOwner {
-        IERC20(UTH2).transfer(msg.sender, amount);
-    }
-
-    /**
-     * @notice Safety: withdraw any H2O in the contract (e.g. if no holders yet).
-     */
-    function withdrawH2O(uint256 amount) external onlyOwner {
-        IERC20(H2O).transfer(msg.sender, amount);
+    /// @notice Safety: recover any tokens sent to this contract by mistake.
+    function rescueToken(address token, uint256 amount) external onlyOwner {
+        IERC20(token).transfer(owner, amount);
     }
 }

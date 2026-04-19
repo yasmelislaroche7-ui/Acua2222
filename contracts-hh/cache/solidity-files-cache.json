@@ -239,8 +239,8 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/H2OVIPSubscription.sol": {
-      "lastModificationDate": 1776621543353,
-      "contentHash": "173c7a020d7fb89cad4c388009f66edd",
+      "lastModificationDate": 1776622937034,
+      "contentHash": "145fd56fd888f260fdaa4cbf1b1eae6c",
       "sourceName": "contracts/H2OVIPSubscription.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -275,7 +275,8 @@
       ],
       "artifacts": [
         "H2OVIPSubscription",
-        "IERC20"
+        "IERC20",
+        "IH2OStaking"
       ]
     }
   }
