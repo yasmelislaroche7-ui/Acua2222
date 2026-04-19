@@ -1,5 +1,4 @@
 import { Contract, parseUnits } from "ethers";
-import { getSigner } from "./web3";
 import { H2O_STAKING_ADDRESS, H2O_STAKING_ABI } from "../lib/h2oStaking";
 
 async function getContract() {
