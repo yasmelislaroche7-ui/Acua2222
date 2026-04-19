@@ -91,13 +91,13 @@ interface VIPBannerProps {
   loading: boolean
 }
 function VIPBanner({ vipPrice, vipExpiry, uth2Balance, onBuy, loading }: VIPBannerProps) {
-  const [months, setMonths]   = useState(1)
+  const [months, setMonths]     = useState(1)
   const [expanded, setExpanded] = useState(false)
-  const now      = BigInt(Math.floor(Date.now() / 1000))
-  const isVip    = vipExpiry > now
-  const daysLeft = isVip ? Math.floor(Number(vipExpiry - now) / 86400) : 0
+  const now       = BigInt(Math.floor(Date.now() / 1000))
+  const isVip     = vipExpiry > now
+  const daysLeft  = isVip ? Math.floor(Number(vipExpiry - now) / 86400) : 0
   const totalCost = vipPrice * BigInt(months)
-  const canAfford = uth2Balance >= totalCost && totalCost > 0n
+  const hasBalance = uth2Balance >= totalCost && totalCost > 0n
 
   return (
     <div className={cn(
@@ -149,45 +149,62 @@ function VIPBanner({ vipPrice, vipExpiry, uth2Balance, onBuy, loading }: VIPBann
             ))}
           </div>
 
-          {!isVip && (
-            <>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Meses:</span>
-                {[1, 3, 6, 12].map(m => (
-                  <button key={m} onClick={() => setMonths(m)}
-                    className={cn('px-2.5 py-1 rounded-lg text-xs font-medium transition-colors',
-                      months === m ? 'bg-purple-500 text-white' : 'bg-purple-500/10 text-purple-300 hover:bg-purple-500/20')}>
-                    {m}m
-                  </button>
-                ))}
+          {/* Purchase / Extend form — always shown when expanded */}
+          <div className="space-y-3">
+            {isVip && (
+              <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-3 py-2">
+                <Crown className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                <p className="text-xs text-yellow-300">VIP activo · Puedes extender tu suscripción</p>
               </div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Costo: <span className="text-purple-300 font-semibold">{formatToken(totalCost)} UTH2</span></span>
-                <span>Balance: {formatToken(uth2Balance)} UTH2</span>
-              </div>
-              {!canAfford && totalCost > 0n && (
-                <p className="text-xs text-red-400 bg-red-400/10 rounded-lg px-2 py-1.5">
-                  UTH2 insuficiente para activar la suscripción
-                </p>
-              )}
-              {vipPrice === 0n && (
-                <p className="text-xs text-muted-foreground bg-black/20 rounded-lg px-2 py-1.5">
-                  Precio VIP cargando...
-                </p>
-              )}
-              <Button
-                className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                onClick={() => onBuy(months)}
-                disabled={loading || !canAfford}
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Crown className="w-4 h-4 mr-2" />}
-                {loading ? 'Procesando…' : `Activar VIP ${months} mes${months !== 1 ? 'es' : ''}`}
-              </Button>
-              <p className="text-[10px] text-center text-muted-foreground">
-                2 pasos: aprueba UTH2 → activa VIP · El error exacto aparece si algo falla
+            )}
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Meses:</span>
+              {[1, 3, 6, 12].map(m => (
+                <button key={m} onClick={() => setMonths(m)}
+                  className={cn('px-2.5 py-1 rounded-lg text-xs font-medium transition-colors',
+                    months === m
+                      ? (isVip ? 'bg-yellow-500 text-black' : 'bg-purple-500 text-white')
+                      : (isVip ? 'bg-yellow-500/10 text-yellow-300 hover:bg-yellow-500/20' : 'bg-purple-500/10 text-purple-300 hover:bg-purple-500/20'))}>
+                  {m}m
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Costo: <span className={cn('font-semibold', isVip ? 'text-yellow-300' : 'text-purple-300')}>{formatToken(totalCost)} UTH2</span></span>
+              <span>Balance: {formatToken(uth2Balance)} UTH2</span>
+            </div>
+
+            {vipPrice === 0n && (
+              <p className="text-xs text-muted-foreground bg-black/20 rounded-lg px-2 py-1.5">
+                Cargando precio…
               </p>
-            </>
-          )}
+            )}
+
+            <Button
+              className={cn('w-full text-white', isVip
+                ? 'bg-yellow-600 hover:bg-yellow-500'
+                : 'bg-purple-600 hover:bg-purple-700')}
+              onClick={() => onBuy(months)}
+              disabled={loading || vipPrice === 0n || !hasBalance}
+            >
+              {loading
+                ? <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                : <Crown className="w-4 h-4 mr-2" />}
+              {loading
+                ? 'Procesando…'
+                : isVip
+                  ? `Extender VIP +${months} mes${months !== 1 ? 'es' : ''}`
+                  : `Activar VIP ${months} mes${months !== 1 ? 'es' : ''}`}
+            </Button>
+
+            {!hasBalance && vipPrice > 0n && (
+              <p className="text-[11px] text-center text-muted-foreground">
+                Necesitas {formatToken(totalCost)} UTH2 · Balance: {formatToken(uth2Balance)} UTH2
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -665,11 +682,10 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   }
 
   // ── BUY VIP ──────────────────────────────────────────────────────────────
-  // buyVIP uses IERC20(UTH2).transferFrom inside the contract. World App only
-  // marks the approve as "submitted" (not confirmed) when sendTransaction
-  // resolves, so we MUST poll the on-chain allowance until the approve is
-  // actually mined before sending the buyVIP transaction — otherwise World App
-  // simulates buyVIP against stale state and returns simulation_failed.
+  // buyVIP uses IERC20(UTH2).transferFrom. MiniKit only marks approve as
+  // "submitted" (not confirmed). We use MaxUint256 so the user approves once
+  // forever, then poll on-chain allowance before sending buyVIP so World App's
+  // simulation runs against confirmed state.
   async function doBuyVIP(months: number) {
     const vipPrice = info?.vipPrice ?? 0n
     if (vipPrice === 0n) return showMsg('Precio VIP no disponible', false)
@@ -684,44 +700,51 @@ export function StakePanel({ userAddress }: StakePanelProps) {
         provider,
       )
 
-      // ── Step 1: approve if needed ────────────────────────────────────────
+      // ── Step 1: approve MaxUint256 if needed (once per wallet, forever) ──
       let onChainAllowance: bigint = await uth2Read.allowance(userAddress, H2O_STAKING_ADDRESS)
+      console.log('[buyVIP] current allowance:', onChainAllowance.toString(), 'needed:', totalCost.toString())
 
       if (onChainAllowance < totalCost) {
         showProgress('Paso 1/2 · Confirma el permiso UTH2 en World App…')
 
+        const maxApproval = ethers.MaxUint256.toString()
         const { finalPayload: ap } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
             address:      UTH2_TOKEN,
             abi:          APPROVE_ABI_FRAG,
             functionName: 'approve',
-            args:         [H2O_STAKING_ADDRESS, totalCost.toString()],
+            args:         [H2O_STAKING_ADDRESS, maxApproval],
           }],
         })
+
+        console.log('[buyVIP] approve result:', JSON.stringify(ap))
 
         if (ap.status !== 'success') {
           const code = (ap as any).error_code ?? 'unknown'
           console.error('[buyVIP] approve failed:', ap)
-          return showMsg(`Permiso rechazado (${code})`, false)
+          return showMsg(`Permiso rechazado en World App (${code})`, false)
         }
 
-        // Poll until the approve is reflected on-chain (up to ~40 s)
-        showProgress('Paso 1/2 · Esperando confirmación en cadena…')
+        // Poll every 1s until the approve is on-chain (up to 60s)
+        showProgress('Paso 1/2 · Confirmando permiso en cadena…')
         let confirmed = false
-        for (let i = 0; i < 20; i++) {
-          await new Promise(r => setTimeout(r, 2000))
+        for (let i = 0; i < 60; i++) {
+          await new Promise(r => setTimeout(r, 1000))
           onChainAllowance = await uth2Read.allowance(userAddress, H2O_STAKING_ADDRESS)
           if (onChainAllowance >= totalCost) { confirmed = true; break }
-          showProgress(`Paso 1/2 · Confirmando approve… ${(i + 1) * 2}s`)
+          if (i % 5 === 4) showProgress(`Paso 1/2 · Confirmando permiso… ${i + 1}s`)
         }
 
         if (!confirmed) {
-          return showMsg('El permiso tardó demasiado en confirmarse. Intenta de nuevo.', false)
+          return showMsg('El permiso tardó demasiado. Intenta de nuevo.', false)
         }
+
+        // Extra wait so the RPC node syncs before simulation
+        await new Promise(r => setTimeout(r, 2000))
       }
 
-      // ── Step 2: buyVIP (simulate now runs against confirmed allowance) ────
-      showProgress('Paso 2/2 · Confirma la activación VIP en World App…')
+      // ── Step 2: buyVIP — allowance confirmed on-chain ──────────────────
+      showProgress('Paso 2/2 · Confirma la compra VIP en World App…')
 
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{
@@ -732,17 +755,19 @@ export function StakePanel({ userAddress }: StakePanelProps) {
         }],
       })
 
+      console.log('[buyVIP] buyVIP result:', JSON.stringify(finalPayload))
+
       if (finalPayload.status === 'success') {
-        showMsg(`✓ ¡VIP activado por ${months} mes${months !== 1 ? 'es' : ''}! 👑 Bienvenido`, true)
+        showMsg(`✓ VIP activado por ${months} mes${months !== 1 ? 'es' : ''}! Bienvenido`, true)
         setTimeout(loadInfo, 2500)
       } else {
         const code = (finalPayload as any).error_code ?? 'unknown'
         console.error('[buyVIP] buyVIP failed:', finalPayload)
-        showMsg(`Error al activar VIP (${code}). Verifica tu balance de UTH2.`, false)
+        showMsg(`La compra no se completó (${code})`, false)
       }
     } catch (e: any) {
       console.error('[buyVIP] exception:', e)
-      showMsg(e.message || 'Error inesperado al comprar VIP', false)
+      showMsg(e.message || 'No se pudo completar la compra VIP', false)
     }
     finally { setTxLoading(false) }
   }
