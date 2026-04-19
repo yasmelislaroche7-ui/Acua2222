@@ -184,7 +184,7 @@ function VIPBanner({ vipPrice, vipExpiry, uth2Balance, onBuy, loading }: VIPBann
                 {loading ? 'Procesando…' : `Activar VIP ${months} mes${months !== 1 ? 'es' : ''}`}
               </Button>
               <p className="text-[10px] text-center text-muted-foreground">
-                1 confirmación en World App: aprueba UTH2 y activa VIP en un solo paso
+                2 pasos: aprueba UTH2 → activa VIP · El error exacto aparece si algo falla
               </p>
             </>
           )}
@@ -530,8 +530,10 @@ export function StakePanel({ userAddress }: StakePanelProps) {
 
   const showMsg = (text: string, ok: boolean) => {
     setMsg({ text, ok })
-    setTimeout(() => setMsg(null), 6000)
+    setTimeout(() => setMsg(null), 7000)
   }
+  // Progress messages during long async ops — no auto-clear
+  const showProgress = (text: string) => setMsg({ text, ok: true })
 
   // ── STAKE via Permit2 ────────────────────────────────────────────────────
   // The contract: stake(IPermit2.PermitTransferFrom permit, bytes sig)
@@ -663,12 +665,11 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   }
 
   // ── BUY VIP ──────────────────────────────────────────────────────────────
-  // buyVIP uses IERC20(UTH2).transferFrom, so the staking contract needs an
-  // ERC-20 allowance. We batch approve + buyVIP in ONE sendTransaction so World
-  // App (ERC-4337 Account Abstraction) executes them sequentially in the same
-  // UserOperation — the approve state is committed before buyVIP is simulated,
-  // avoiding the "insufficient allowance" simulation failure that happens when
-  // they are sent as two separate transactions.
+  // buyVIP uses IERC20(UTH2).transferFrom inside the contract. World App only
+  // marks the approve as "submitted" (not confirmed) when sendTransaction
+  // resolves, so we MUST poll the on-chain allowance until the approve is
+  // actually mined before sending the buyVIP transaction — otherwise World App
+  // simulates buyVIP against stale state and returns simulation_failed.
   async function doBuyVIP(months: number) {
     const vipPrice = info?.vipPrice ?? 0n
     if (vipPrice === 0n) return showMsg('Precio VIP no disponible', false)
@@ -676,49 +677,73 @@ export function StakePanel({ userAddress }: StakePanelProps) {
 
     setTxLoading(true)
     try {
-      // Check current on-chain allowance — skip approve if already enough
       const provider = new ethers.JsonRpcProvider(WORLD_CHAIN_RPC)
       const uth2Read = new ethers.Contract(
         UTH2_TOKEN,
         ['function allowance(address,address) view returns (uint256)'],
         provider,
       )
-      const allowance: bigint = await uth2Read.allowance(userAddress, H2O_STAKING_ADDRESS)
 
-      const needsApprove = allowance < totalCost
+      // ── Step 1: approve if needed ────────────────────────────────────────
+      let onChainAllowance: bigint = await uth2Read.allowance(userAddress, H2O_STAKING_ADDRESS)
 
-      // Build the transaction list: [approve (if needed), buyVIP]
-      const txList: Parameters<typeof MiniKit.commandsAsync.sendTransaction>[0]['transaction'] = []
+      if (onChainAllowance < totalCost) {
+        showProgress('Paso 1/2 · Confirma el permiso UTH2 en World App…')
 
-      if (needsApprove) {
-        txList.push({
-          address: UTH2_TOKEN,
-          abi: APPROVE_ABI_FRAG,
-          functionName: 'approve',
-          args: [H2O_STAKING_ADDRESS, totalCost.toString()],
+        const { finalPayload: ap } = await MiniKit.commandsAsync.sendTransaction({
+          transaction: [{
+            address:      UTH2_TOKEN,
+            abi:          APPROVE_ABI_FRAG,
+            functionName: 'approve',
+            args:         [H2O_STAKING_ADDRESS, totalCost.toString()],
+          }],
         })
+
+        if (ap.status !== 'success') {
+          const code = (ap as any).error_code ?? 'unknown'
+          console.error('[buyVIP] approve failed:', ap)
+          return showMsg(`Permiso rechazado (${code})`, false)
+        }
+
+        // Poll until the approve is reflected on-chain (up to ~40 s)
+        showProgress('Paso 1/2 · Esperando confirmación en cadena…')
+        let confirmed = false
+        for (let i = 0; i < 20; i++) {
+          await new Promise(r => setTimeout(r, 2000))
+          onChainAllowance = await uth2Read.allowance(userAddress, H2O_STAKING_ADDRESS)
+          if (onChainAllowance >= totalCost) { confirmed = true; break }
+          showProgress(`Paso 1/2 · Confirmando approve… ${(i + 1) * 2}s`)
+        }
+
+        if (!confirmed) {
+          return showMsg('El permiso tardó demasiado en confirmarse. Intenta de nuevo.', false)
+        }
       }
 
-      txList.push({
-        address: H2O_STAKING_ADDRESS,
-        abi: BUY_VIP_ABI_FRAG,
-        functionName: 'buyVIP',
-        args: [months.toString()],
-      })
-
-      showMsg(needsApprove ? 'Aprobando UTH2 y activando VIP…' : 'Activando VIP…', true)
+      // ── Step 2: buyVIP (simulate now runs against confirmed allowance) ────
+      showProgress('Paso 2/2 · Confirma la activación VIP en World App…')
 
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: txList,
+        transaction: [{
+          address:      H2O_STAKING_ADDRESS,
+          abi:          BUY_VIP_ABI_FRAG,
+          functionName: 'buyVIP',
+          args:         [months.toString()],
+        }],
       })
 
       if (finalPayload.status === 'success') {
         showMsg(`✓ ¡VIP activado por ${months} mes${months !== 1 ? 'es' : ''}! 👑 Bienvenido`, true)
         setTimeout(loadInfo, 2500)
       } else {
-        showMsg('Transacción cancelada o rechazada', false)
+        const code = (finalPayload as any).error_code ?? 'unknown'
+        console.error('[buyVIP] buyVIP failed:', finalPayload)
+        showMsg(`Error al activar VIP (${code}). Verifica tu balance de UTH2.`, false)
       }
-    } catch (e: any) { showMsg(e.message || 'Error al comprar VIP', false) }
+    } catch (e: any) {
+      console.error('[buyVIP] exception:', e)
+      showMsg(e.message || 'Error inesperado al comprar VIP', false)
+    }
     finally { setTxLoading(false) }
   }
 
@@ -926,7 +951,7 @@ export function StakePanel({ userAddress }: StakePanelProps) {
           </div>
         )}
 
-        {/* Message toast */}
+        {/* Message toast — stake/unstake/claim actions */}
         {msg && (
           <div className={cn('mt-3 rounded-xl px-3 py-2.5 text-xs font-medium text-center border',
             msg.ok
@@ -945,6 +970,16 @@ export function StakePanel({ userAddress }: StakePanelProps) {
         onBuy={doBuyVIP}
         loading={txLoading}
       />
+
+      {/* ── Message toast visible from VIP actions ─────────────────────── */}
+      {msg && (
+        <div className={cn('rounded-xl px-4 py-3 text-xs font-medium text-center border break-words',
+          msg.ok
+            ? 'bg-green-500/10 border-green-500/20 text-green-300'
+            : 'bg-red-500/10 border-red-500/20 text-red-300')}>
+          {msg.text}
+        </div>
+      )}
 
       {/* ── Referral ──────────────────────────────────────────────────── */}
       <ReferralSection
