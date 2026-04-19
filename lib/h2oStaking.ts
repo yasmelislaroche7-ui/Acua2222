@@ -5,7 +5,7 @@ export const H2O_STAKING_ADDRESS = '0x7730583E492D520CcBb3C06325A77EccAbAFa98e'
 export const H2O_TOKEN  = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'
 export const UTH2_TOKEN = '0x9eA8653640E22A5b69887985BB75d496dc97022a'
 export const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
-export const WORLD_CHAIN_RPC = 'https://worldchain-mainnet.g.alchemy.com/public'
+export const WORLD_CHAIN_RPC = 'https://worldchain-mainnet.g.alchemy.com/v2/bVo646pb8L7_W_nahCoqW'
 
 // ── Permit2 tuple for MiniKit ─────────────────────────────────────────────
 // Matches: stake(IPermit2.PermitTransferFrom permit, bytes sig)
