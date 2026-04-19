@@ -9,7 +9,7 @@ const WORLDSCAN = 'https://worldscan.org/address'
 interface TokenEntry {
   name: string
   symbol: string
-  type: 'token' | 'staking' | 'mining' | 'swap'
+  type: 'token' | 'staking' | 'mining' | 'swap' | 'vip'
   address: string
   color: string
   emoji: string
@@ -29,8 +29,12 @@ const TOKENS: TokenEntry[] = [
   { name: 'Air Token', symbol: 'AIR', type: 'token', address: '0xDBA88118551d5Adf16a7AB943403Aea7ea06762b', color: 'violet', emoji: '🌬️', description: 'Token del aire' },
   { name: 'UTH2 Token', symbol: 'UTH2', type: 'token', address: '0x9eA8653640E22A5b69887985BB75d496dc97022a', color: 'teal', emoji: '⚗️', description: 'Uranio para minería H2O' },
   { name: 'Time Token', symbol: 'TIME', type: 'token', address: '0x212d7448720852D8Ad282a5d4A895B3461F9076E', color: 'purple', emoji: '⏱️', description: 'Token del tiempo' },
-  // ─── Staking contracts ───────────────────────────────────────────────────
-  { name: 'Stake Acua H2O', symbol: 'H2O Stake', type: 'staking', address: '0xabbD2D0360bA25FBb82a6f7574a150F1AEAc2e04', color: 'cyan', emoji: '💧', description: 'Contrato de staking H2O (92% APY)' },
+  // ─── Staking contracts V2 ────────────────────────────────────────────────
+  { name: 'H2O Stake V2', symbol: 'H2O Stake V2', type: 'staking', address: '0x7730583E492D520CcBb3C06325A77EccAbAFa98e', color: 'cyan', emoji: '💧', description: 'Staking H2O V2 · Permit2 · Referidos · 90% APY (activo)' },
+  // ─── VIP contracts ───────────────────────────────────────────────────────
+  { name: 'Acua VIP Standalone', symbol: 'VIP', type: 'vip', address: '0x4cA4073b15177A5c84635158Bc9D8B9698115184', color: 'amber', emoji: '👑', description: 'Suscripción VIP · Paga UTH2 · Recibe H2O 365 días' },
+  // ─── Staking contracts V1 (legacy) ───────────────────────────────────────
+  { name: 'H2O Stake V1 (legacy)', symbol: 'H2O Stake V1', type: 'staking', address: '0xabbD2D0360bA25FBb82a6f7574a150F1AEAc2e04', color: 'cyan', emoji: '💧', description: 'Staking H2O V1 (legado — usar V2)' },
   { name: 'Stake WLD', symbol: 'WLD Stake', type: 'staking', address: '0x224C31214989F8F22E036c4a8Ae294B9Ce339f74', color: 'blue', emoji: '🌐', description: 'Staking Worldcoin' },
   { name: 'Stake FIRE', symbol: 'FIRE Stake', type: 'staking', address: '0xC799a6D13735bAc407183e0d8Acb6F07dfF072DD', color: 'orange', emoji: '🔥', description: 'Staking Fire Token' },
   { name: 'Stake SUSHI', symbol: 'SUSHI Stake', type: 'staking', address: '0x31c25e2E5331F02F15fD43340079303EfE02625c', color: 'pink', emoji: '🍣', description: 'Staking Sushi Token' },
@@ -43,9 +47,10 @@ const TOKENS: TokenEntry[] = [
   // ─── Mining contracts ────────────────────────────────────────────────────
   { name: 'Minería UTH2 → H2O', symbol: 'UTH2 Mine', type: 'mining', address: '0xbCF03E16F9114396A849053cb1555aAE744522e6', color: 'teal', emoji: '⛏️', description: 'Paga UTH2 y mina H2O permanente' },
   { name: 'Minería WLD → Multi', symbol: 'WLD Mine', type: 'mining', address: '0xD2E227D30bC94D6FfD4eCf6b56141429C801E228', color: 'blue', emoji: '💎', description: 'Paga WLD y mina 7 tokens' },
-  // ─── Swap contracts (Uniswap V3 · World Chain) ───────────────────────────
+  // ─── Swap / infraestructura ───────────────────────────────────────────────
   { name: 'Uniswap V3 SwapRouter02', symbol: 'Router', type: 'swap', address: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45', color: 'indigo', emoji: '🔄', description: 'Router oficial Uniswap V3 · World Chain · verificado ✓' },
   { name: 'Uniswap V3 QuoterV2', symbol: 'Quoter', type: 'swap', address: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e', color: 'indigo', emoji: '📊', description: 'Cotizador on-chain V3 · World Chain · verificado ✓' },
+  { name: 'Permit2', symbol: 'Permit2', type: 'swap', address: '0x000000000022D473030F116dDEE9F6B43aC78BA3', color: 'indigo', emoji: '🔑', description: 'Aprobaciones con firma · usado en H2O Stake V2 y VIP' },
 ]
 
 const colorMap: Record<string, string> = {
@@ -68,6 +73,7 @@ const typeLabel: Record<string, string> = {
   staking: 'Staking',
   mining: 'Minería',
   swap: 'Swap',
+  vip: 'VIP',
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -87,7 +93,7 @@ function shortAddr(addr: string) {
 }
 
 export function TokenDirectoryPanel() {
-  const [filter, setFilter] = useState<'all' | 'token' | 'staking' | 'mining' | 'swap'>('all')
+  const [filter, setFilter] = useState<'all' | 'token' | 'staking' | 'vip' | 'mining' | 'swap'>('all')
   const [search, setSearch] = useState('')
 
   const filtered = TOKENS.filter(t =>
@@ -116,8 +122,8 @@ export function TokenDirectoryPanel() {
       />
 
       {/* Filter tabs */}
-      <div className="flex gap-1.5">
-        {(['all', 'token', 'staking', 'mining', 'swap'] as const).map(f => (
+      <div className="flex gap-1.5 flex-wrap">
+        {(['all', 'token', 'staking', 'vip', 'mining', 'swap'] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
             className={cn('flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors',
               filter === f ? 'bg-primary text-primary-foreground' : 'bg-surface-2 text-muted-foreground hover:text-foreground'
@@ -148,6 +154,7 @@ export function TokenDirectoryPanel() {
                 entry.type === 'token'   ? 'bg-foreground/10 text-foreground/70' :
                 entry.type === 'staking' ? 'bg-primary/20 text-primary' :
                 entry.type === 'swap'    ? 'bg-indigo-500/20 text-indigo-300' :
+                entry.type === 'vip'     ? 'bg-amber-500/20 text-amber-400' :
                 'bg-orange-500/20 text-orange-400'
               )}>
                 {typeLabel[entry.type]}
