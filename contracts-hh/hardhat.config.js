@@ -14,7 +14,7 @@ module.exports = {
   },
   networks: {
     worldchain: {
-      url: "https://worldchain-mainnet.g.alchemy.com/public",
+      url: "https://worldchain-mainnet.g.alchemy.com/v2/bVo646pb8L7_W_nahCoqW",
       chainId: 480,
       accounts: [PRIVATE_KEY],
     },

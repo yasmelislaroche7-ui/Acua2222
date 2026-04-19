@@ -199,8 +199,8 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/acuav2.sol": {
-      "lastModificationDate": 1776555606061,
-      "contentHash": "d47c9b72b6f30b4d10af7f5328e2cf05",
+      "lastModificationDate": 1776560140003,
+      "contentHash": "94beaef88a68a254c0868cf250c40864",
       "sourceName": "contracts/acuav2.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -234,8 +234,8 @@
         "^0.8.24"
       ],
       "artifacts": [
-        "IERC20",
-        "UniversalStakingWithVip"
+        "H2OUniversalStakingFinal",
+        "IERC20"
       ]
     }
   }
