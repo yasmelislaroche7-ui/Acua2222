@@ -372,7 +372,7 @@ function ReferralSection({ userAddress, referrer, refCount, refPending, pendingR
             </p>
             <p className="text-xs text-muted-foreground">🔗 Comparte tu enlace con amigos</p>
             <p className="text-xs text-muted-foreground">✅ Tu amigo abre el link y confirma en 1 clic</p>
-            <p className="text-xs text-muted-foreground">💰 Cada vez que reclame, 5% va al pool de referidos para ti</p>
+            <p className="text-xs text-muted-foreground">💰 Cada vez que reclame, 5% va al pool de referidos para ti necesitas 1 refer min para activar ganancias</p>
           </div>
 
           {/* Referral link */}
