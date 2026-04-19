@@ -11,8 +11,7 @@
 const hre = require("hardhat");
 
 // ── Configuración ──────────────────────────────────────────────────────────
-// ⚠️  Actualiza esta dirección después de hacer deploy del nuevo contrato
-const VIP_CONTRACT       = "REEMPLAZA_CON_NUEVA_DIRECCION_VIP";
+const VIP_CONTRACT       = "0x4cA4073b15177A5c84635158Bc9D8B9698115184";
 const UTH2_ADDRESS       = "0x9eA8653640E22A5b69887985BB75d496dc97022a";
 // Cantidad a retirar en UTH2 (ej: "50"). Dejar en 0 para retirar TODO.
 const AMOUNT_TO_WITHDRAW = 0;

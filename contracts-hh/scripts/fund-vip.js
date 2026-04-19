@@ -12,8 +12,7 @@
 const { ethers } = require("hardhat");
 
 // ── Configuración ──────────────────────────────────────────────────────────
-// ⚠️  Actualiza esta dirección después de hacer deploy del nuevo contrato
-const VIP_CONTRACT = "REEMPLAZA_CON_NUEVA_DIRECCION_VIP";
+const VIP_CONTRACT = "0x4cA4073b15177A5c84635158Bc9D8B9698115184";
 const H2O_TOKEN    = "0x17392e5483983945dEB92e0518a8F2C4eB6bA59d";
 const FUND_AMOUNT  = "10000"; // H2O a depositar como rewards (ajusta según necesites)
 // ──────────────────────────────────────────────────────────────────────────

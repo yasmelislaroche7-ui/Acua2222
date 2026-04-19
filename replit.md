@@ -77,12 +77,12 @@ User is `owners[1]` (index 1, second owner) of the AIR staking contract.
 - MiningWLD: `0xD2E227D30bC94D6FfD4eCf6b56141429C801E228` — pay WLD, earn 7 tokens
 
 ### H2OVIPStandalone (nuevo — independiente del stake)
-- Dirección: pendiente de deploy (`deploy-vip-standalone.js`)
+- Dirección: `0x4cA4073b15177A5c84635158Bc9D8B9698115184`
 - UTH2 de suscripciones queda en el contrato; owner retira con `withdrawUTH2()`
 - Owner fondea H2O via `depositRewards()` → rewards lineales a 365 días
 - Usuarios reclaman 24/7 con `claimOwnerVip()`
 - Sin conexión al contrato de stake de H2O
-- ⚠️ Después de deployar: actualizar `H2O_VIP_ADDRESS` en `lib/h2oStaking.ts`
+- Owner: `0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4`
 
 ---
 
