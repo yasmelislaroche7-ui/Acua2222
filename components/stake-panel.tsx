@@ -16,7 +16,7 @@ import {
   PERMIT2_ADDRESS, PERMIT_TUPLE_INPUT, WORLD_CHAIN_RPC,
   STAKE_ABI_FRAG, UNSTAKE_ABI_FRAG, CLAIM_ABI_FRAG,
   CLAIM_REF_ABI_FRAG, REGISTER_REF_ABI_FRAG, BUY_VIP_ABI_FRAG,
-  APPROVE_ABI_FRAG,
+  CLAIM_OWNER_VIP_ABI_FRAG, APPROVE_ABI_FRAG,
   fetchH2OStakeInfo, calcAPY, formatToken, shortenAddress, randomNonce,
   H2OStakeInfo,
 } from '@/lib/h2oStaking'
@@ -87,10 +87,12 @@ interface VIPBannerProps {
   vipPrice: bigint
   vipExpiry: bigint
   uth2Balance: bigint
+  ownerVipPending: bigint
   onBuy: (months: number) => Promise<void>
+  onClaimOwnerVip: () => Promise<void>
   loading: boolean
 }
-function VIPBanner({ vipPrice, vipExpiry, uth2Balance, onBuy, loading }: VIPBannerProps) {
+function VIPBanner({ vipPrice, vipExpiry, uth2Balance, ownerVipPending, onBuy, onClaimOwnerVip, loading }: VIPBannerProps) {
   const [months, setMonths]     = useState(1)
   const [expanded, setExpanded] = useState(false)
   const now       = BigInt(Math.floor(Date.now() / 1000))
@@ -123,6 +125,11 @@ function VIPBanner({ vipPrice, vipExpiry, uth2Balance, onBuy, loading }: VIPBann
                   ACTIVA
                 </span>
               )}
+              {ownerVipPending > 0n && (
+                <span className="text-[9px] font-bold bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded-full animate-pulse">
+                  REWARDS!
+                </span>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">
               {isVip
@@ -148,6 +155,23 @@ function VIPBanner({ vipPrice, vipExpiry, uth2Balance, onBuy, loading }: VIPBann
               </div>
             ))}
           </div>
+
+          {/* VIP pool earnings claim — only shown when there are pending rewards */}
+          {ownerVipPending > 0n && (
+            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] text-yellow-400 font-semibold uppercase tracking-wide">Ganancias VIP pool</p>
+                <p className="text-base font-bold text-yellow-300">{formatToken(ownerVipPending, 18, 4)} UTH2</p>
+                <p className="text-[10px] text-muted-foreground">pendiente de reclamar</p>
+              </div>
+              <Button size="sm" className="bg-yellow-500 hover:bg-yellow-400 text-black font-bold shrink-0"
+                onClick={onClaimOwnerVip} disabled={loading}>
+                {loading
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <><Gift className="w-3.5 h-3.5 mr-1" />Reclamar</>}
+              </Button>
+            </div>
+          )}
 
           {/* Purchase / Extend form — always shown when expanded */}
           <div className="space-y-3">
@@ -772,6 +796,27 @@ export function StakePanel({ userAddress }: StakePanelProps) {
     finally { setTxLoading(false) }
   }
 
+  // ── CLAIM OWNER VIP POOL ─────────────────────────────────────────────────
+  async function doClaimOwnerVip() {
+    setTxLoading(true)
+    try {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS, abi: CLAIM_OWNER_VIP_ABI_FRAG,
+          functionName: 'claimOwnerVip', args: [],
+        }],
+      })
+      if (finalPayload.status === 'success') {
+        showMsg('✓ Ganancias VIP pool reclamadas en UTH2', true)
+        setTimeout(loadInfo, 2000)
+      } else {
+        const code = (finalPayload as any).error_code ?? 'unknown'
+        showMsg(`No se pudo reclamar el VIP pool (${code})`, false)
+      }
+    } catch (e: any) { showMsg(e.message || 'No se pudo completar el reclamo', false) }
+    finally { setTxLoading(false) }
+  }
+
   return (
     <div className="space-y-4">
 
@@ -992,7 +1037,9 @@ export function StakePanel({ userAddress }: StakePanelProps) {
         vipPrice={info?.vipPrice ?? 0n}
         vipExpiry={info?.vipExpiry ?? 0n}
         uth2Balance={info?.uth2Balance ?? 0n}
+        ownerVipPending={info?.ownerVipPending ?? 0n}
         onBuy={doBuyVIP}
+        onClaimOwnerVip={doClaimOwnerVip}
         loading={txLoading}
       />
 

@@ -66,6 +66,12 @@ export const REGISTER_REF_ABI_FRAG = [{
   outputs: [],
 }] as const
 
+// claimOwnerVip() — claim pending UTH2 from VIP pool (for owners/creators with shares)
+export const CLAIM_OWNER_VIP_ABI_FRAG = [{
+  name: 'claimOwnerVip', type: 'function', stateMutability: 'nonpayable',
+  inputs: [], outputs: [],
+}] as const
+
 // buyVIP(uint256 months_) — needs UTH2 approve first (ERC20 transferFrom)
 export const BUY_VIP_ABI_FRAG = [{
   name: 'buyVIP', type: 'function', stateMutability: 'nonpayable',
@@ -108,6 +114,10 @@ const READ_ABI = [
   'function vipPrice() view returns (uint256)',
   // Owner VIP pool
   'function ownerVipPool() view returns (uint256)',
+  // Owner VIP distribution (per-owner shares & pending rewards)
+  'function ownerShares(address) view returns (uint256)',
+  'function ownerVipPerShare() view returns (uint256)',
+  'function ownerVipDebt(address) view returns (uint256)',
 ]
 
 const ERC20_ABI = [
@@ -123,6 +133,7 @@ export interface H2OStakeInfo {
   referrer: string        // referrerOf[addr]
   vipExpiry: bigint       // vipExpire[addr]
   vipPrice: bigint        // vipPrice()
+  ownerVipPending: bigint // ownerShares * (ownerVipPerShare - ownerVipDebt) / 1e18
   totalStaked: bigint     // totalStaked()
   rewardRate: bigint      // rewardRate() — H2O wei per second across all stakers
   periodFinish: bigint    // periodFinish()
@@ -161,6 +172,9 @@ export async function fetchH2OStakeInfo(userAddress: string): Promise<H2OStakeIn
     contract.vipPrice(),                     // 13
     h2oToken.balanceOf(userAddress),         // 14
     uth2Token.balanceOf(userAddress),        // 15
+    contract.ownerShares(userAddress),       // 16
+    contract.ownerVipPerShare(),             // 17
+    contract.ownerVipDebt(userAddress),      // 18
   ])
 
   const ok = <T>(i: number, fallback: T): T =>
@@ -179,22 +193,31 @@ export async function fetchH2OStakeInfo(userAddress: string): Promise<H2OStakeIn
     ? (refCountVal * (refPerShareV - refDebt)) / (10n ** 18n)
     : 0n
 
+  // Calculate pending VIP pool rewards: ownerShares * (ownerVipPerShare - ownerVipDebt) / 1e18
+  const ownerSharesV   = ok<bigint>(16, 0n)
+  const ownerPerShareV = ok<bigint>(17, 0n)
+  const ownerDebtV     = ok<bigint>(18, 0n)
+  const ownerVipPending = ownerSharesV > 0n && ownerPerShareV > ownerDebtV
+    ? (ownerSharesV * (ownerPerShareV - ownerDebtV)) / (10n ** 18n)
+    : 0n
+
   return {
     staked,
-    earned:        ok<bigint>(3,  0n),
+    earned:          ok<bigint>(3,  0n),
     refPending,
-    refCount:      ok<bigint>(9,  0n),
-    referrer:      ok<string>(8,  ethers.ZeroAddress),
-    vipExpiry:     ok<bigint>(12, 0n),
-    vipPrice:      ok<bigint>(13, 0n),
-    totalStaked:   ok<bigint>(0,  0n),
-    rewardRate:    ok<bigint>(1,  0n),
-    periodFinish:  ok<bigint>(2,  0n),
-    depositFeeBps: ok<bigint>(5,  500n),
-    withdrawFeeBps:ok<bigint>(6,  500n),
-    claimFeeBps:   ok<bigint>(7,  1000n),
-    h2oBalance:    ok<bigint>(14, 0n),
-    uth2Balance:   ok<bigint>(15, 0n),
+    refCount:        ok<bigint>(9,  0n),
+    referrer:        ok<string>(8,  ethers.ZeroAddress),
+    vipExpiry:       ok<bigint>(12, 0n),
+    vipPrice:        ok<bigint>(13, 0n),
+    ownerVipPending,
+    totalStaked:     ok<bigint>(0,  0n),
+    rewardRate:      ok<bigint>(1,  0n),
+    periodFinish:    ok<bigint>(2,  0n),
+    depositFeeBps:   ok<bigint>(5,  500n),
+    withdrawFeeBps:  ok<bigint>(6,  500n),
+    claimFeeBps:     ok<bigint>(7,  1000n),
+    h2oBalance:      ok<bigint>(14, 0n),
+    uth2Balance:     ok<bigint>(15, 0n),
   }
 }
 
