@@ -88,11 +88,12 @@ interface VIPBannerProps {
   vipExpiry: bigint
   uth2Balance: bigint
   ownerVipPending: bigint
+  vipHolderShares: bigint
   onBuy: (months: number) => Promise<void>
   onClaimOwnerVip: () => Promise<void>
   loading: boolean
 }
-function VIPBanner({ vipPrice, vipExpiry, uth2Balance, ownerVipPending, onBuy, onClaimOwnerVip, loading }: VIPBannerProps) {
+function VIPBanner({ vipPrice, vipExpiry, uth2Balance, ownerVipPending, vipHolderShares, onBuy, onClaimOwnerVip, loading }: VIPBannerProps) {
   const [months, setMonths]     = useState(1)
   const [expanded, setExpanded] = useState(false)
   const now       = BigInt(Math.floor(Date.now() / 1000))
@@ -156,19 +157,43 @@ function VIPBanner({ vipPrice, vipExpiry, uth2Balance, ownerVipPending, onBuy, o
             ))}
           </div>
 
-          {/* VIP pool earnings claim — only shown when there are pending rewards */}
-          {ownerVipPending > 0n && (
-            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[10px] text-yellow-400 font-semibold uppercase tracking-wide">Ganancias VIP pool</p>
-                <p className="text-base font-bold text-yellow-300">{formatToken(ownerVipPending, 18, 4)} H2O</p>
-                <p className="text-[10px] text-muted-foreground">pendiente de reclamar</p>
+          {/* VIP pool earnings claim — shown whenever user has holder shares in the VIP contract */}
+          {vipHolderShares > 0n && (
+            <div className={cn(
+              'rounded-xl p-3 flex items-center justify-between gap-3 border',
+              ownerVipPending > 0n
+                ? 'bg-yellow-500/10 border-yellow-500/20'
+                : 'bg-black/20 border-white/5'
+            )}>
+              <div className="min-w-0">
+                <p className={cn('text-[10px] font-semibold uppercase tracking-wide',
+                  ownerVipPending > 0n ? 'text-yellow-400' : 'text-muted-foreground')}>
+                  Comisiones VIP pool
+                </p>
+                <p className={cn('text-base font-bold font-mono',
+                  ownerVipPending > 0n ? 'text-yellow-300' : 'text-muted-foreground')}>
+                  {formatToken(ownerVipPending, 18, 6)} H2O
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {ownerVipPending > 0n
+                    ? 'pendiente de reclamar'
+                    : 'se acumulan cada vez que un staker reclama'}
+                </p>
               </div>
-              <Button size="sm" className="bg-yellow-500 hover:bg-yellow-400 text-black font-bold shrink-0"
-                onClick={onClaimOwnerVip} disabled={loading}>
+              <Button
+                size="sm"
+                className={cn('shrink-0 font-bold',
+                  ownerVipPending > 0n
+                    ? 'bg-yellow-500 hover:bg-yellow-400 text-black'
+                    : 'bg-muted text-muted-foreground cursor-not-allowed')}
+                onClick={onClaimOwnerVip}
+                disabled={loading || ownerVipPending === 0n}
+              >
                 {loading
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <><Gift className="w-3.5 h-3.5 mr-1" />Reclamar</>}
+                  : ownerVipPending > 0n
+                    ? <><Gift className="w-3.5 h-3.5 mr-1" />Reclamar</>
+                    : 'Acumulando…'}
               </Button>
             </div>
           )}
@@ -998,6 +1023,7 @@ export function StakePanel({ userAddress }: StakePanelProps) {
         vipExpiry={info?.vipExpiry ?? 0n}
         uth2Balance={info?.uth2Balance ?? 0n}
         ownerVipPending={info?.ownerVipPending ?? 0n}
+        vipHolderShares={info?.vipHolderShares ?? 0n}
         onBuy={doBuyVIP}
         onClaimOwnerVip={doClaimOwnerVip}
         loading={txLoading}

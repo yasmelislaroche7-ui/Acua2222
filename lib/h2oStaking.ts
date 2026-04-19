@@ -137,9 +137,10 @@ export interface H2OStakeInfo {
   refPending: bigint      // referral rewards pending
   refCount: bigint        // number of referrals
   referrer: string        // referrerOf[addr]
-  vipExpiry: bigint       // vipExpire[addr]  — from VIP contract
-  vipPrice: bigint        // vipPrice()        — from VIP contract
-  ownerVipPending: bigint // pendingReward()   — from VIP contract
+  vipExpiry: bigint       // vipExpire[addr]      — from VIP contract
+  vipPrice: bigint        // vipPrice()            — from VIP contract
+  ownerVipPending: bigint // pendingReward()       — from VIP contract
+  vipHolderShares: bigint // holderShares[addr]    — from VIP contract (> 0 = registered VIP holder)
   totalStaked: bigint     // totalStaked()
   rewardRate: bigint      // rewardRate()
   periodFinish: bigint    // periodFinish()
@@ -183,6 +184,7 @@ export async function fetchH2OStakeInfo(userAddress: string): Promise<H2OStakeIn
       vipContract.vipExpire(userAddress),      // 0
       vipContract.vipPrice(),                  // 1
       vipContract.pendingReward(userAddress),  // 2
+      vipContract.holderShares(userAddress),   // 3
     ]),
   ])
 
@@ -212,10 +214,11 @@ export async function fetchH2OStakeInfo(userAddress: string): Promise<H2OStakeIn
     refPending,
     refCount:        s(9,  0n),
     referrer:        ok<string>(stakingResults, 8, ethers.ZeroAddress),
-    vipExpiry:       v(0,  0n),
-    vipPrice:        v(1,  0n),
-    ownerVipPending: v(2,  0n),
-    totalStaked:     s(0,  0n),
+    vipExpiry:        v(0,  0n),
+    vipPrice:         v(1,  0n),
+    ownerVipPending:  v(2,  0n),
+    vipHolderShares:  v(3,  0n),
+    totalStaked:      s(0,  0n),
     rewardRate:      s(1,  0n),
     periodFinish:    s(2,  0n),
     depositFeeBps:   s(5,  500n),
