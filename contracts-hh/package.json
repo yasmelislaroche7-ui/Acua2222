@@ -10,6 +10,8 @@
     "deploy:vip-standalone": "hardhat run scripts/deploy-vip-standalone.js --network worldchain",
     "deploy:swap-router": "hardhat run scripts/deploy-swap-router.js --network worldchain",
     "deploy:volume-rewards": "hardhat run scripts/deploy-volume-rewards.js --network worldchain",
+    "deploy:all": "hardhat run scripts/deploy-all.js --network worldchain",
+    "test:swap": "node scripts/test-swap.js",
     "fund:volume": "hardhat run scripts/fund-volume-uth2.js --network worldchain",
     "fund:v2": "hardhat run scripts/fundStakingV2Manual.js --network worldchain",
     "fund:vip": "hardhat run scripts/fund-vip.js --network worldchain",

@@ -9,78 +9,104 @@ interface IERC20 {
 
 /**
  * @title AcuaVolumeRewards
- * @notice Tracks monthly swap volume per user and distributes UTH2 rewards.
+ * @notice Monthly UTH2 rewards based on USDC swap volume.
+ *         Volume is recorded by the authorised AcuaSwapRouter.
+ *         Tiers and rewards are fully configurable by owner.
  *
- * Volume is recorded by the authorized swap router in USDC units (6 decimals).
- * Each calendar month (30-day period) users accumulate volume and can claim UTH2
- * based on the highest tier they reached. Resets automatically each period.
- *
- * Tier table (USDC in, UTH2 out — each tier claimable once per month):
- *   Tier 0:    >= 1 USDC   → 0.0001 UTH2
- *   Tier 1:    >= 10 USDC  → 0.001  UTH2
- *   Tier 2:    >= 100 USDC → 0.01   UTH2
- *   Tier 3:    >= 1000 USDC→ 0.1    UTH2
+ * Period: 30-day rolling windows (block.timestamp / PERIOD).
+ * Each tier is claimable once per period once the threshold is reached.
  */
 contract AcuaVolumeRewards {
 
     // ─── Constants ────────────────────────────────────────────────────────────
-    address public constant UTH2 = 0x9eA8653640E22A5b69887985BB75d496dc97022a;
-
-    /// @notice Period duration: ~30 days
+    address public constant UTH2   = 0x9eA8653640E22A5b69887985BB75d496dc97022a;
     uint256 public constant PERIOD = 30 days;
+    uint256 public constant MAX_TIERS = 8;
 
     // ─── Config ───────────────────────────────────────────────────────────────
     address public owner;
-    address public swapRouter; // only authorized caller of recordSwap
+    address public swapRouter;
+    uint256 public numTiers = 4;
 
     /// @notice Tier thresholds in USDC-6-decimals (1e6 = 1 USDC)
-    uint256[4] public tierThresholds = [
-        1_000_000,       // 1 USDC
-        10_000_000,      // 10 USDC
-        100_000_000,     // 100 USDC
-        1_000_000_000    // 1000 USDC
-    ];
-
-    /// @notice UTH2 reward per tier (18 decimals)
-    uint256[4] public tierRewards = [
-        0.0001 ether,   // 0.0001 UTH2
-        0.001  ether,   // 0.001  UTH2
-        0.01   ether,   // 0.01   UTH2
-        0.1    ether    // 0.1    UTH2
-    ];
+    uint256[8] public tierThresholds;
+    /// @notice UTH2 reward per tier in 18-decimals
+    uint256[8] public tierRewards;
 
     // ─── State ────────────────────────────────────────────────────────────────
-    /// @notice volume[user][monthId] — USDC-6-dec units accumulated this period
     mapping(address => mapping(uint256 => uint256)) public volume;
-
-    /// @notice claimed[user][monthId][tier] — whether user already claimed this tier
     mapping(address => mapping(uint256 => mapping(uint256 => bool))) public claimed;
-
-    /// @notice Total UTH2 distributed so far
     uint256 public totalDistributed;
 
     // ─── Events ───────────────────────────────────────────────────────────────
     event VolumeRecorded(address indexed user, uint256 indexed monthId, uint256 added, uint256 total);
     event RewardClaimed(address indexed user, uint256 indexed monthId, uint256 uth2Amount);
     event Funded(address indexed by, uint256 amount);
+    event TiersUpdated(uint256 numTiers);
 
-    modifier onlyOwner()  { require(msg.sender == owner,       "Not owner");      _; }
+    modifier onlyOwner()  { require(msg.sender == owner,       "Not owner");       _; }
     modifier onlyRouter() { require(msg.sender == swapRouter || msg.sender == owner, "Not authorized"); _; }
 
     // ─── Constructor ──────────────────────────────────────────────────────────
     constructor(address _swapRouter) {
         owner      = msg.sender;
         swapRouter = _swapRouter;
+
+        // Default 4-tier table
+        tierThresholds[0] = 1_000_000;       // 1 USDC
+        tierThresholds[1] = 10_000_000;      // 10 USDC
+        tierThresholds[2] = 100_000_000;     // 100 USDC
+        tierThresholds[3] = 1_000_000_000;   // 1000 USDC
+
+        tierRewards[0] = 0.0001 ether;
+        tierRewards[1] = 0.001  ether;
+        tierRewards[2] = 0.01   ether;
+        tierRewards[3] = 0.1    ether;
     }
 
     // ─── Period helpers ───────────────────────────────────────────────────────
 
-    /// @notice Current 30-day period index
     function currentMonth() public view returns (uint256) {
         return block.timestamp / PERIOD;
     }
 
-    // ─── Record swap volume (called by AcuaSwapRouter) ────────────────────────
+    /**
+     * @notice Returns timing info for the current period.
+     * @return monthId         Current 30-day period index
+     * @return periodStart     Unix timestamp when current period began
+     * @return periodEnd       Unix timestamp when current period ends
+     * @return secondsLeft     Seconds until next period reset
+     */
+    function getPeriodInfo() external view returns (
+        uint256 monthId,
+        uint256 periodStart,
+        uint256 periodEnd,
+        uint256 secondsLeft
+    ) {
+        monthId     = currentMonth();
+        periodStart = monthId * PERIOD;
+        periodEnd   = (monthId + 1) * PERIOD;
+        secondsLeft = periodEnd > block.timestamp ? periodEnd - block.timestamp : 0;
+    }
+
+    /**
+     * @notice Returns all active tiers in one call.
+     * @return thresholds  Array of USDC-6-dec threshold amounts (length = numTiers)
+     * @return rewards     Array of UTH2-18-dec reward amounts (length = numTiers)
+     */
+    function getAllTiers() external view returns (
+        uint256[] memory thresholds,
+        uint256[] memory rewards
+    ) {
+        thresholds = new uint256[](numTiers);
+        rewards    = new uint256[](numTiers);
+        for (uint256 i; i < numTiers; ++i) {
+            thresholds[i] = tierThresholds[i];
+            rewards[i]    = tierRewards[i];
+        }
+    }
+
+    // ─── Record swap volume ───────────────────────────────────────────────────
 
     function recordSwap(address user, uint256 usdcAmount) external onlyRouter {
         uint256 monthId = currentMonth();
@@ -90,24 +116,20 @@ contract AcuaVolumeRewards {
 
     // ─── Claim rewards ────────────────────────────────────────────────────────
 
-    /**
-     * @notice Claim all unlocked tier rewards for the given month.
-     *         Pass currentMonth() for current period, or a past month to claim retroactively.
-     */
     function claimRewards(uint256 monthId) external {
         address user    = msg.sender;
         uint256 userVol = volume[user][monthId];
         require(userVol > 0, "No volume this month");
 
         uint256 totalUTH2;
-        for (uint256 i; i < 4; ++i) {
+        for (uint256 i; i < numTiers; ++i) {
             if (userVol >= tierThresholds[i] && !claimed[user][monthId][i]) {
                 claimed[user][monthId][i] = true;
                 totalUTH2 += tierRewards[i];
             }
         }
 
-        require(totalUTH2 > 0, "All tiers already claimed or not reached");
+        require(totalUTH2 > 0, "All tiers claimed or not reached");
 
         uint256 available = IERC20(UTH2).balanceOf(address(this));
         require(available >= totalUTH2, "Insufficient UTH2 - wait for restock");
@@ -120,17 +142,18 @@ contract AcuaVolumeRewards {
     // ─── View helpers ─────────────────────────────────────────────────────────
 
     /**
-     * @notice Returns claimable UTH2, volume, and per-tier status for a given user+month.
-     * @return uth2Amount   Total UTH2 claimable right now
-     * @return userVolume   USDC-6-dec volume accumulated
-     * @return tierStatus   Per-tier: 0=not reached, 1=claimable, 2=already claimed
+     * @notice Pending rewards for user at given monthId.
+     * @return uth2Amount   Claimable UTH2
+     * @return userVolume   Accumulated USDC-6-dec volume
+     * @return tierStatus   0=not reached, 1=claimable, 2=already claimed (length = numTiers)
      */
     function pendingRewards(address user, uint256 monthId)
         external view
-        returns (uint256 uth2Amount, uint256 userVolume, uint8[4] memory tierStatus)
+        returns (uint256 uth2Amount, uint256 userVolume, uint8[] memory tierStatus)
     {
         userVolume = volume[user][monthId];
-        for (uint256 i; i < 4; ++i) {
+        tierStatus = new uint8[](numTiers);
+        for (uint256 i; i < numTiers; ++i) {
             if (claimed[user][monthId][i]) {
                 tierStatus[i] = 2;
             } else if (userVolume >= tierThresholds[i]) {
@@ -140,19 +163,15 @@ contract AcuaVolumeRewards {
         }
     }
 
-    /// @notice Convenience — returns pending for current month
     function pendingNow(address user)
         external view
-        returns (uint256 uth2Amount, uint256 userVolume, uint8[4] memory tierStatus)
+        returns (uint256 uth2Amount, uint256 userVolume, uint8[] memory tierStatus)
     {
         return this.pendingRewards(user, currentMonth());
     }
 
-    // ─── Fund UTH2 ───────────────────────────────────────────────────────────
+    // ─── Fund UTH2 ────────────────────────────────────────────────────────────
 
-    /**
-     * @notice Owner calls this after `UTH2.approve(AcuaVolumeRewards, amount)`.
-     */
     function fundUTH2(uint256 amount) external {
         require(amount > 0, "Zero amount");
         IERC20(UTH2).transferFrom(msg.sender, address(this), amount);
@@ -165,9 +184,27 @@ contract AcuaVolumeRewards {
         swapRouter = _router;
     }
 
-    function setTiers(uint256[4] calldata thresholds, uint256[4] calldata rewards) external onlyOwner {
-        tierThresholds = thresholds;
-        tierRewards    = rewards;
+    /**
+     * @notice Update tier configuration.
+     * @param n           Number of active tiers (1-8)
+     * @param thresholds  USDC-6-dec thresholds (must be ascending)
+     * @param rewards     UTH2-18-dec rewards per tier
+     */
+    function setTiers(
+        uint256 n,
+        uint256[8] calldata thresholds,
+        uint256[8] calldata rewards
+    ) external onlyOwner {
+        require(n >= 1 && n <= MAX_TIERS, "Bad tier count");
+        for (uint256 i = 1; i < n; ++i) {
+            require(thresholds[i] > thresholds[i-1], "Thresholds not ascending");
+        }
+        numTiers = n;
+        for (uint256 i; i < MAX_TIERS; ++i) {
+            tierThresholds[i] = thresholds[i];
+            tierRewards[i]    = rewards[i];
+        }
+        emit TiersUpdated(n);
     }
 
     function setOwner(address newOwner) external onlyOwner {
@@ -179,7 +216,6 @@ contract AcuaVolumeRewards {
         IERC20(UTH2).transfer(owner, amount);
     }
 
-    /// @notice Allow owner to manually record volume (for testing or corrections)
     function adminRecordVolume(address user, uint256 usdcAmount) external onlyOwner {
         uint256 monthId = currentMonth();
         volume[user][monthId] += usdcAmount;

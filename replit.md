@@ -76,6 +76,33 @@ User is `owners[1]` (index 1, second owner) of the AIR staking contract.
 - MiningUTH2: `0xbCF03E16F9114396A849053cb1555aAE744522e6` — pay UTH2, earn H2O
 - MiningWLD: `0xD2E227D30bC94D6FfD4eCf6b56141429C801E228` — pay WLD, earn 7 tokens
 
+### Acua Swap (v2 — World Chain V3 direct pool)
+- **AcuaSwapRouter**: `0xa45d469F28509aD5c6C6e99b14b2E65B6ab0E60A`
+  - Calls Uniswap V3 pools DIRECTLY (World Chain factory `0x7a5028...`, init code hash matches standard)
+  - Implements `IUniswapV3SwapCallback` for push-token model
+  - `swapV3Single(tokenIn, tokenOut, fee, amountIn, minOut, usdcEquiv)` — single hop
+  - `swapV3Multi(tokenIn, hopToken, tokenOut, fee1, fee2, ...)` — two-hop via WLD
+  - `swapV2(...)` — Uniswap V2 fallback
+  - `quoteSingle(tokenIn, tokenOut, fee, amountIn)` — spot price from pool.slot0()
+  - Fees: 2% swap + 0.1% H2O buyback (configurable, total max 10%)
+  - Uses Permit2 AllowanceTransfer
+- **AcuaVolumeRewards**: `0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48`
+  - Records USDC-equiv volume per user per 30-day period
+  - Configurable tiers 1-8: setTiers(numTiers, thresholds[], rewards[])
+  - UTH2 rewards claimable after month ends
+  - `getPeriodInfo()` — countdown for frontend
+  - `getAllTiers()` — thresholds + rewards arrays
+
+### World Chain Uniswap V3 Key Pools
+| Pair | Fee | Address |
+|------|-----|---------|
+| WLD/USDC | 10000 | `0x610E319b3A3Ab56A0eD5562927D37c233774ba39` |
+| WLD/USDC | 3000  | `0xC19BC89ac024426F5A23c5bb8bc91D8017c90684` |
+| WLD/USDC | 500   | `0x02371da6173CF95623Da4189E68912233cc7107C` |
+| H2O/WLD  | 3000  | `0x1b538b52cc4a767280D1E5a3EfaBD91984FE58a8` |
+- Factory: `0x7a5028BDa40e7B173C278C5342087826455ea25a`
+- Init code hash: `0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54` (same as standard V3)
+
 ### H2OVIPStandalone (nuevo — independiente del stake)
 - Dirección: `0x4cA4073b15177A5c84635158Bc9D8B9698115184`
 - UTH2 de suscripciones queda en el contrato; owner retira con `withdrawUTH2()`

@@ -320,8 +320,8 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaSwapRouter.sol": {
-      "lastModificationDate": 1776662706246,
-      "contentHash": "9ad93d00d1f067082085ef76ec7a472a",
+      "lastModificationDate": 1776664889785,
+      "contentHash": "3b91467b3854bc1117505b39812fbed4",
       "sourceName": "contracts/AcuaSwapRouter.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -357,13 +357,14 @@
         "IERC20",
         "IPermit2",
         "ISwapRouterV2",
-        "ISwapRouterV3",
+        "IUniswapV3Pool",
+        "IUniswapV3SwapCallback",
         "IVolumeRewards"
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaVolumeRewards.sol": {
-      "lastModificationDate": 1776662810132,
-      "contentHash": "5fa566b50bbbbf0441bb905d3333fdb3",
+      "lastModificationDate": 1776664297100,
+      "contentHash": "00e1ab389c3a1ceda0b573ab72ba28ee",
       "sourceName": "contracts/AcuaVolumeRewards.sol",
       "solcConfig": {
         "version": "0.8.24",
