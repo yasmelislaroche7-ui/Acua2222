@@ -23,7 +23,7 @@ const MAX_UINT256         = '115792089237316195423570985008687907853269984665640
 const MAX_UINT160         = '1461501637330902918203684832716283019655932542975'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const SLIPPAGE_BPS    = 200   // 2% slippage tolerance (safe for on-chain execution)
+const SLIPPAGE_BPS    = 300   // 3% slippage tolerance (spot-price quotes need extra buffer)
 const ACUA_FEE_BPS    = 210   // 2.1% total fee (2% swap + 0.1% H2O buyback)
 const IMPACT_WARN_BPS = 300   // warn >3%
 const IMPACT_MAX_BPS  = 1500  // block >15% (very high impact)
@@ -382,6 +382,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   const [quote,     setQuote]     = useState<QuoteResult | null>(null)
   const [quoting,   setQuoting]   = useState(false)
   const [swapping,  setSwapping]  = useState(false)
+  const [swapStep,  setSwapStep]  = useState<string>('')
   const [swapMsg,   setSwapMsg]   = useState<{ ok: boolean; text: string } | null>(null)
   const [pickerFor, setPickerFor] = useState<'from' | 'to' | null>(null)
   const [impact,    setImpact]    = useState<number | null>(null)
@@ -507,75 +508,118 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   // ── Execute swap ─────────────────────────────────────────────────────────────
   const doSwap = useCallback(async () => {
     if (!fromAmt || !quote) return
-    setSwapping(true); setSwapMsg(null)
+    setSwapping(true); setSwapMsg(null); setSwapStep('')
     try {
-      // Requote if stale (>25s)
-      let activeQuote = quote
-      if (Date.now() - quote.timestamp > QUOTE_TTL_MS) {
-        const rawNet = ethers.parseUnits(fromAmt, fromToken.decimals)
-        const net = rawNet - rawNet * BigInt(ACUA_FEE_BPS) / 10000n
-        const fresh = await getBestRouteQuote(fromToken.address, toToken.address, net)
-        if (fresh) activeQuote = fresh
+      // ── Balance check ──────────────────────────────────────────────────────
+      const rawAmt = ethers.parseUnits(fromAmt, fromToken.decimals)
+      const userBal = balances[fromToken.address.toLowerCase()] ?? 0n
+      if (rawAmt > userBal) {
+        setSwapMsg({ ok: false, text: `Saldo insuficiente de ${fromToken.symbol}` })
+        return
       }
 
-      const rawAmt = ethers.parseUnits(fromAmt, fromToken.decimals)
-      // 2% slippage on quoted amount — safe for on-chain execution
+      // ── Requote if stale (>25s) ────────────────────────────────────────────
+      setSwapStep('Verificando cotización...')
+      let activeQuote = quote
+      if (Date.now() - quote.timestamp > QUOTE_TTL_MS) {
+        const net = rawAmt - rawAmt * BigInt(ACUA_FEE_BPS) / 10000n
+        const fresh = await getBestRouteQuote(fromToken.address, toToken.address, net)
+        if (fresh) activeQuote = fresh
+        else { setSwapMsg({ ok: false, text: 'Sin liquidez — intenta de nuevo' }); return }
+      }
+
+      // ── Slippage: 3% on quoted amountOut ──────────────────────────────────
       const minOut = activeQuote.amountOut * BigInt(10000 - SLIPPAGE_BPS) / 10000n
 
-      // USDC equivalent for volume tracking
+      // ── USDC equivalent for volume tracking ───────────────────────────────
       const priceUsd = prices[fromToken.address.toLowerCase()] ?? 0
       const floatAmt = parseFloat(ethers.formatUnits(rawAmt, fromToken.decimals))
       const usdcEquiv = BigInt(Math.floor(floatAmt * priceUsd * 1_000_000))
 
-      const expiration = Math.floor(Date.now() / 1000) + 86400 * 7
+      // ── Permit2 expiration (7 days) ───────────────────────────────────────
+      const expiration = (Math.floor(Date.now() / 1000) + 86400 * 7).toString()
 
+      // ── Build transaction batch ────────────────────────────────────────────
+      // Tx 1: ERC20 approve → Permit2 (max amount, permanent)
+      // Tx 2: Permit2 approve → AcuaSwapRouter (max uint160, 7-day expiry)
+      // Tx 3: Swap (single or multi-hop)
       const txs: any[] = [
         {
-          address: fromToken.address, abi: APPROVE_ABI,
-          functionName: 'approve', args: [PERMIT2_ADDRESS, MAX_UINT256],
+          address: fromToken.address,
+          abi: APPROVE_ABI,
+          functionName: 'approve',
+          args: [PERMIT2_ADDRESS, MAX_UINT256],
         },
         {
-          address: PERMIT2_ADDRESS, abi: PERMIT2_APPROVE_ABI,
+          address: PERMIT2_ADDRESS,
+          abi: PERMIT2_APPROVE_ABI,
           functionName: 'approve',
-          args: [fromToken.address, ACUA_SWAP_ROUTER, MAX_UINT160, expiration.toString()],
+          args: [fromToken.address, ACUA_SWAP_ROUTER, MAX_UINT160, expiration],
         },
       ]
 
       if (activeQuote.multi && activeQuote.hopToken && activeQuote.fee2 !== undefined) {
+        // Multi-hop: tokenIn → hopToken → tokenOut
         txs.push({
-          address: ACUA_SWAP_ROUTER, abi: SWAP_MULTI_ABI,
+          address: ACUA_SWAP_ROUTER,
+          abi: SWAP_MULTI_ABI,
           functionName: 'swapV3Multi',
           args: [
-            fromToken.address, activeQuote.hopToken, toToken.address,
-            activeQuote.fee, activeQuote.fee2,
-            rawAmt.toString(), minOut.toString(), usdcEquiv.toString(),
+            fromToken.address,
+            activeQuote.hopToken,
+            toToken.address,
+            activeQuote.fee.toString(),
+            activeQuote.fee2.toString(),
+            rawAmt.toString(),
+            minOut.toString(),
+            usdcEquiv.toString(),
           ],
         })
       } else {
+        // Single-hop: tokenIn → tokenOut
         txs.push({
-          address: ACUA_SWAP_ROUTER, abi: SWAP_SINGLE_ABI,
+          address: ACUA_SWAP_ROUTER,
+          abi: SWAP_SINGLE_ABI,
           functionName: 'swapV3Single',
           args: [
-            fromToken.address, toToken.address, activeQuote.fee,
-            rawAmt.toString(), minOut.toString(), usdcEquiv.toString(),
+            fromToken.address,
+            toToken.address,
+            activeQuote.fee.toString(),
+            rawAmt.toString(),
+            minOut.toString(),
+            usdcEquiv.toString(),
           ],
         })
       }
 
+      // ── Send to World App ─────────────────────────────────────────────────
+      setSwapStep('Esperando confirmación en World App...')
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({ transaction: txs })
+
       if (finalPayload.status === 'success') {
         const txId = (finalPayload as any).transaction_id ?? ''
-        setSwapMsg({ ok: true, text: txId ? `✓ Swap exitoso! ${txId.slice(0, 10)}...` : '✓ Swap exitoso!' })
+        const shortId = txId ? ` · ${txId.slice(0, 10)}...` : ''
+        setSwapMsg({ ok: true, text: `✓ Swap exitoso${shortId}` })
         setFromAmt(''); setQuote(null); setImpact(null)
         setTimeout(() => { loadBalances(); loadVolume() }, 3000)
       } else {
-        const reason = (finalPayload as any).message ?? (finalPayload as any).details ?? 'Transaccion rechazada'
+        // Parse World App error message
+        const p = finalPayload as any
+        const reason =
+          p.details ??
+          p.message ??
+          p.error_code ??
+          'Transacción rechazada por el usuario'
         setSwapMsg({ ok: false, text: reason })
       }
     } catch (e: any) {
-      setSwapMsg({ ok: false, text: e?.message ?? 'Error desconocido' })
-    } finally { setSwapping(false) }
-  }, [fromAmt, quote, fromToken, toToken, prices, loadBalances, loadVolume]) // eslint-disable-line
+      const msg = e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error desconocido'
+      setSwapMsg({ ok: false, text: msg })
+    } finally {
+      setSwapping(false)
+      setSwapStep('')
+    }
+  }, [fromAmt, quote, fromToken, toToken, prices, balances, loadBalances, loadVolume]) // eslint-disable-line
 
   // ── Add custom token ──────────────────────────────────────────────────────────
   const addToken = useCallback(async () => {
@@ -841,7 +885,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
               {/* Fee bar */}
               <div className="flex items-center justify-between rounded-lg px-3 py-2 text-[10px]" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
                 <span className="text-white/40 flex items-center gap-1">
-                  <Coins className="w-3 h-3" /> Comisión: <strong className="text-white/60">2%</strong> + 0.1% H2O · Slippage: <strong className="text-white/60">2%</strong>
+                  <Coins className="w-3 h-3" /> Comisión: <strong className="text-white/60">2%</strong> + 0.1% H2O · Slippage: <strong className="text-white/60">{(SLIPPAGE_BPS / 100).toFixed(0)}%</strong>
                 </span>
                 {quote && (
                   <span className={cn('px-1.5 py-0.5 rounded font-mono font-bold text-[9px]',
@@ -939,7 +983,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                   </div>
                   <div className="flex justify-between text-white/40">
                     <span className="flex items-center gap-1"><Zap className="w-2.5 h-2.5 text-yellow-400" /> Slippage máx</span>
-                    <span className="font-mono text-yellow-400/70">2%</span>
+                    <span className="font-mono text-yellow-400/70">{(SLIPPAGE_BPS / 100).toFixed(0)}%</span>
                   </div>
                   {impactBps !== null && (
                     <div className="flex justify-between">
@@ -948,6 +992,14 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                       </span>
                       <span className={cn('font-mono font-bold', impactColor(impactBps))}>
                         {(impactBps / 100).toFixed(2)}%
+                      </span>
+                    </div>
+                  )}
+                  {quote && (
+                    <div className="flex justify-between text-white/40">
+                      <span>Mínimo a recibir</span>
+                      <span className="font-mono text-white/60">
+                        {formatToken(quote.amountOut * BigInt(10000 - SLIPPAGE_BPS) / 10000n, toToken.decimals, 4)} {toToken.symbol}
                       </span>
                     </div>
                   )}
@@ -994,16 +1046,19 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                 )}
                 style={isHighImpact ? {} : { background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', boxShadow: quote && !swapping ? '0 0 20px rgba(99,102,241,0.3)' : 'none' }}>
                 {swapping
-                  ? <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Ejecutando swap...</span>
+                  ? <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{swapStep || 'Procesando...'}</span>
                   : isHighImpact
                     ? <span className="flex items-center justify-center gap-2"><ShieldAlert className="w-4 h-4" /> Impacto muy alto</span>
                     : <span className="flex items-center justify-center gap-2"><Zap className="w-4 h-4" /> Swap</span>}
               </button>
 
               {swapMsg && (
-                <div className={cn('rounded-xl px-3 py-2.5 text-center text-xs font-medium font-mono',
+                <div className={cn('rounded-xl px-3 py-2.5 text-xs font-medium',
                   swapMsg.ok ? 'bg-green-500/10 text-green-300 border border-green-500/20' : 'bg-red-500/10 text-red-300 border border-red-500/20')}>
-                  {swapMsg.text}
+                  <p className="font-mono break-all">{swapMsg.text}</p>
+                  {swapMsg.ok && (
+                    <p className="text-[10px] text-green-400/60 mt-0.5">Los saldos se actualizarán en breve.</p>
+                  )}
                 </div>
               )}
 
