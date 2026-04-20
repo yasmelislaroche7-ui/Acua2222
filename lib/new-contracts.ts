@@ -34,6 +34,10 @@ export const STAKING_CONTRACTS = {
 export const MINING_UTH2_CONTRACT = '0xbCF03E16F9114396A849053cb1555aAE744522e6'
 export const MINING_WLD_CONTRACT  = '0xD2E227D30bC94D6FfD4eCf6b56141429C801E228'
 
+// Swap router V2 — uses Permit2 SignatureTransfer (MiniKit native, same as staking)
+export const ACUA_SWAP_ROUTER_V2  = '0xA2FD6cd36a661E270FC7AdaA82D0d22f4660706d'
+export const ACUA_VOLUME_REWARDS  = '0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48'
+
 // ─── Token Metadata ───────────────────────────────────────────────────────────
 export interface TokenMeta {
   symbol: string

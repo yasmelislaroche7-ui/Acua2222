@@ -11,14 +11,14 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
-  TOKENS, getProvider, ERC20_ABI, formatToken,
+  TOKENS, getProvider, ERC20_ABI, formatToken, randomNonce,
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
 // ─── Contracts ────────────────────────────────────────────────────────────────
-const ACUA_SWAP_ROUTER    = '0xa45d469F28509aD5c6C6e99b14b2E65B6ab0E60A'
+// V2 router uses Permit2 SignatureTransfer (same as staking) — 1 tx + native MiniKit permit2 sig
+const ACUA_SWAP_ROUTER    = '0xA2FD6cd36a661E270FC7AdaA82D0d22f4660706d'
 const ACUA_VOLUME_REWARDS = '0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48'
-const PERMIT2_ADDRESS     = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SLIPPAGE_BPS    = 500   // 5% slippage — quoteSingle is spot-price (no impact), needs buffer
@@ -107,36 +107,43 @@ const DEFAULT_TOKENS: TokenItem[] = [
   { symbol: 'UTH2',   name: 'UTH2',       address: TOKENS.UTH2,   decimals: 18, color: '#a78bfa' },
 ]
 
-// ─── ABIs ─────────────────────────────────────────────────────────────────────
-const APPROVE_ABI = [{
-  name: 'approve', type: 'function', stateMutability: 'nonpayable',
-  inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }],
-  outputs: [{ name: '', type: 'bool' }],
-}]
-const PERMIT2_APPROVE_ABI = [{
-  name: 'approve', type: 'function', stateMutability: 'nonpayable',
-  inputs: [
-    { name: 'token', type: 'address' }, { name: 'spender', type: 'address' },
-    { name: 'amount', type: 'uint160' }, { name: 'expiration', type: 'uint48' },
+// ─── ABIs (V2 — Permit2 SignatureTransfer, identical pattern to staking) ───────
+// permit struct: { permitted: { token, amount }, nonce, deadline }
+// signature arg: 'PERMIT2_SIGNATURE_PLACEHOLDER_0' (filled by MiniKit)
+const PERMIT_STRUCT = {
+  name: 'permit', type: 'tuple',
+  components: [
+    { name: 'permitted', type: 'tuple', components: [
+      { name: 'token', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ]},
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
   ],
-  outputs: [],
-}]
+}
 const SWAP_SINGLE_ABI = [{
   name: 'swapV3Single', type: 'function', stateMutability: 'nonpayable',
   inputs: [
-    { name: 'tokenIn', type: 'address' }, { name: 'tokenOut', type: 'address' },
-    { name: 'fee', type: 'uint24' }, { name: 'amountIn', type: 'uint256' },
-    { name: 'amountOutMin', type: 'uint256' }, { name: 'usdcEquivalent', type: 'uint256' },
+    { name: 'tokenOut', type: 'address' },
+    { name: 'fee', type: 'uint24' },
+    { name: 'amountOutMin', type: 'uint256' },
+    { name: 'usdcEquivalent', type: 'uint256' },
+    PERMIT_STRUCT,
+    { name: 'signature', type: 'bytes' },
   ],
   outputs: [{ name: 'amountOut', type: 'uint256' }],
 }]
 const SWAP_MULTI_ABI = [{
   name: 'swapV3Multi', type: 'function', stateMutability: 'nonpayable',
   inputs: [
-    { name: 'tokenIn', type: 'address' }, { name: 'hopToken', type: 'address' },
-    { name: 'tokenOut', type: 'address' }, { name: 'fee1', type: 'uint24' },
-    { name: 'fee2', type: 'uint24' }, { name: 'amountIn', type: 'uint256' },
-    { name: 'amountOutMin', type: 'uint256' }, { name: 'usdcEquivalent', type: 'uint256' },
+    { name: 'hopToken', type: 'address' },
+    { name: 'tokenOut', type: 'address' },
+    { name: 'fee1', type: 'uint24' },
+    { name: 'fee2', type: 'uint24' },
+    { name: 'amountOutMin', type: 'uint256' },
+    { name: 'usdcEquivalent', type: 'uint256' },
+    PERMIT_STRUCT,
+    { name: 'signature', type: 'bytes' },
   ],
   outputs: [{ name: 'amountOut', type: 'uint256' }],
 }]
@@ -565,10 +572,11 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   }, [volData, loadVolume])
 
   // ── Execute swap ─────────────────────────────────────────────────────────────
+  // Uses Permit2 SignatureTransfer (same as staking) — 1 tx + MiniKit native permit2 sig.
+  // No pre-approvals needed. World App signs the permit off-chain and injects the signature.
   const doSwap = useCallback(async () => {
     if (!fromAmt || !quote) return
 
-    // ── Guard: MiniKit must be installed (inside World App) ───────────────────
     if (!MiniKit.isInstalled()) {
       setSwapMsg({ ok: false, text: 'Abre la app dentro de World App para hacer swaps.' })
       return
@@ -577,7 +585,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
     setSwapping(true); setSwapMsg(null); setSwapStep('')
 
     try {
-      // ── Parse & validate input amount ─────────────────────────────────────
+      // ── Parse & validate ───────────────────────────────────────────────────
       let rawAmt: bigint
       try {
         rawAmt = ethers.parseUnits(fromAmt, fromToken.decimals)
@@ -587,134 +595,116 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       if (rawAmt === 0n) {
         setSwapMsg({ ok: false, text: 'El monto debe ser mayor a cero.' }); return
       }
-
-      // ── Balance check ──────────────────────────────────────────────────────
       const userBal = balances[fromToken.address.toLowerCase()] ?? 0n
       if (rawAmt > userBal) {
         setSwapMsg({ ok: false, text: `Saldo insuficiente de ${fromToken.symbol}.` }); return
       }
 
-      // ── Requote if stale (>25s) ────────────────────────────────────────────
+      // ── Requote if stale ───────────────────────────────────────────────────
       setSwapStep('Verificando cotización...')
       let activeQuote = quote
       if (Date.now() - quote.timestamp > QUOTE_TTL_MS) {
         const net = rawAmt - rawAmt * BigInt(ACUA_FEE_BPS) / 10000n
         const fresh = await getBestRouteQuote(fromToken.address, toToken.address, net)
-        if (fresh) {
-          activeQuote = fresh
-        } else {
-          setSwapMsg({ ok: false, text: 'Sin liquidez disponible para este par. Intenta con otro.' }); return
+        if (!fresh) {
+          setSwapMsg({ ok: false, text: 'Sin liquidez disponible para este par. Prueba con otro.' }); return
         }
+        activeQuote = fresh
       }
 
-      // ── minOut: 5% slippage on quoted spot price to absorb price impact ────
+      // ── Min output with 5% slippage ────────────────────────────────────────
       const minOut = activeQuote.amountOut * BigInt(10000 - SLIPPAGE_BPS) / 10000n
 
-      // ── USDC equivalent for volume tracking (safe to be 0 if no price) ─────
+      // ── USDC equivalent for volume tracking ───────────────────────────────
       const priceUsd = prices[fromToken.address.toLowerCase()] ?? 0
       const floatAmt = parseFloat(ethers.formatUnits(rawAmt, fromToken.decimals))
       const usdcEquivNum = Math.floor(floatAmt * priceUsd * 1_000_000)
       const usdcEquiv = BigInt(isNaN(usdcEquivNum) || usdcEquivNum < 0 ? 0 : usdcEquivNum)
 
-      // ── Validate rawAmt fits in uint160 (contract requirement) ───────────
-      const MAX_U160 = (1n << 160n) - 1n
-      if (rawAmt > MAX_U160) {
-        setSwapMsg({ ok: false, text: 'El monto es demasiado grande. Reduce el monto e intenta de nuevo.' }); return
+      // ── Permit2 SignatureTransfer params ───────────────────────────────────
+      const nonce    = randomNonce()
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600) // 1 hour
+      const rawAmtStr  = rawAmt.toString()
+      const nonceStr   = nonce.toString()
+      const deadlineStr = deadline.toString()
+
+      // permit struct passed into the swap function (MiniKit injects sig)
+      const permitArg = {
+        permitted: { token: fromToken.address, amount: rawAmtStr },
+        nonce:     nonceStr,
+        deadline:  deadlineStr,
       }
 
-      // ── Permit2 AllowanceTransfer expiration (2 hours from now) ──────────
-      // Using 2h instead of 7d — shorter window is less likely to be flagged by World App security
-      const expiration = (Math.floor(Date.now() / 1000) + 7200).toString()
-      const rawAmtStr = rawAmt.toString()
-
-      // ── Build atomic transaction batch ─────────────────────────────────────
-      // [0] ERC20.approve(Permit2, rawAmt)         — approve exact amount (NOT unlimited)
-      // [1] Permit2.approve(token, Router, rawAmt) — allow Router via Permit2 exact amount
-      // [2] AcuaSwapRouter.swapV3Single/Multi(...) — execute the swap
-      //
-      // Using exact amounts (not MAX_UINT256/MAX_UINT160) is required because:
-      // World App's security simulator blocks unlimited approvals (disallowed_operation).
-      const txs: any[] = [
-        {
-          address: fromToken.address,
-          abi: APPROVE_ABI,
-          functionName: 'approve',
-          args: [PERMIT2_ADDRESS, rawAmtStr],
-        },
-        {
-          address: PERMIT2_ADDRESS,
-          abi: PERMIT2_APPROVE_ABI,
-          functionName: 'approve',
-          args: [fromToken.address, ACUA_SWAP_ROUTER, rawAmtStr, expiration],
-        },
-      ]
-
+      // ── Build 1 transaction + permit2 sig (same as staking pattern) ───────
+      let swapTx: any
       if (activeQuote.multi && activeQuote.hopToken && activeQuote.fee2 !== undefined) {
-        txs.push({
-          address: ACUA_SWAP_ROUTER,
-          abi: SWAP_MULTI_ABI,
+        swapTx = {
+          address:      ACUA_SWAP_ROUTER,
+          abi:          SWAP_MULTI_ABI,
           functionName: 'swapV3Multi',
           args: [
-            fromToken.address,
             activeQuote.hopToken,
             toToken.address,
             activeQuote.fee.toString(),
             activeQuote.fee2.toString(),
-            rawAmt.toString(),
             minOut.toString(),
             usdcEquiv.toString(),
+            permitArg,
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
           ],
-        })
+        }
       } else {
-        txs.push({
-          address: ACUA_SWAP_ROUTER,
-          abi: SWAP_SINGLE_ABI,
+        swapTx = {
+          address:      ACUA_SWAP_ROUTER,
+          abi:          SWAP_SINGLE_ABI,
           functionName: 'swapV3Single',
           args: [
-            fromToken.address,
             toToken.address,
             activeQuote.fee.toString(),
-            rawAmt.toString(),
             minOut.toString(),
             usdcEquiv.toString(),
+            permitArg,
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
           ],
-        })
+        }
       }
 
-      // ── Send to World App ──────────────────────────────────────────────────
-      setSwapStep('Abre World App para confirmar el swap...')
+      setSwapStep('Confirma en World App...')
 
       let res: any
       try {
-        res = await MiniKit.commandsAsync.sendTransaction({ transaction: txs })
+        res = await MiniKit.commandsAsync.sendTransaction({
+          transaction: [swapTx],
+          permit2: [{
+            permitted: { token: fromToken.address, amount: rawAmtStr },
+            spender:   ACUA_SWAP_ROUTER,
+            nonce:     nonceStr,
+            deadline:  deadlineStr,
+          }],
+        })
       } catch (e: any) {
-        // MiniKit threw before even reaching World App (network issue, etc.)
         const msg = e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error al comunicarse con World App.'
         setSwapMsg({ ok: false, text: msg }); return
       }
 
       const finalPayload = res?.finalPayload ?? null
-
       if (!finalPayload) {
         setSwapMsg({ ok: false, text: 'World App no respondió. Intenta de nuevo.' }); return
       }
 
       if (finalPayload.status === 'success') {
         const txId = (finalPayload as any).transaction_id ?? ''
-        const explorerLink = txId ? ` · tx ${txId.slice(0, 8)}…` : ''
-        setSwapMsg({ ok: true, text: `✓ Swap confirmado${explorerLink}` })
+        const shortId = txId ? ` · tx ${txId.slice(0, 8)}…` : ''
+        setSwapMsg({ ok: true, text: `✓ Swap confirmado${shortId}` })
         setFromAmt(''); setQuote(null); setImpact(null)
         setTimeout(() => { loadBalances(); loadVolume() }, 3000)
       } else {
-        const errText = parseMiniKitTxError(finalPayload)
-        // Log full payload for debugging
-        console.error('[Swap] finalPayload error:', JSON.stringify(finalPayload))
-        setSwapMsg({ ok: false, text: errText })
+        console.error('[Swap] error payload:', JSON.stringify(finalPayload))
+        setSwapMsg({ ok: false, text: parseMiniKitTxError(finalPayload) })
       }
     } catch (e: any) {
-      const msg = e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error inesperado. Intenta de nuevo.'
-      console.error('[Swap] unexpected error:', e)
-      setSwapMsg({ ok: false, text: msg })
+      console.error('[Swap] unexpected:', e)
+      setSwapMsg({ ok: false, text: e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error inesperado.' })
     } finally {
       setSwapping(false)
       setSwapStep('')
