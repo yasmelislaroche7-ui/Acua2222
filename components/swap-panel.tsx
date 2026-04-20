@@ -5,8 +5,8 @@ import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
 import {
   ArrowUpDown, RefreshCw, Plus, ChevronDown, Loader2, Search,
-  X, Wallet, Shield, ChevronUp, Check, AlertCircle, Repeat2,
-  TrendingUp, UserCog, Coins,
+  X, Wallet, ChevronUp, Check, AlertCircle, Repeat2,
+  TrendingUp, Coins, Award, Gift,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,22 +15,22 @@ import {
 import { cn } from '@/lib/utils'
 
 // ─── Uniswap V3 — World Chain (480) ──────────────────────────────────────────
-const UNISWAP_V3_ROUTER  = '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45'
 const UNISWAP_V3_QUOTER  = '0x61fFE014bA17989E743c5F6cB21bF9697530B21e'
 const FEE_TIERS = [100, 500, 3000, 10000]
 
 // ─── SushiSwap V2 — World Chain (480) ────────────────────────────────────────
 const SUSHI_V2_ROUTER = '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506'
 
-// ─── Default owners ───────────────────────────────────────────────────────────
-const DEFAULT_OWNER_1 = '0x5474C309e985c6B4Fc623acf01AdE604dA781e52'
-const DEFAULT_OWNER_2 = '0xc2ef127734f296952de75c1b58a6cec605cc2e59'
-const DEFAULT_FEE_BPS  = 100
+// ─── Permit2 ──────────────────────────────────────────────────────────────────
+const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
+const MAX_UINT256 = '115792089237316195423570985008687907853269984665640564039457584007913129639935'
 
-// ─── LocalStorage helpers ─────────────────────────────────────────────────────
-const LS_FEE     = 'acua_swap_feeBps'
-const LS_OWNER1  = 'acua_swap_owner1'
-const LS_OWNER2  = 'acua_swap_owner2'
+// ─── Acua contracts (fill after deploy) ──────────────────────────────────────
+// TODO: replace AFTER running `npm run deploy:swap-router` and `npm run deploy:volume-rewards`
+const ACUA_SWAP_ROUTER   = '0x0000000000000000000000000000000000000000'
+const ACUA_VOLUME_REWARDS= '0x0000000000000000000000000000000000000000'
+
+// ─── LocalStorage ────────────────────────────────────────────────────────────
 const LS_CUSTOMS = 'acua_swap_customTokens'
 
 function lsGet(key: string, fallback: string) {
@@ -39,6 +39,8 @@ function lsGet(key: string, fallback: string) {
 function lsSet(key: string, val: string) {
   try { localStorage.setItem(key, val) } catch {}
 }
+
+const routerDeployed = ACUA_SWAP_ROUTER !== '0x0000000000000000000000000000000000000000'
 
 // ─── Token logos (CDN URLs for known tokens; others use colored circle) ───────
 const TOKEN_LOGOS: Record<string, string> = {
@@ -106,54 +108,53 @@ const APPROVE_ABI = [{
   outputs: [{ name: '', type: 'bool' }],
 }]
 
-const TRANSFER_ABI = [{
-  name: 'transfer', type: 'function', stateMutability: 'nonpayable',
-  inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }],
-  outputs: [{ name: '', type: 'bool' }],
-}]
-
-const EXACT_INPUT_SINGLE_ABI = [{
-  name: 'exactInputSingle', type: 'function', stateMutability: 'payable',
-  inputs: [{
-    name: 'params', type: 'tuple',
-    components: [
-      { name: 'tokenIn',            type: 'address'  },
-      { name: 'tokenOut',           type: 'address'  },
-      { name: 'fee',                type: 'uint24'   },
-      { name: 'recipient',          type: 'address'  },
-      { name: 'amountIn',           type: 'uint256'  },
-      { name: 'amountOutMinimum',   type: 'uint256'  },
-      { name: 'sqrtPriceLimitX96',  type: 'uint160'  },
-    ],
-  }],
-  outputs: [{ name: 'amountOut', type: 'uint256' }],
-}]
-
-const EXACT_INPUT_ABI = [{
-  name: 'exactInput', type: 'function', stateMutability: 'payable',
-  inputs: [{
-    name: 'params', type: 'tuple',
-    components: [
-      { name: 'path',             type: 'bytes'   },
-      { name: 'recipient',        type: 'address' },
-      { name: 'amountIn',         type: 'uint256' },
-      { name: 'amountOutMinimum', type: 'uint256' },
-    ],
-  }],
-  outputs: [{ name: 'amountOut', type: 'uint256' }],
-}]
-
-const SWAP_EXACT_TOKENS_V2_ABI = [{
-  name: 'swapExactTokensForTokens', type: 'function', stateMutability: 'nonpayable',
+// Permit2 AllowanceTransfer.approve — lets our router pull tokens in one batch tx
+const PERMIT2_APPROVE_ABI = [{
+  name: 'approve', type: 'function', stateMutability: 'nonpayable',
   inputs: [
-    { name: 'amountIn',     type: 'uint256'   },
-    { name: 'amountOutMin', type: 'uint256'   },
-    { name: 'path',         type: 'address[]' },
-    { name: 'to',           type: 'address'   },
-    { name: 'deadline',     type: 'uint256'   },
+    { name: 'token',      type: 'address' },
+    { name: 'spender',    type: 'address' },
+    { name: 'amount',     type: 'uint160' },
+    { name: 'expiration', type: 'uint48'  },
   ],
-  outputs: [{ name: 'amounts', type: 'uint256[]' }],
+  outputs: [],
 }]
+
+// AcuaSwapRouter — swapV3 (Uniswap V3 path)
+const ACUA_SWAP_V3_ABI = [{
+  name: 'swapV3', type: 'function', stateMutability: 'nonpayable',
+  inputs: [
+    { name: 'tokenIn',        type: 'address' },
+    { name: 'tokenOut',       type: 'address' },
+    { name: 'amountIn',       type: 'uint256' },
+    { name: 'amountOutMin',   type: 'uint256' },
+    { name: 'v3Path',         type: 'bytes'   },
+    { name: 'usdcEquivalent', type: 'uint256' },
+  ],
+  outputs: [{ name: 'amountOut', type: 'uint256' }],
+}]
+
+// AcuaSwapRouter — swapV2 (SushiSwap V2 path)
+const ACUA_SWAP_V2_ABI = [{
+  name: 'swapV2', type: 'function', stateMutability: 'nonpayable',
+  inputs: [
+    { name: 'tokenIn',        type: 'address'   },
+    { name: 'tokenOut',       type: 'address'   },
+    { name: 'amountIn',       type: 'uint256'   },
+    { name: 'amountOutMin',   type: 'uint256'   },
+    { name: 'v2Path',         type: 'address[]' },
+    { name: 'usdcEquivalent', type: 'uint256'   },
+  ],
+  outputs: [{ name: 'amountOut', type: 'uint256' }],
+}]
+
+const VOLUME_REWARDS_ABI = [
+  'function pendingNow(address user) view returns (uint256 uth2Amount, uint256 userVolume, uint8[4] tierStatus)',
+  'function currentMonth() view returns (uint256)',
+  'function claimRewards(uint256 monthId) nonpayable',
+  'function tierThresholds(uint256) view returns (uint256)',
+  'function tierRewards(uint256) view returns (uint256)',
+]
 
 const QUOTER_V2_ABI = [
   'function quoteExactInputSingle((address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed, uint256 gasEstimate)',
@@ -412,15 +413,20 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
   const [pickerFor, setPickerFor] = useState<'from' | 'to' | null>(null)
   const [slippage,  setSlippage]  = useState(50)
 
-  const [feeBps,   setFeeBps]   = useState(() => parseInt(lsGet(LS_FEE, String(DEFAULT_FEE_BPS))))
-  const [owner1,   setOwner1]   = useState(() => lsGet(LS_OWNER1, DEFAULT_OWNER_1))
-  const [owner2,   setOwner2]   = useState(() => lsGet(LS_OWNER2, DEFAULT_OWNER_2))
-  const [adminOpen, setAdminOpen] = useState(false)
-  const [adminMsg,  setAdminMsg]  = useState('')
-
   const [addAddr,    setAddAddr]    = useState('')
   const [addLoading, setAddLoading] = useState(false)
   const [addMsg,     setAddMsg]     = useState('')
+
+  // ── Volume tracker ──────────────────────────────────────────────────────────
+  const [volumeOpen,    setVolumeOpen]    = useState(false)
+  const [volumeData,    setVolumeData]    = useState<{
+    uth2Amount: bigint; userVolume: bigint; tierStatus: number[]; monthId: bigint
+  } | null>(null)
+  const [loadingVolume, setLoadingVolume] = useState(false)
+  const [claimingVol,   setClaimingVol]   = useState(false)
+  const [volMsg,        setVolMsg]         = useState<{ ok: boolean; text: string } | null>(null)
+
+  const VOLUME_DEPLOYED = ACUA_VOLUME_REWARDS !== '0x0000000000000000000000000000000000000000'
 
   // ── Load balances & prices ──────────────────────────────────────────────────
   const loadBalances = useCallback(async () => {
@@ -446,7 +452,7 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
 
   useEffect(() => { loadBalances() }, [loadBalances])
 
-  // ── Quote ────────────────────────────────────────────────────────────────────
+  // ── Quote (uses net amount after 2.1% total fee for accurate price estimate) ──
   const quoteTimeout = useRef<NodeJS.Timeout | null>(null)
   useEffect(() => {
     setQuote(null); setSwapMsg(null)
@@ -456,70 +462,121 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
       setQuoting(true)
       try {
         const rawAmt = ethers.parseUnits(fromAmt, fromToken.decimals)
-        const feeAmt = rawAmt * BigInt(feeBps) / 10000n
-        const netAmt = rawAmt > feeAmt ? rawAmt - feeAmt : rawAmt
+        // Total fee = swapFeeBps(200) + h2oFeeBps(10) = 210 bps = 2.1%
+        const totalFeeBps = 210n
+        const netAmt = rawAmt - rawAmt * totalFeeBps / 10000n
         const result = await getBestQuote(fromToken.address, toToken.address, netAmt)
         setQuote(result)
       } catch (e) { console.error('[Swap] quote error', e) }
       finally { setQuoting(false) }
     }, 600)
-  }, [fromAmt, fromToken, toToken, feeBps]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fromAmt, fromToken, toToken]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Swap ─────────────────────────────────────────────────────────────────────
+  // ── Load volume tracker data ─────────────────────────────────────────────────
+  const loadVolume = useCallback(async () => {
+    if (!VOLUME_DEPLOYED) return
+    setLoadingVolume(true)
+    try {
+      const p = getProvider()
+      const vc = new ethers.Contract(ACUA_VOLUME_REWARDS, VOLUME_REWARDS_ABI, p)
+      const [uth2Amount, userVolume, tierStatus] = await vc.pendingNow(userAddress)
+      const monthId = await vc.currentMonth()
+      setVolumeData({
+        uth2Amount: BigInt(uth2Amount.toString()),
+        userVolume: BigInt(userVolume.toString()),
+        tierStatus: Array.from(tierStatus).map((v: any) => Number(v)),
+        monthId: BigInt(monthId.toString()),
+      })
+    } catch (e) { console.error('[Volume]', e) }
+    finally { setLoadingVolume(false) }
+  }, [userAddress]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { if (volumeOpen) loadVolume() }, [volumeOpen, loadVolume])
+
+  // ── Claim volume rewards ─────────────────────────────────────────────────────
+  const doClaimVolume = useCallback(async () => {
+    if (!volumeData || volumeData.uth2Amount === 0n) return
+    setClaimingVol(true); setVolMsg(null)
+    try {
+      const CLAIM_ABI = [{ name: 'claimRewards', type: 'function', stateMutability: 'nonpayable',
+        inputs: [{ name: 'monthId', type: 'uint256' }], outputs: [] }]
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{ address: ACUA_VOLUME_REWARDS, abi: CLAIM_ABI,
+          functionName: 'claimRewards', args: [volumeData.monthId.toString()] }]
+      })
+      if (finalPayload.status === 'success') {
+        setVolMsg({ ok: true, text: `✓ ${ethers.formatEther(volumeData.uth2Amount)} UTH2 reclamado!` })
+        setTimeout(loadVolume, 2000)
+      } else {
+        setVolMsg({ ok: false, text: 'Transacción cancelada' })
+      }
+    } catch (e: any) {
+      setVolMsg({ ok: false, text: e?.message ?? 'Error' })
+    } finally { setClaimingVol(false) }
+  }, [volumeData, loadVolume])
+
+  // ── Swap via AcuaSwapRouter (fees on-chain, Permit2 AllowanceTransfer) ───────
   const doSwap = useCallback(async () => {
     if (!fromAmt || !quote) return
     setSwapping(true); setSwapMsg(null)
     try {
-      const rawAmt  = ethers.parseUnits(fromAmt, fromToken.decimals)
-      const feeAmt  = rawAmt * BigInt(feeBps) / 10000n
-      const feeHalf = feeAmt / 2n
-      const netAmt  = rawAmt - feeAmt
-      const minOut  = quote.amountOut * BigInt(10000 - slippage) / 10000n
-      const deadline = Math.floor(Date.now() / 1000) + 1800
+      const rawAmt = ethers.parseUnits(fromAmt, fromToken.decimals)
+      const minOut = quote.amountOut * BigInt(10000 - slippage) / 10000n
 
-      const txs: any[] = []
+      // USDC equivalent for volume tracking (6 decimals)
+      const priceUsd = prices[fromToken.address.toLowerCase()] ?? 0
+      const floatAmt = parseFloat(ethers.formatUnits(rawAmt, fromToken.decimals))
+      const usdcEquiv = BigInt(Math.floor(floatAmt * priceUsd * 1_000_000))
 
-      // Fee transfers (if any)
-      if (feeHalf > 0n) {
-        txs.push({ address: fromToken.address, abi: TRANSFER_ABI, functionName: 'transfer', args: [owner1, feeHalf.toString()] })
-        txs.push({ address: fromToken.address, abi: TRANSFER_ABI, functionName: 'transfer', args: [owner2, feeHalf.toString()] })
-      }
+      // Permit2 expiration: 24 hours from now (uint48)
+      const expiration = Math.floor(Date.now() / 1000) + 86400
+
+      // Batch:
+      // 1. ERC20 max-approve Permit2 (idempotent — safe to always include)
+      // 2. Permit2.approve(token, AcuaSwapRouter, amount, expiration)
+      // 3. AcuaSwapRouter.swapV3 or swapV2
+      const txs: any[] = [
+        {
+          address: fromToken.address,
+          abi: APPROVE_ABI,
+          functionName: 'approve',
+          args: [PERMIT2_ADDRESS, MAX_UINT256],
+        },
+        {
+          address: PERMIT2_ADDRESS,
+          abi: PERMIT2_APPROVE_ABI,
+          functionName: 'approve',
+          args: [fromToken.address, ACUA_SWAP_ROUTER, rawAmt.toString(), expiration.toString()],
+        },
+      ]
 
       if (quote.source === 'v2-direct' || quote.source === 'v2-multihop') {
-        // SushiSwap V2 swap
-        const path = quote.v2Path!
-        txs.unshift({ address: fromToken.address, abi: APPROVE_ABI, functionName: 'approve', args: [SUSHI_V2_ROUTER, netAmt.toString()] })
+        // SushiSwap V2 path
         txs.push({
-          address: SUSHI_V2_ROUTER,
-          abi: SWAP_EXACT_TOKENS_V2_ABI,
-          functionName: 'swapExactTokensForTokens',
-          args: [netAmt.toString(), minOut.toString(), path, userAddress, deadline.toString()],
-        })
-      } else if (quote.source === 'v3-multihop' && quote.v3Path) {
-        // Uniswap V3 multi-hop
-        txs.unshift({ address: fromToken.address, abi: APPROVE_ABI, functionName: 'approve', args: [UNISWAP_V3_ROUTER, netAmt.toString()] })
-        txs.push({
-          address: UNISWAP_V3_ROUTER,
-          abi: EXACT_INPUT_ABI,
-          functionName: 'exactInput',
-          args: [[quote.v3Path, userAddress, netAmt.toString(), minOut.toString()]],
+          address: ACUA_SWAP_ROUTER,
+          abi: ACUA_SWAP_V2_ABI,
+          functionName: 'swapV2',
+          args: [
+            fromToken.address, toToken.address,
+            rawAmt.toString(), minOut.toString(),
+            quote.v2Path!, usdcEquiv.toString(),
+          ],
         })
       } else {
-        // Uniswap V3 direct (single-hop)
-        txs.unshift({ address: fromToken.address, abi: APPROVE_ABI, functionName: 'approve', args: [UNISWAP_V3_ROUTER, netAmt.toString()] })
+        // Uniswap V3 path (single-hop or multi-hop)
+        const v3Path = quote.v3Path ?? ethers.solidityPacked(
+          ['address', 'uint24', 'address'],
+          [fromToken.address, quote.fee, toToken.address]
+        )
         txs.push({
-          address: UNISWAP_V3_ROUTER,
-          abi: EXACT_INPUT_SINGLE_ABI,
-          functionName: 'exactInputSingle',
-          args: [[
-            fromToken.address,
-            toToken.address,
-            quote.fee,
-            userAddress,
-            netAmt.toString(),
-            minOut.toString(),
-            '0',
-          ]],
+          address: ACUA_SWAP_ROUTER,
+          abi: ACUA_SWAP_V3_ABI,
+          functionName: 'swapV3',
+          args: [
+            fromToken.address, toToken.address,
+            rawAmt.toString(), minOut.toString(),
+            v3Path, usdcEquiv.toString(),
+          ],
         })
       }
 
@@ -528,14 +585,14 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
         const txId = (finalPayload as any).transaction_id ?? ''
         setSwapMsg({ ok: true, text: txId ? `✓ Tx: ${txId.slice(0, 16)}…` : '✓ Swap ejecutado' })
         setFromAmt(''); setQuote(null)
-        setTimeout(loadBalances, 3000)
+        setTimeout(() => { loadBalances(); if (VOLUME_DEPLOYED) loadVolume() }, 3000)
       } else {
         setSwapMsg({ ok: false, text: (finalPayload as any).message ?? 'Transacción rechazada' })
       }
     } catch (e: any) {
       setSwapMsg({ ok: false, text: e?.message ?? 'Error desconocido' })
     } finally { setSwapping(false) }
-  }, [fromAmt, quote, fromToken, toToken, feeBps, slippage, userAddress, owner1, owner2, loadBalances])
+  }, [fromAmt, quote, fromToken, toToken, slippage, userAddress, prices, loadBalances, loadVolume]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Add custom token ─────────────────────────────────────────────────────────
   const addToken = useCallback(async () => {
@@ -554,15 +611,6 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
     setTimeout(() => setAddMsg(''), 3000)
   }, [addAddr, customTokens, allTokens])
 
-  // ── Save admin settings ──────────────────────────────────────────────────────
-  const saveAdmin = () => {
-    lsSet(LS_FEE, String(feeBps))
-    lsSet(LS_OWNER1, owner1)
-    lsSet(LS_OWNER2, owner2)
-    setAdminMsg('✓ Guardado')
-    setTimeout(() => setAdminMsg(''), 2000)
-  }
-
   // ── Helpers ──────────────────────────────────────────────────────────────────
   const getBalance = (token: TokenItem) => balances[token.address.toLowerCase()] ?? 0n
   const getUsdVal = (token: TokenItem, bal: bigint) => {
@@ -571,9 +619,9 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
     const floatBal = parseFloat(ethers.formatUnits(bal, token.decimals))
     return (floatBal * price).toFixed(2)
   }
-  const feePercent = (feeBps / 100).toFixed(2)
+  const TOTAL_FEE_BPS = 210 // 2% swap + 0.1% H2O = 2.1%
   const fromAmtNum = parseFloat(fromAmt || '0')
-  const feeAmtDisplay = isNaN(fromAmtNum) ? '0' : (fromAmtNum * feeBps / 10000).toFixed(6)
+  const feeAmtDisplay = isNaN(fromAmtNum) ? '0' : (fromAmtNum * TOTAL_FEE_BPS / 10000).toFixed(6)
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -690,7 +738,15 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
         <div className="space-y-3">
           {/* Fee info bar */}
           <div className="flex items-center justify-between text-xs text-muted-foreground bg-surface-2 rounded-lg px-3 py-2 border border-border">
-            <span className="flex items-center gap-1"><Coins className="w-3 h-3" /> Comisión: <strong className="text-foreground">{feePercent}%</strong></span>
+            <span className="flex items-center gap-1">
+              <Coins className="w-3 h-3" />
+              Comisión: <strong className="text-foreground">2%</strong>
+              <span className="text-muted-foreground/60">+ 0.1% H2O</span>
+              {routerDeployed
+                ? <span className="text-green-400 text-[9px] ml-1">on-chain</span>
+                : <span className="text-yellow-400 text-[9px] ml-1">pendiente deploy</span>
+              }
+            </span>
             {quote && <SourceBadge source={quote.source} hopLabel={quote.hopLabel} />}
           </div>
 
@@ -779,7 +835,7 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
           {fromAmt && parseFloat(fromAmt) > 0 && (
             <div className="rounded-lg border border-border bg-surface-2/50 p-2.5 space-y-1 text-xs">
               <div className="flex justify-between text-muted-foreground">
-                <span>Comisión Acua ({feePercent}%)</span>
+                <span>Comisión 2% (owners) + 0.1% → H2O</span>
                 <span className="font-mono">{feeAmtDisplay} {fromToken.symbol}</span>
               </div>
               {quote && (
@@ -847,58 +903,130 @@ export function SwapPanel({ userAddress, isAdmin }: { userAddress: string; isAdm
         </div>
       )}
 
-      {/* ─── Admin Panel ─────────────────────────────────────────────────────── */}
-      {isAdmin && (
-        <div className="rounded-xl border border-violet-500/30 overflow-hidden">
+      {/* ─── Volume Rewards Panel ──────────────────────────────────────────────── */}
+      {VOLUME_DEPLOYED && (
+        <div className="rounded-2xl border border-teal-500/20 bg-gradient-to-br from-teal-950/30 to-cyan-900/20 overflow-hidden">
           <button
-            onClick={() => setAdminOpen(p => !p)}
-            className="w-full flex items-center justify-between p-3 bg-violet-500/10 text-left"
+            onClick={() => setVolumeOpen(v => !v)}
+            className="w-full flex items-center justify-between p-3.5"
           >
-            <div className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-violet-400" />
-              <span className="text-xs font-bold text-violet-400">Admin Swap</span>
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-teal-500/15 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4 text-teal-400" />
+              </div>
+              <div className="text-left">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-bold text-teal-300">Rewards por Volumen</p>
+                  {volumeData && volumeData.uth2Amount > 0n && (
+                    <span className="text-[9px] font-bold bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded-full animate-pulse">
+                      RECLAMAR
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">Haz swap · Gana UTH2 mensual</p>
+              </div>
             </div>
-            {adminOpen ? <ChevronUp className="w-4 h-4 text-violet-400" /> : <ChevronDown className="w-4 h-4 text-violet-400" />}
+            {volumeOpen
+              ? <ChevronUp className="w-4 h-4 text-muted-foreground" />
+              : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
           </button>
 
-          {adminOpen && (
-            <div className="p-3 space-y-4">
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground mb-1.5">Comisión (BPS · 100 = 1%)</p>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="number"
-                    min="0"
-                    max="1000"
-                    value={feeBps}
-                    onChange={e => setFeeBps(parseInt(e.target.value) || 0)}
-                    className="w-24 text-xs bg-background border border-border rounded-lg px-2 py-1.5 text-foreground outline-none focus:border-primary/60"
-                  />
-                  <span className="text-xs text-muted-foreground">= {(feeBps / 100).toFixed(2)}% — 50/50 entre owners</span>
+          {volumeOpen && (
+            <div className="px-4 pb-4 pt-1 border-t border-border/50 space-y-3">
+              {loadingVolume ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="w-5 h-5 animate-spin text-teal-400" />
                 </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground mb-1">Owner 1 (50% fee)</p>
-                <input
-                  value={owner1}
-                  onChange={e => setOwner1(e.target.value)}
-                  className="w-full min-w-0 text-xs bg-background border border-border rounded-lg px-2 py-1.5 text-foreground font-mono outline-none focus:border-primary/60"
-                  placeholder="0x..."
-                />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground mb-1">Owner 2 (50% fee)</p>
-                <input
-                  value={owner2}
-                  onChange={e => setOwner2(e.target.value)}
-                  className="w-full min-w-0 text-xs bg-background border border-border rounded-lg px-2 py-1.5 text-foreground font-mono outline-none focus:border-primary/60"
-                  placeholder="0x..."
-                />
-              </div>
-              <Button size="sm" className="w-full text-xs" onClick={saveAdmin}>
-                <Check className="w-3.5 h-3.5 mr-1" /> Guardar configuración
-              </Button>
-              {adminMsg && <p className="text-xs text-center text-green-400">{adminMsg}</p>}
+              ) : volumeData ? (() => {
+                const TIERS = [
+                  { usdc: '1', uth2: '0.0001' },
+                  { usdc: '10', uth2: '0.001' },
+                  { usdc: '100', uth2: '0.01' },
+                  { usdc: '1,000', uth2: '0.1' },
+                ]
+                const volUsd = Number(volumeData.userVolume) / 1_000_000
+                const maxTier = 1_000_000_000 // $1000 USDC in 6-dec
+                const pct = Math.min(100, (Number(volumeData.userVolume) / maxTier) * 100)
+                return (
+                  <div className="space-y-3">
+                    {/* Volume this month */}
+                    <div className="bg-black/20 rounded-xl p-3 border border-white/5">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs text-muted-foreground">Volumen este mes</p>
+                        <p className="text-sm font-bold font-mono text-teal-300">${volUsd.toFixed(2)} USDC</p>
+                      </div>
+                      <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-teal-500 to-cyan-400 rounded-full transition-all duration-700"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Tiers */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {TIERS.map((t, i) => {
+                        const status = volumeData.tierStatus[i]
+                        return (
+                          <div key={i} className={cn(
+                            'rounded-xl p-2.5 border text-center',
+                            status === 2 ? 'border-green-500/30 bg-green-500/5' :
+                            status === 1 ? 'border-teal-500/40 bg-teal-500/10 animate-pulse' :
+                            'border-white/5 bg-black/20'
+                          )}>
+                            <p className="text-[10px] text-muted-foreground">${t.usdc} USDC</p>
+                            <p className={cn('text-xs font-bold font-mono',
+                              status === 2 ? 'text-green-400 line-through' :
+                              status === 1 ? 'text-teal-300' : 'text-muted-foreground/50'
+                            )}>{t.uth2} UTH2</p>
+                            {status === 2 && <p className="text-[9px] text-green-400">✓ cobrado</p>}
+                            {status === 1 && <p className="text-[9px] text-teal-400">reclamable</p>}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Claim button */}
+                    {volumeData.uth2Amount > 0n ? (
+                      <div className="bg-teal-500/10 border border-teal-500/30 rounded-xl p-3 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs text-teal-400 font-semibold">Disponible para reclamar</p>
+                          <p className="text-base font-bold text-teal-300 font-mono">
+                            {ethers.formatEther(volumeData.uth2Amount)} UTH2
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="bg-teal-600 hover:bg-teal-500 text-white"
+                          onClick={doClaimVolume}
+                          disabled={claimingVol}
+                        >
+                          {claimingVol
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <><Gift className="w-3.5 h-3.5 mr-1" />Reclamar</>
+                          }
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-center text-muted-foreground py-1">
+                        Haz swaps para acumular volumen y ganar UTH2 🏆
+                      </p>
+                    )}
+
+                    {volMsg && (
+                      <p className={cn('text-xs text-center font-medium', volMsg.ok ? 'text-green-400' : 'text-red-400')}>
+                        {volMsg.text}
+                      </p>
+                    )}
+
+                    <button onClick={loadVolume} className="text-xs text-muted-foreground hover:text-teal-400 flex items-center gap-1 mx-auto">
+                      <RefreshCw className="w-3 h-3" /> Actualizar
+                    </button>
+                  </div>
+                )
+              })() : (
+                <p className="text-xs text-center text-muted-foreground py-2">Error cargando datos</p>
+              )}
             </div>
           )}
         </div>

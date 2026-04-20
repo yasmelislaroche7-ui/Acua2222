@@ -318,6 +318,86 @@
         "H2OVIPStandalone",
         "IERC20"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaSwapRouter.sol": {
+      "lastModificationDate": 1776662706246,
+      "contentHash": "9ad93d00d1f067082085ef76ec7a472a",
+      "sourceName": "contracts/AcuaSwapRouter.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaSwapRouter",
+        "IERC20",
+        "IPermit2",
+        "ISwapRouterV2",
+        "ISwapRouterV3",
+        "IVolumeRewards"
+      ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaVolumeRewards.sol": {
+      "lastModificationDate": 1776662810132,
+      "contentHash": "5fa566b50bbbbf0441bb905d3333fdb3",
+      "sourceName": "contracts/AcuaVolumeRewards.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaVolumeRewards",
+        "IERC20"
+      ]
     }
   }
 }
