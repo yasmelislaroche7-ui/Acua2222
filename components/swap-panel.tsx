@@ -19,8 +19,6 @@ import { cn } from '@/lib/utils'
 const ACUA_SWAP_ROUTER    = '0xa45d469F28509aD5c6C6e99b14b2E65B6ab0E60A'
 const ACUA_VOLUME_REWARDS = '0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48'
 const PERMIT2_ADDRESS     = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
-const MAX_UINT256         = '115792089237316195423570985008687907853269984665640564039457584007913129639935'
-const MAX_UINT160         = '1461501637330902918203684832716283019655932542975'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SLIPPAGE_BPS    = 500   // 5% slippage — quoteSingle is spot-price (no impact), needs buffer
@@ -31,33 +29,54 @@ const QUOTE_TTL_MS    = 25000 // requote after 25 seconds
 
 // ─── MiniKit error code → friendly Spanish message ────────────────────────────
 const TX_ERROR_MESSAGES: Record<string, string> = {
-  user_rejected:                   'Cancelaste la transacción.',
-  simulation_failed:               'La simulación falló. Puede haber baja liquidez en este par. Intenta con un monto menor.',
-  input_error:                     'Error en los datos de la transacción. Verifica los parámetros.',
-  generic_error:                   'Error inesperado. Intenta de nuevo.',
-  invalid_contract:                'Contrato no válido.',
-  disallowed_operation:            'Operación no permitida.',
-  malicious_operation:             'Operación bloqueada por seguridad.',
-  daily_tx_limit_reached:          'Límite diario de transacciones de World App alcanzado.',
-  validation_error:                'Error de validación en la transacción.',
-  transaction_failed:              'La transacción fue rechazada en la cadena. Puede ser por slippage o liquidez insuficiente.',
-  permitted_amount_exceeds_slippage: 'El monto supera el slippage permitido por Permit2.',
-  permitted_amount_not_found:      'No se encontró el permiso de Permit2. Intenta de nuevo.',
-  invalid_operation:               'Operación inválida.',
+  user_rejected:                     'Cancelaste la transacción.',
+  simulation_failed:                 'La simulación falló en World App. Intenta con un monto menor o cambia el par.',
+  input_error:                       'Datos de transacción inválidos. Intenta de nuevo.',
+  generic_error:                     'Error inesperado. Intenta de nuevo.',
+  invalid_contract:                  'Contrato no reconocido por World App. Verifica el portal de desarrollador.',
+  disallowed_operation:              'Contrato no autorizado en el portal de World App. Agrega los contratos en developer.worldcoin.org.',
+  malicious_operation:               'Operación bloqueada por seguridad de World App.',
+  daily_tx_limit_reached:            'Límite diario de transacciones alcanzado. Intenta mañana.',
+  validation_error:                  'Error de validación. Verifica el monto e intenta de nuevo.',
+  transaction_failed:                'La transacción falló en cadena. Puede ser slippage o liquidez insuficiente. Intenta con menos monto.',
+  permitted_amount_exceeds_slippage: 'El monto supera el límite de slippage. Intenta con menos.',
+  permitted_amount_not_found:        'Permiso de Permit2 no encontrado. Intenta de nuevo.',
+  invalid_operation:                 'Operación inválida. Verifica los parámetros del swap.',
+  unauthorized:                      'No autorizado. Verifica que los contratos estén registrados en World App.',
+  timeout:                           'Tiempo de espera agotado. Intenta de nuevo.',
+  network_error:                     'Error de red. Verifica tu conexión e intenta de nuevo.',
 }
 
 function parseMiniKitTxError(payload: any): string {
   if (!payload) return 'Sin respuesta de World App. Intenta de nuevo.'
-  const code: string = payload.error_code ?? ''
+  const code: string = payload.error_code ?? payload.errorCode ?? ''
   if (code && TX_ERROR_MESSAGES[code]) return TX_ERROR_MESSAGES[code]
-  // details is Record<string,any> per MiniKit types — stringify safely
+
+  // Try to extract a human-readable reason from details
   const details = payload.details
-  if (details && typeof details === 'object' && Object.keys(details).length > 0) {
-    try { return JSON.stringify(details) } catch { /* skip */ }
+  if (details) {
+    // details can be an object or string
+    if (typeof details === 'string' && details.length > 0) {
+      // Check for known Solidity revert reasons
+      if (details.includes('Too much slippage')) return 'Slippage excedido. El precio se movió demasiado. Intenta con menos monto.'
+      if (details.includes('Bad amount')) return 'Monto inválido para el contrato.'
+      if (details.includes('No active swap')) return 'Error interno de callback. Intenta de nuevo.'
+      if (details.includes('insufficient')) return 'Liquidez insuficiente en este par.'
+      if (details.includes('allowance')) return 'Permiso insuficiente. Intenta de nuevo.'
+      return details
+    }
+    if (typeof details === 'object') {
+      try {
+        const str = JSON.stringify(details)
+        if (str !== '{}') return str
+      } catch { /* skip */ }
+    }
   }
-  if (typeof details === 'string' && details.length > 0) return details
+
+  // Fallback chain
   if (typeof payload.message === 'string' && payload.message.length > 0) return payload.message
-  if (code) return `Error: ${code}`
+  if (typeof payload.reason === 'string' && payload.reason.length > 0) return payload.reason
+  if (code) return `Error de World App: ${code}`
   return 'Transacción no completada. Intenta de nuevo.'
 }
 
@@ -597,25 +616,36 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       const usdcEquivNum = Math.floor(floatAmt * priceUsd * 1_000_000)
       const usdcEquiv = BigInt(isNaN(usdcEquivNum) || usdcEquivNum < 0 ? 0 : usdcEquivNum)
 
-      // ── Permit2 AllowanceTransfer expiration (7 days from now) ────────────
-      const expiration = (Math.floor(Date.now() / 1000) + 86400 * 7).toString()
+      // ── Validate rawAmt fits in uint160 (contract requirement) ───────────
+      const MAX_U160 = (1n << 160n) - 1n
+      if (rawAmt > MAX_U160) {
+        setSwapMsg({ ok: false, text: 'El monto es demasiado grande. Reduce el monto e intenta de nuevo.' }); return
+      }
+
+      // ── Permit2 AllowanceTransfer expiration (2 hours from now) ──────────
+      // Using 2h instead of 7d — shorter window is less likely to be flagged by World App security
+      const expiration = (Math.floor(Date.now() / 1000) + 7200).toString()
+      const rawAmtStr = rawAmt.toString()
 
       // ── Build atomic transaction batch ─────────────────────────────────────
-      // [0] ERC20.approve(Permit2, MAX_UINT256)       — allow Permit2 to pull tokens
-      // [1] Permit2.approve(token, Router, MAX, exp)  — allow Router via Permit2
-      // [2] AcuaSwapRouter.swapV3Single/Multi(...)    — execute the swap
+      // [0] ERC20.approve(Permit2, rawAmt)         — approve exact amount (NOT unlimited)
+      // [1] Permit2.approve(token, Router, rawAmt) — allow Router via Permit2 exact amount
+      // [2] AcuaSwapRouter.swapV3Single/Multi(...) — execute the swap
+      //
+      // Using exact amounts (not MAX_UINT256/MAX_UINT160) is required because:
+      // World App's security simulator blocks unlimited approvals (disallowed_operation).
       const txs: any[] = [
         {
           address: fromToken.address,
           abi: APPROVE_ABI,
           functionName: 'approve',
-          args: [PERMIT2_ADDRESS, MAX_UINT256],
+          args: [PERMIT2_ADDRESS, rawAmtStr],
         },
         {
           address: PERMIT2_ADDRESS,
           abi: PERMIT2_APPROVE_ABI,
           functionName: 'approve',
-          args: [fromToken.address, ACUA_SWAP_ROUTER, MAX_UINT160, expiration],
+          args: [fromToken.address, ACUA_SWAP_ROUTER, rawAmtStr, expiration],
         },
       ]
 
@@ -652,33 +682,38 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       }
 
       // ── Send to World App ──────────────────────────────────────────────────
-      setSwapStep('Esperando confirmación en World App...')
+      setSwapStep('Abre World App para confirmar el swap...')
 
       let res: any
       try {
         res = await MiniKit.commandsAsync.sendTransaction({ transaction: txs })
       } catch (e: any) {
-        const msg = e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error al enviar la transacción.'
+        // MiniKit threw before even reaching World App (network issue, etc.)
+        const msg = e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error al comunicarse con World App.'
         setSwapMsg({ ok: false, text: msg }); return
       }
 
       const finalPayload = res?.finalPayload ?? null
 
       if (!finalPayload) {
-        setSwapMsg({ ok: false, text: 'Sin respuesta de World App. Intenta de nuevo.' }); return
+        setSwapMsg({ ok: false, text: 'World App no respondió. Intenta de nuevo.' }); return
       }
 
       if (finalPayload.status === 'success') {
         const txId = (finalPayload as any).transaction_id ?? ''
-        const shortId = txId ? ` · tx ${txId.slice(0, 10)}...` : ''
-        setSwapMsg({ ok: true, text: `✓ Swap enviado${shortId}` })
+        const explorerLink = txId ? ` · tx ${txId.slice(0, 8)}…` : ''
+        setSwapMsg({ ok: true, text: `✓ Swap confirmado${explorerLink}` })
         setFromAmt(''); setQuote(null); setImpact(null)
-        setTimeout(() => { loadBalances(); loadVolume() }, 4000)
+        setTimeout(() => { loadBalances(); loadVolume() }, 3000)
       } else {
-        setSwapMsg({ ok: false, text: parseMiniKitTxError(finalPayload) })
+        const errText = parseMiniKitTxError(finalPayload)
+        // Log full payload for debugging
+        console.error('[Swap] finalPayload error:', JSON.stringify(finalPayload))
+        setSwapMsg({ ok: false, text: errText })
       }
     } catch (e: any) {
       const msg = e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error inesperado. Intenta de nuevo.'
+      console.error('[Swap] unexpected error:', e)
       setSwapMsg({ ok: false, text: msg })
     } finally {
       setSwapping(false)
