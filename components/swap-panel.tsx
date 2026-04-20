@@ -23,11 +23,43 @@ const MAX_UINT256         = '115792089237316195423570985008687907853269984665640
 const MAX_UINT160         = '1461501637330902918203684832716283019655932542975'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const SLIPPAGE_BPS    = 300   // 3% slippage tolerance (spot-price quotes need extra buffer)
+const SLIPPAGE_BPS    = 500   // 5% slippage — quoteSingle is spot-price (no impact), needs buffer
 const ACUA_FEE_BPS    = 210   // 2.1% total fee (2% swap + 0.1% H2O buyback)
 const IMPACT_WARN_BPS = 300   // warn >3%
 const IMPACT_MAX_BPS  = 1500  // block >15% (very high impact)
 const QUOTE_TTL_MS    = 25000 // requote after 25 seconds
+
+// ─── MiniKit error code → friendly Spanish message ────────────────────────────
+const TX_ERROR_MESSAGES: Record<string, string> = {
+  user_rejected:                   'Cancelaste la transacción.',
+  simulation_failed:               'La simulación falló. Puede haber baja liquidez en este par. Intenta con un monto menor.',
+  input_error:                     'Error en los datos de la transacción. Verifica los parámetros.',
+  generic_error:                   'Error inesperado. Intenta de nuevo.',
+  invalid_contract:                'Contrato no válido.',
+  disallowed_operation:            'Operación no permitida.',
+  malicious_operation:             'Operación bloqueada por seguridad.',
+  daily_tx_limit_reached:          'Límite diario de transacciones de World App alcanzado.',
+  validation_error:                'Error de validación en la transacción.',
+  transaction_failed:              'La transacción fue rechazada en la cadena. Puede ser por slippage o liquidez insuficiente.',
+  permitted_amount_exceeds_slippage: 'El monto supera el slippage permitido por Permit2.',
+  permitted_amount_not_found:      'No se encontró el permiso de Permit2. Intenta de nuevo.',
+  invalid_operation:               'Operación inválida.',
+}
+
+function parseMiniKitTxError(payload: any): string {
+  if (!payload) return 'Sin respuesta de World App. Intenta de nuevo.'
+  const code: string = payload.error_code ?? ''
+  if (code && TX_ERROR_MESSAGES[code]) return TX_ERROR_MESSAGES[code]
+  // details is Record<string,any> per MiniKit types — stringify safely
+  const details = payload.details
+  if (details && typeof details === 'object' && Object.keys(details).length > 0) {
+    try { return JSON.stringify(details) } catch { /* skip */ }
+  }
+  if (typeof details === 'string' && details.length > 0) return details
+  if (typeof payload.message === 'string' && payload.message.length > 0) return payload.message
+  if (code) return `Error: ${code}`
+  return 'Transacción no completada. Intenta de nuevo.'
+}
 
 // ─── Fee tiers (Uniswap V3 fee per 1,000,000) ────────────────────────────────
 // 100=0.01%, 500=0.05%, 3000=0.30%, 10000=1.00%
@@ -489,33 +521,58 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   // ── Claim volume ─────────────────────────────────────────────────────────────
   const doClaimVolume = useCallback(async () => {
     if (!volData || volData.uth2Amount === 0n) return
+    if (!MiniKit.isInstalled()) {
+      setVolMsg({ ok: false, text: 'World App no está disponible.' }); return
+    }
     setClaimingVol(true); setVolMsg(null)
     try {
-      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+      const res = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{ address: ACUA_VOLUME_REWARDS, abi: CLAIM_ABI,
           functionName: 'claimRewards', args: [volData.monthId.toString()] }]
       })
+      const finalPayload = res?.finalPayload ?? null
+      if (!finalPayload) {
+        setVolMsg({ ok: false, text: 'Sin respuesta de World App. Intenta de nuevo.' }); return
+      }
       if (finalPayload.status === 'success') {
         setVolMsg({ ok: true, text: `✓ ${parseFloat(ethers.formatEther(volData.uth2Amount)).toFixed(4)} UTH2 reclamado!` })
         setTimeout(loadVolume, 2000)
       } else {
-        setVolMsg({ ok: false, text: (finalPayload as any).message ?? 'Cancelado' })
+        setVolMsg({ ok: false, text: parseMiniKitTxError(finalPayload) })
       }
-    } catch (e: any) { setVolMsg({ ok: false, text: e?.message ?? 'Error' }) }
-    finally { setClaimingVol(false) }
+    } catch (e: any) {
+      setVolMsg({ ok: false, text: e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error inesperado' })
+    } finally { setClaimingVol(false) }
   }, [volData, loadVolume])
 
   // ── Execute swap ─────────────────────────────────────────────────────────────
   const doSwap = useCallback(async () => {
     if (!fromAmt || !quote) return
+
+    // ── Guard: MiniKit must be installed (inside World App) ───────────────────
+    if (!MiniKit.isInstalled()) {
+      setSwapMsg({ ok: false, text: 'Abre la app dentro de World App para hacer swaps.' })
+      return
+    }
+
     setSwapping(true); setSwapMsg(null); setSwapStep('')
+
     try {
+      // ── Parse & validate input amount ─────────────────────────────────────
+      let rawAmt: bigint
+      try {
+        rawAmt = ethers.parseUnits(fromAmt, fromToken.decimals)
+      } catch {
+        setSwapMsg({ ok: false, text: 'Monto inválido.' }); return
+      }
+      if (rawAmt === 0n) {
+        setSwapMsg({ ok: false, text: 'El monto debe ser mayor a cero.' }); return
+      }
+
       // ── Balance check ──────────────────────────────────────────────────────
-      const rawAmt = ethers.parseUnits(fromAmt, fromToken.decimals)
       const userBal = balances[fromToken.address.toLowerCase()] ?? 0n
       if (rawAmt > userBal) {
-        setSwapMsg({ ok: false, text: `Saldo insuficiente de ${fromToken.symbol}` })
-        return
+        setSwapMsg({ ok: false, text: `Saldo insuficiente de ${fromToken.symbol}.` }); return
       }
 
       // ── Requote if stale (>25s) ────────────────────────────────────────────
@@ -524,25 +581,29 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       if (Date.now() - quote.timestamp > QUOTE_TTL_MS) {
         const net = rawAmt - rawAmt * BigInt(ACUA_FEE_BPS) / 10000n
         const fresh = await getBestRouteQuote(fromToken.address, toToken.address, net)
-        if (fresh) activeQuote = fresh
-        else { setSwapMsg({ ok: false, text: 'Sin liquidez — intenta de nuevo' }); return }
+        if (fresh) {
+          activeQuote = fresh
+        } else {
+          setSwapMsg({ ok: false, text: 'Sin liquidez disponible para este par. Intenta con otro.' }); return
+        }
       }
 
-      // ── Slippage: 3% on quoted amountOut ──────────────────────────────────
+      // ── minOut: 5% slippage on quoted spot price to absorb price impact ────
       const minOut = activeQuote.amountOut * BigInt(10000 - SLIPPAGE_BPS) / 10000n
 
-      // ── USDC equivalent for volume tracking ───────────────────────────────
+      // ── USDC equivalent for volume tracking (safe to be 0 if no price) ─────
       const priceUsd = prices[fromToken.address.toLowerCase()] ?? 0
       const floatAmt = parseFloat(ethers.formatUnits(rawAmt, fromToken.decimals))
-      const usdcEquiv = BigInt(Math.floor(floatAmt * priceUsd * 1_000_000))
+      const usdcEquivNum = Math.floor(floatAmt * priceUsd * 1_000_000)
+      const usdcEquiv = BigInt(isNaN(usdcEquivNum) || usdcEquivNum < 0 ? 0 : usdcEquivNum)
 
-      // ── Permit2 expiration (7 days) ───────────────────────────────────────
+      // ── Permit2 AllowanceTransfer expiration (7 days from now) ────────────
       const expiration = (Math.floor(Date.now() / 1000) + 86400 * 7).toString()
 
-      // ── Build transaction batch ────────────────────────────────────────────
-      // Tx 1: ERC20 approve → Permit2 (max amount, permanent)
-      // Tx 2: Permit2 approve → AcuaSwapRouter (max uint160, 7-day expiry)
-      // Tx 3: Swap (single or multi-hop)
+      // ── Build atomic transaction batch ─────────────────────────────────────
+      // [0] ERC20.approve(Permit2, MAX_UINT256)       — allow Permit2 to pull tokens
+      // [1] Permit2.approve(token, Router, MAX, exp)  — allow Router via Permit2
+      // [2] AcuaSwapRouter.swapV3Single/Multi(...)    — execute the swap
       const txs: any[] = [
         {
           address: fromToken.address,
@@ -559,7 +620,6 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       ]
 
       if (activeQuote.multi && activeQuote.hopToken && activeQuote.fee2 !== undefined) {
-        // Multi-hop: tokenIn → hopToken → tokenOut
         txs.push({
           address: ACUA_SWAP_ROUTER,
           abi: SWAP_MULTI_ABI,
@@ -576,7 +636,6 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
           ],
         })
       } else {
-        // Single-hop: tokenIn → tokenOut
         txs.push({
           address: ACUA_SWAP_ROUTER,
           abi: SWAP_SINGLE_ABI,
@@ -592,28 +651,34 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
         })
       }
 
-      // ── Send to World App ─────────────────────────────────────────────────
+      // ── Send to World App ──────────────────────────────────────────────────
       setSwapStep('Esperando confirmación en World App...')
-      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({ transaction: txs })
+
+      let res: any
+      try {
+        res = await MiniKit.commandsAsync.sendTransaction({ transaction: txs })
+      } catch (e: any) {
+        const msg = e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error al enviar la transacción.'
+        setSwapMsg({ ok: false, text: msg }); return
+      }
+
+      const finalPayload = res?.finalPayload ?? null
+
+      if (!finalPayload) {
+        setSwapMsg({ ok: false, text: 'Sin respuesta de World App. Intenta de nuevo.' }); return
+      }
 
       if (finalPayload.status === 'success') {
         const txId = (finalPayload as any).transaction_id ?? ''
-        const shortId = txId ? ` · ${txId.slice(0, 10)}...` : ''
-        setSwapMsg({ ok: true, text: `✓ Swap exitoso${shortId}` })
+        const shortId = txId ? ` · tx ${txId.slice(0, 10)}...` : ''
+        setSwapMsg({ ok: true, text: `✓ Swap enviado${shortId}` })
         setFromAmt(''); setQuote(null); setImpact(null)
-        setTimeout(() => { loadBalances(); loadVolume() }, 3000)
+        setTimeout(() => { loadBalances(); loadVolume() }, 4000)
       } else {
-        // Parse World App error message
-        const p = finalPayload as any
-        const reason =
-          p.details ??
-          p.message ??
-          p.error_code ??
-          'Transacción rechazada por el usuario'
-        setSwapMsg({ ok: false, text: reason })
+        setSwapMsg({ ok: false, text: parseMiniKitTxError(finalPayload) })
       }
     } catch (e: any) {
-      const msg = e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error desconocido'
+      const msg = e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error inesperado. Intenta de nuevo.'
       setSwapMsg({ ok: false, text: msg })
     } finally {
       setSwapping(false)
@@ -1053,11 +1118,23 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
               </button>
 
               {swapMsg && (
-                <div className={cn('rounded-xl px-3 py-2.5 text-xs font-medium',
-                  swapMsg.ok ? 'bg-green-500/10 text-green-300 border border-green-500/20' : 'bg-red-500/10 text-red-300 border border-red-500/20')}>
-                  <p className="font-mono break-all">{swapMsg.text}</p>
+                <div className={cn('rounded-xl px-3 py-2.5 text-xs',
+                  swapMsg.ok
+                    ? 'bg-green-500/10 border border-green-500/20'
+                    : 'bg-red-500/10 border border-red-500/20')}>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className={cn('font-medium leading-snug', swapMsg.ok ? 'text-green-300' : 'text-red-300')}>
+                      {swapMsg.text}
+                    </p>
+                    <button onClick={() => setSwapMsg(null)} className="shrink-0 opacity-40 hover:opacity-80 transition-opacity">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                   {swapMsg.ok && (
-                    <p className="text-[10px] text-green-400/60 mt-0.5">Los saldos se actualizarán en breve.</p>
+                    <p className="text-[10px] text-green-400/50 mt-1">Los saldos se actualizarán en breve.</p>
+                  )}
+                  {!swapMsg.ok && (
+                    <p className="text-[10px] text-red-400/50 mt-1">Ajusta el monto o el par e intenta de nuevo.</p>
                   )}
                 </div>
               )}
