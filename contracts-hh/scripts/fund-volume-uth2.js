@@ -3,7 +3,7 @@ const { ethers } = require("hardhat");
 // ─── CONFIG — fill these before running ──────────────────────────────────────
 const VOLUME_REWARDS_ADDRESS = "0x0000000000000000000000000000000000000000"; // <-- fill after deploy
 const UTH2_ADDRESS           = "0x9eA8653640E22A5b69887985BB75d496dc97022a";
-const FUND_AMOUNT            = "1000"; // UTH2 to send (edit as needed)
+const FUND_AMOUNT            = "9"; // UTH2 to send (edit as needed)
 
 const ERC20_ABI = [
   "function approve(address spender, uint256 amount) external returns (bool)",
