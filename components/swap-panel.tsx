@@ -194,26 +194,97 @@ const CG_IDS: Record<string, string> = {
   [TOKENS.USDC.toLowerCase()]: 'usd-coin',
 }
 
-// Returns { usdPrices, wldPrices } for all addresses
-// - usdPrices: token → USD price
-// - wldPrices: token → price in WLD (how many WLD = 1 token)
-async function fetchAllTokenPrices(addresses: string[]): Promise<{
+// World Chain identifiers used by DexScreener
+const WORLDCHAIN_IDS = new Set(['worldchain', 'worldchain-mainnet', 'world-chain', 'worldcoin'])
+
+// Minimum liquidity (USD) for a pair to be trusted for price discovery
+const MIN_PAIR_LIQ_USD = 500
+
+// Score a pair by quote token quality: USDC > WLD > WETH > others
+function pairScore(quoteAddr: string): number {
+  const q = quoteAddr.toLowerCase()
+  if (q === TOKENS.USDC.toLowerCase()) return 3
+  if (q === TOKENS.WLD.toLowerCase())  return 2
+  if (q === WETH_ADDR.toLowerCase())   return 1
+  return 0
+}
+
+// Fetch DexScreener in batches of 29 addresses, filter to World Chain + min liq
+async function dexScreenerPrices(addresses: string[]): Promise<Record<string, number>> {
+  const best: Record<string, { price: number; liq: number; score: number }> = {}
+
+  // Batch into chunks of 29 (safe margin under 30 limit)
+  const chunks: string[][] = []
+  for (let i = 0; i < addresses.length; i += 29) chunks.push(addresses.slice(i, i + 29))
+
+  await Promise.allSettled(chunks.map(async chunk => {
+    try {
+      const res = await fetch(
+        `https://api.dexscreener.com/latest/dex/tokens/${chunk.join(',')}`,
+        { signal: AbortSignal.timeout(6000) }
+      )
+      const data = await res.json()
+      if (!Array.isArray(data.pairs)) return
+
+      for (const pair of data.pairs) {
+        // Only accept World Chain pairs — filters cross-chain price pollution
+        const chainId: string = (pair.chainId ?? '').toLowerCase()
+        if (!WORLDCHAIN_IDS.has(chainId)) continue
+
+        const addr  = pair.baseToken?.address?.toLowerCase()
+        const priceUsdStr = pair.priceUsd
+        if (!addr || !priceUsdStr) continue
+
+        const p    = parseFloat(priceUsdStr)
+        const liq  = parseFloat(pair.liquidity?.usd ?? '0')
+
+        // Skip dust/dead pools — require at least $500 liquidity
+        if (liq < MIN_PAIR_LIQ_USD) continue
+        // Skip clearly stale/broken price (negative or zero)
+        if (!p || p <= 0) continue
+
+        const score = pairScore(pair.quoteToken?.address ?? '')
+
+        const cur = best[addr]
+        // Prefer higher pair quality (USDC quote), then higher liquidity
+        if (!cur || score > cur.score || (score === cur.score && liq > cur.liq)) {
+          best[addr] = { price: p, liq, score }
+        }
+      }
+    } catch {}
+  }))
+
+  const result: Record<string, number> = {}
+  for (const [addr, v] of Object.entries(best)) result[addr] = v.price
+  return result
+}
+
+// Returns { usdPrices, wldPrices } for all tokens
+// - usdPrices: token address (lower) → USD price
+// - wldPrices: token address (lower) → price expressed in WLD (how many WLD = 1 token)
+async function fetchAllTokenPrices(tokens: TokenItem[]): Promise<{
   usdPrices: Record<string, number>
   wldPrices: Record<string, number>
 }> {
   const usdPrices: Record<string, number> = {}
   const wldPrices: Record<string, number> = {}
+  const addresses = tokens.map(t => t.address)
 
-  // Hardcode USDC = $1.0 always
+  // ── 1. Hardcode stablecoins ───────────────────────────────────────────────
   usdPrices[TOKENS.USDC.toLowerCase()] = 1.0
+  // EURC ≈ $1.08 (Euro stablecoin) — good fallback; will be overridden by live price
+  const eurcAddr = '0x1C60ba0A0eD1019e8Eb035E6daF4155A5cE2380B'.toLowerCase()
+  usdPrices[eurcAddr] = 1.08
 
-  // CoinGecko for WLD and USDC
+  // ── 2. CoinGecko for WLD & USDC (most reliable) ──────────────────────────
   const cgAddrs = addresses.filter(a => CG_IDS[a.toLowerCase()])
   if (cgAddrs.length > 0) {
     try {
       const ids = [...new Set(cgAddrs.map(a => CG_IDS[a.toLowerCase()]))]
-      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`
-      const res = await fetch(url, { signal: AbortSignal.timeout(4000) })
+      const res = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`,
+        { signal: AbortSignal.timeout(5000) }
+      )
       const data = await res.json()
       for (const addr of cgAddrs) {
         const id = CG_IDS[addr.toLowerCase()]
@@ -222,65 +293,66 @@ async function fetchAllTokenPrices(addresses: string[]): Promise<{
     } catch {}
   }
 
-  // DexScreener for all tokens
-  try {
-    const chunk = addresses.slice(0, 30).join(',')
-    const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${chunk}`, { signal: AbortSignal.timeout(5000) })
-    const data = await res.json()
-    if (Array.isArray(data.pairs)) {
-      const best: Record<string, { price: number; liq: number }> = {}
-      for (const pair of data.pairs) {
-        const addr = pair.baseToken?.address?.toLowerCase()
-        if (!addr || !pair.priceUsd) continue
-        const p = parseFloat(pair.priceUsd)
-        const liq = parseFloat(pair.liquidity?.usd ?? '0')
-        if (!best[addr] || liq > best[addr].liq) best[addr] = { price: p, liq }
-      }
-      for (const [addr, v] of Object.entries(best)) {
-        if (!usdPrices[addr]) usdPrices[addr] = v.price
-      }
-    }
-  } catch {}
-
-  // Calculate WLD prices for all tokens
-  const wldUsd = usdPrices[TOKENS.WLD.toLowerCase()]
-  if (wldUsd && wldUsd > 0) {
-    for (const addr of addresses) {
-      const addrL = addr.toLowerCase()
-      if (addrL === TOKENS.WLD.toLowerCase()) {
-        wldPrices[addrL] = 1.0
-        continue
-      }
-      const tokenUsd = usdPrices[addrL]
-      if (tokenUsd && tokenUsd > 0) {
-        // tokenWldPrice = tokenUsdPrice / wldUsdPrice (how many WLD = 1 token)
-        wldPrices[addrL] = tokenUsd / wldUsd
-      }
+  // ── 3. DexScreener — World Chain only, min $500 liquidity ─────────────────
+  const dsResult = await dexScreenerPrices(addresses)
+  for (const [addr, price] of Object.entries(dsResult)) {
+    // DexScreener overrides stablecoin fallbacks only if it has a real WC pair
+    if (!usdPrices[addr] || (addr !== TOKENS.USDC.toLowerCase())) {
+      usdPrices[addr] = price
     }
   }
 
-  // For tokens with no USD price, try on-chain WLD quote
-  const missingUsd = addresses.filter(a => !usdPrices[a.toLowerCase()] && !wldPrices[a.toLowerCase()])
-  if (missingUsd.length > 0 && wldUsd && wldUsd > 0) {
-    const p = getProvider()
-    const router = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, p)
-    // Use 1 WLD as reference amount
-    const oneWLD = ethers.parseEther('1')
-    await Promise.allSettled(missingUsd.map(async tokenAddr => {
-      try {
-        for (const fee of FEE_TIERS) {
+  // ── 4. Derive WLD prices from USD prices ─────────────────────────────────
+  const wldUsd = usdPrices[TOKENS.WLD.toLowerCase()] ?? 0
+  if (wldUsd > 0) {
+    wldPrices[TOKENS.WLD.toLowerCase()] = 1.0
+    for (const addr of addresses) {
+      const addrL = addr.toLowerCase()
+      if (addrL === TOKENS.WLD.toLowerCase()) continue
+      const tokenUsd = usdPrices[addrL]
+      if (tokenUsd && tokenUsd > 0) wldPrices[addrL] = tokenUsd / wldUsd
+    }
+  }
+
+  // ── 5. On-chain WLD-quote fallback for tokens with no price yet ───────────
+  // Only used if DexScreener returned nothing — uses correct token decimals
+  const decimalsMap = new Map(tokens.map(t => [t.address.toLowerCase(), t.decimals]))
+  const missing = addresses.filter(a => !usdPrices[a.toLowerCase()])
+  if (missing.length > 0 && wldUsd > 0) {
+    const provider = getProvider()
+    const router   = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, provider)
+    const poolAbi  = ['function liquidity() view returns (uint128)']
+    const oneWLD   = ethers.parseEther('1') // 1 WLD (18 decimals)
+    const MIN_PRICE_LIQ = 100_000_000_000_000n // 1e14 — only liquid pools for pricing
+
+    await Promise.allSettled(missing.map(async tokenAddr => {
+      const decimals = decimalsMap.get(tokenAddr.toLowerCase()) ?? 18
+      let bestOut = 0n
+      let bestLiq = 0n
+
+      for (const fee of FEE_TIERS) {
+        try {
+          const [rawOut, poolAddr] = await router.quoteSingle(TOKENS.WLD, tokenAddr, fee, oneWLD)
+          const out = BigInt(rawOut.toString())
+          if (out === 0n) continue
+
+          // Verify pool liquidity is meaningful (not a ghost pool)
           try {
-            const [out] = await router.quoteSingle(TOKENS.WLD, tokenAddr, fee, oneWLD)
-            const tokensPerWld = parseFloat(ethers.formatUnits(out.toString(), 18))
-            if (tokensPerWld > 0) {
-              // 1 WLD = tokensPerWld tokens → 1 token = 1/tokensPerWld WLD
-              wldPrices[tokenAddr.toLowerCase()] = 1 / tokensPerWld
-              usdPrices[tokenAddr.toLowerCase()] = wldUsd / tokensPerWld
-              break
-            }
-          } catch {}
+            const pool = new ethers.Contract(poolAddr, poolAbi, provider)
+            const liq = BigInt((await pool.liquidity()).toString())
+            if (liq < MIN_PRICE_LIQ) continue   // skip dead / dust pools
+            if (liq > bestLiq) { bestOut = out; bestLiq = liq }
+          } catch { continue }
+        } catch { continue }
+      }
+
+      if (bestOut > 0n) {
+        const tokensPerWld = parseFloat(ethers.formatUnits(bestOut.toString(), decimals))
+        if (tokensPerWld > 0) {
+          wldPrices[tokenAddr.toLowerCase()] = 1 / tokensPerWld
+          usdPrices[tokenAddr.toLowerCase()] = wldUsd / tokensPerWld
         }
-      } catch {}
+      }
     }))
   }
 
@@ -288,6 +360,11 @@ async function fetchAllTokenPrices(addresses: string[]): Promise<{
 }
 
 // ─── Pool liquidity check ─────────────────────────────────────────────────────
+// Minimum liquidity for swap routing — filters dead/ghost pools
+// Uniswap V3 liquidity() is in virtual units; 1e10 is tiny but distinguishes
+// real pools from completely empty ones. Price feed uses a much higher threshold.
+const MIN_SWAP_POOL_LIQ = 10_000_000_000n // 1e10
+
 async function tryQuoteSingle(
   router: ethers.Contract,
   provider: ethers.JsonRpcProvider,
@@ -301,7 +378,8 @@ async function tryQuoteSingle(
     try {
       const pool = new ethers.Contract(poolAddr, POOL_LIQUIDITY_ABI, provider)
       const liq = BigInt((await pool.liquidity()).toString())
-      if (liq === 0n) return null
+      // Reject ghost pools (liq = 0) and dust pools (liq < 1e10)
+      if (liq < MIN_SWAP_POOL_LIQ) return null
     } catch { return null }
 
     return { amountOut, poolAddr }
@@ -587,7 +665,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       settled.forEach(r => { if (r.status === 'fulfilled') bals[r.value.addr.toLowerCase()] = r.value.bal })
       setBalances(bals)
 
-      const { usdPrices, wldPrices: wldP } = await fetchAllTokenPrices(addrs)
+      const { usdPrices, wldPrices: wldP } = await fetchAllTokenPrices(allTokens)
       setPrices(usdPrices)
       setWldPrices(wldP)
       setLastPriceUpdate(Date.now())
@@ -601,8 +679,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   useEffect(() => {
     const id = setInterval(async () => {
       try {
-        const addrs = allTokens.map(t => t.address)
-        const { usdPrices, wldPrices: wldP } = await fetchAllTokenPrices(addrs)
+        const { usdPrices, wldPrices: wldP } = await fetchAllTokenPrices(allTokens)
         if (Object.keys(usdPrices).length > 0) {
           setPrices(usdPrices)
           setWldPrices(wldP)
