@@ -1,28 +1,27 @@
 'use client'
 
 import { MiniKit } from '@worldcoin/minikit-js'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+
+const WORLD_APP_ID = process.env.NEXT_PUBLIC_WORLD_APP_ID ?? 'app_60f2dc429532dcfa014c16d52ddc00fe'
 
 export function MiniKitProvider({ children }: { children: React.ReactNode }) {
-  const [ready, setReady] = useState(false)
-
   useEffect(() => {
-    if (typeof window === 'undefined' || !(window as any).WorldApp) {
-      console.log('[v0] MiniKitProvider: World App bridge unavailable in this environment')
-      setReady(true)
+    if (typeof window === 'undefined') return
+
+    if (!(window as any).WorldApp) {
+      console.log('[MiniKit] World App bridge no disponible en este entorno')
       return
     }
 
-    console.log('[v0] MiniKitProvider: calling MiniKit.install()')
-    MiniKit.install(process.env.NEXT_PUBLIC_WORLD_APP_ID)
-    const installed = Boolean((window as any).MiniKit)
-    console.log('[v0] MiniKitProvider: isInstalled after install() =', installed)
-    console.log('[v0] MiniKitProvider: MiniKit.walletAddress =', MiniKit.walletAddress)
-    console.log('[v0] MiniKitProvider: window.WorldApp =', typeof window !== 'undefined' ? (window as any).WorldApp : 'N/A')
-    setReady(true)
+    try {
+      MiniKit.install(WORLD_APP_ID)
+      console.log('[MiniKit] instalado correctamente — appId=%s isInstalled=%s walletAddress=%s',
+        WORLD_APP_ID, MiniKit.isInstalled(), MiniKit.walletAddress)
+    } catch (err) {
+      console.error('[MiniKit] error al instalar:', err)
+    }
   }, [])
 
-  // Render children immediately so there is no flash,
-  // but consumers must check isInstalled inside their own effects (after mount).
   return <>{children}</>
 }

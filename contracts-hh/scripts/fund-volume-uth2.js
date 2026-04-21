@@ -1,9 +1,9 @@
 const { ethers } = require("hardhat");
 
-// ─── CONFIG — fill these before running ──────────────────────────────────────
-const VOLUME_REWARDS_ADDRESS = "0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48"; // <-- fill after deploy
+// ─── CONFIG ──────────────────────────────────────
+const VOLUME_REWARDS_ADDRESS = "0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48";
 const UTH2_ADDRESS           = "0x9eA8653640E22A5b69887985BB75d496dc97022a";
-const FUND_AMOUNT            = "9"; // UTH2 to send (edit as needed)
+const FUND_AMOUNT            = "9"; // cantidad a enviar
 
 const ERC20_ABI = [
   "function approve(address spender, uint256 amount) external returns (bool)",
@@ -19,39 +19,44 @@ const VOLUME_ABI = [
 
 async function main() {
   const [signer] = await ethers.getSigners();
-  console.log("Signer  :", signer.address);
+  console.log("Signer:", signer.address);
 
-  if (VOLUME_REWARDS_ADDRESS === "0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48") {
-    throw new Error("Set VOLUME_REWARDS_ADDRESS first!");
-  }
-
-  const uth2     = new ethers.Contract(UTH2_ADDRESS, ERC20_ABI, signer);
-  const rewards  = new ethers.Contract(VOLUME_REWARDS_ADDRESS, VOLUME_ABI, signer);
+  // ─── Instancias de contratos ───────────────────
+  const uth2 = new ethers.Contract(UTH2_ADDRESS, ERC20_ABI, signer);
+  const rewards = new ethers.Contract(VOLUME_REWARDS_ADDRESS, VOLUME_ABI, signer);
 
   const amount = ethers.utils.parseEther(FUND_AMOUNT);
-  const bal    = await uth2.balanceOf(signer.address);
-  console.log("UTH2 balance  :", ethers.utils.formatEther(bal));
-  console.log("Funding amount:", FUND_AMOUNT, "UTH2");
 
-  if (bal.lt(amount)) throw new Error("Insufficient UTH2 balance");
+  // ─── Validar balance ───────────────────────────
+  const bal = await uth2.balanceOf(signer.address);
+  console.log("UTH2 balance:", ethers.utils.formatEther(bal));
+  console.log("Funding:", FUND_AMOUNT, "UTH2");
 
-  // 1. Approve
-  console.log("\nApproving AcuaVolumeRewards to spend UTH2…");
+  if (bal.lt(amount)) {
+    throw new Error("No tienes suficiente UTH2 para fondear");
+  }
+
+  // ─── Approve ───────────────────────────────────
+  console.log("Aprobando gasto de UTH2...");
   const approveTx = await uth2.approve(VOLUME_REWARDS_ADDRESS, amount);
   await approveTx.wait();
-  console.log("✓ Approved");
+  console.log("✔ Approve confirmado");
 
-  // 2. Fund
-  console.log("Sending UTH2 to AcuaVolumeRewards…");
+  // ─── Fondear contrato ──────────────────────────
+  console.log("Enviando UTH2 al contrato de rewards...");
   const fundTx = await rewards.fundUTH2(amount);
   await fundTx.wait();
-  console.log("✓ Funded:", FUND_AMOUNT, "UTH2");
+  console.log("✔ Fondeado correctamente");
 
-  // 3. Check contract balance
+  // ─── Verificación final ────────────────────────
   const contractBal = await uth2.balanceOf(VOLUME_REWARDS_ADDRESS);
-  console.log("Contract UTH2 balance:", ethers.utils.formatEther(contractBal));
+  console.log("Balance contrato:", ethers.utils.formatEther(contractBal), "UTH2");
+
   const distributed = await rewards.totalDistributed();
-  console.log("Total distributed so far:", ethers.utils.formatEther(distributed), "UTH2");
+  console.log("Total distribuido:", ethers.utils.formatEther(distributed), "UTH2");
 }
 
-main().catch(e => { console.error(e); process.exit(1) });
+main().catch((err) => {
+  console.error("ERROR:", err);
+  process.exit(1);
+});
