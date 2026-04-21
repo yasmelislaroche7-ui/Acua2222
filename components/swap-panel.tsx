@@ -6,8 +6,9 @@ import { ethers } from 'ethers'
 import {
   ArrowUpDown, RefreshCw, Plus, ChevronDown, Loader2, Search,
   X, Wallet, ChevronUp, AlertCircle, Repeat2, Clock,
-  TrendingUp, Coins, Award, Check, Zap, ShieldAlert,
+  TrendingUp, TrendingDown, Coins, Award, Check, Zap, ShieldAlert,
   Sparkles, ArrowRight, BarChart2, Gift, AlertTriangle,
+  ArrowDownToLine, ArrowUpFromLine, Droplets, Activity,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -587,6 +588,13 @@ function fmtWld(n: number): string {
   if (n >= 0.0001) return `${n.toFixed(5)} WLD`
   return `${n.toExponential(2)} WLD`
 }
+function shortNum(n: number): string {
+  if (!isFinite(n) || n <= 0) return '0'
+  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(2) + 'B'
+  if (n >= 1_000_000)     return (n / 1_000_000).toFixed(2) + 'M'
+  if (n >= 1_000)         return (n / 1_000).toFixed(2) + 'K'
+  return n.toFixed(0)
+}
 
 // ─── Token Logo ───────────────────────────────────────────────────────────────
 function TokenLogo({ token, size = 'md' }: { token: TokenItem; size?: 'xs' | 'sm' | 'md' | 'lg' }) {
@@ -754,6 +762,22 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   const [addLoading, setAddLoading] = useState(false)
   const [addMsg,     setAddMsg]     = useState('')
 
+  // Token detail expansion (mini chart + stats + buy/sell)
+  const [expandedToken, setExpandedToken] = useState<string | null>(null)
+  const [chartInterval, setChartInterval] = useState<'5' | '60' | '1D'>('60')
+  const [tokenStats, setTokenStats] = useState<Record<string, {
+    pairAddress?: string
+    priceUsd?: number
+    liquidityUsd?: number
+    volume24h?: number
+    fdv?: number
+    change5m?: number
+    change1h?: number
+    change24h?: number
+    loading?: boolean
+    fetched?: boolean
+  }>>({})
+
   // Volume panel
   const [volOpen,    setVolOpen]    = useState(true)
   const [loadingVol, setLoadingVol] = useState(false)
@@ -832,6 +856,68 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
     if (quoteTimer.current) clearTimeout(quoteTimer.current)
     quoteTimer.current = setTimeout(() => runQuote(fromToken, toToken, fromAmt), 500)
   }, [fromAmt, fromToken, toToken]) // eslint-disable-line
+
+  // ── Token stats fetch (DexScreener) — for expanded chart panel ──────────────
+  const fetchTokenStats = useCallback(async (tokenAddr: string) => {
+    const key = tokenAddr.toLowerCase()
+    setTokenStats(s => ({ ...s, [key]: { ...(s[key] ?? {}), loading: true } }))
+    try {
+      const res = await fetch(
+        `https://api.dexscreener.com/latest/dex/tokens/${tokenAddr}`,
+        { signal: AbortSignal.timeout(6000) },
+      )
+      const data = await res.json()
+      if (!Array.isArray(data.pairs)) {
+        setTokenStats(s => ({ ...s, [key]: { loading: false, fetched: true } }))
+        return
+      }
+      // Pick best WC pair: highest liquidity, prefer USDC/WLD/WETH quote
+      let best: any = null
+      for (const pair of data.pairs) {
+        const chainId = (pair.chainId ?? '').toLowerCase()
+        if (!WORLDCHAIN_IDS.has(chainId)) continue
+        const liq = parseFloat(pair.liquidity?.usd ?? '0')
+        if (!liq || liq < 100) continue
+        const score = pairScore(pair.quoteToken?.address ?? '')
+        const cur = best
+        if (!cur) { best = { pair, liq, score }; continue }
+        if (score > cur.score || (score === cur.score && liq > cur.liq)) {
+          best = { pair, liq, score }
+        }
+      }
+      if (!best) {
+        setTokenStats(s => ({ ...s, [key]: { loading: false, fetched: true } }))
+        return
+      }
+      const p = best.pair
+      setTokenStats(s => ({
+        ...s,
+        [key]: {
+          pairAddress:  p.pairAddress,
+          priceUsd:     parseFloat(p.priceUsd ?? '0') || undefined,
+          liquidityUsd: parseFloat(p.liquidity?.usd ?? '0') || undefined,
+          volume24h:    parseFloat(p.volume?.h24 ?? '0') || undefined,
+          fdv:          parseFloat(p.fdv ?? '0') || undefined,
+          change5m:     parseFloat(p.priceChange?.m5  ?? '0'),
+          change1h:     parseFloat(p.priceChange?.h1  ?? '0'),
+          change24h:    parseFloat(p.priceChange?.h24 ?? '0'),
+          loading: false,
+          fetched: true,
+        },
+      }))
+    } catch {
+      setTokenStats(s => ({ ...s, [key]: { loading: false, fetched: true } }))
+    }
+  }, [])
+
+  const toggleExpand = useCallback((tokenAddr: string) => {
+    const key = tokenAddr.toLowerCase()
+    setExpandedToken(prev => {
+      const next = prev === key ? null : key
+      if (next && !tokenStats[key]?.fetched) fetchTokenStats(tokenAddr)
+      return next
+    })
+  }, [tokenStats, fetchTokenStats])
 
   // ── MAX helper ──────────────────────────────────────────────────────────────
   // Stores the exact raw bigint balance so the Permit2 amount and the V3 swap
@@ -1341,33 +1427,195 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
               })()}
               {loadingBal && !Object.keys(balances).length && <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-indigo-400" /></div>}
               {allTokens.map(token => {
+                const tokenKey = token.address.toLowerCase()
                 const bal = getBal(token)
                 const usd = getUsd(token, bal)
-                const usdPrice = prices[token.address.toLowerCase()]
-                const wldPrice = wldPrices[token.address.toLowerCase()]
+                const usdPrice = prices[tokenKey]
+                const wldPrice = wldPrices[tokenKey]
+                const isExpanded = expandedToken === tokenKey
+                const stats = tokenStats[tokenKey]
                 return (
-                  <button key={token.address}
-                    onClick={() => { setFromToken(token); setView('swap') }}
-                    className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left hover:scale-[1.01]"
-                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    <TokenLogo token={token} size="md" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-semibold text-white">{token.symbol}</span>
-                        {token.isCustom && <span className="text-[9px] text-white/30 border border-white/10 rounded px-1">custom</span>}
+                  <div key={token.address}
+                    className="rounded-xl overflow-hidden transition-all"
+                    style={{
+                      background: isExpanded ? 'rgba(99,102,241,0.06)' : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${isExpanded ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                    }}>
+                    {/* Card header — click toggles expansion */}
+                    <button
+                      onClick={() => toggleExpand(token.address)}
+                      className="w-full flex items-center gap-3 p-3 text-left transition-colors hover:bg-white/[0.02]">
+                      <TokenLogo token={token} size="md" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-semibold text-white">{token.symbol}</span>
+                          {token.isCustom && <span className="text-[9px] text-white/30 border border-white/10 rounded px-1">custom</span>}
+                        </div>
+                        <p className="text-xs text-white/30">{token.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {usdPrice && <span className="text-[10px] text-green-400/70 font-mono">{fmtUsd(usdPrice)}</span>}
+                          {wldPrice && token.symbol !== 'WLD' && <span className="text-[10px] text-blue-400/60 font-mono">{fmtWld(wldPrice)}</span>}
+                        </div>
                       </div>
-                      <p className="text-xs text-white/30">{token.name}</p>
-                      {/* Dual prices: USD + WLD */}
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {usdPrice && <span className="text-[10px] text-green-400/70 font-mono">{fmtUsd(usdPrice)}</span>}
-                        {wldPrice && token.symbol !== 'WLD' && <span className="text-[10px] text-blue-400/60 font-mono">{fmtWld(wldPrice)}</span>}
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-mono font-semibold text-white">{bal === 0n ? '0' : formatToken(bal, token.decimals, 4)}</p>
+                        {usd && parseFloat(usd) > 0 && <p className="text-[10px] text-green-400 font-mono">${usd}</p>}
                       </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-mono font-semibold text-white">{bal === 0n ? '0' : formatToken(bal, token.decimals, 4)}</p>
-                      {usd && parseFloat(usd) > 0 && <p className="text-[10px] text-green-400 font-mono">${usd}</p>}
-                    </div>
-                  </button>
+                      {isExpanded
+                        ? <ChevronUp className="w-4 h-4 text-indigo-400 shrink-0" />
+                        : <ChevronDown className="w-4 h-4 text-white/30 shrink-0" />}
+                    </button>
+
+                    {/* Expanded chart + stats panel */}
+                    {isExpanded && (
+                      <div className="px-3 pb-3 pt-1 space-y-2.5"
+                        style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+
+                        {/* 24h price change banner */}
+                        {stats?.fetched && stats.priceUsd != null && (
+                          <div className="flex items-center justify-between gap-2 mt-2">
+                            <div>
+                              <p className="text-[9px] text-white/30 uppercase tracking-widest">Precio</p>
+                              <p className="text-base font-bold text-white font-mono">{fmtUsd(stats.priceUsd)}</p>
+                            </div>
+                            {stats.change24h != null && (() => {
+                              const up = stats.change24h >= 0
+                              return (
+                                <div className={cn('flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold font-mono',
+                                  up ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400')}>
+                                  {up ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                  {up ? '+' : ''}{stats.change24h.toFixed(2)}% 24h
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        )}
+
+                        {/* Timeframe tabs */}
+                        <div className="flex items-center gap-1 rounded-lg p-0.5 w-fit"
+                          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                          {([
+                            { key: '5'  as const, label: '5m' },
+                            { key: '60' as const, label: '1h' },
+                            { key: '1D' as const, label: '1d' },
+                          ]).map(tf => (
+                            <button key={tf.key} onClick={() => setChartInterval(tf.key)}
+                              className={cn('px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition-colors',
+                                chartInterval === tf.key ? 'bg-indigo-500/30 text-indigo-200' : 'text-white/40 hover:text-white/70')}>
+                              {tf.label}
+                            </button>
+                          ))}
+                          <span className="text-[9px] text-white/25 pl-1.5 pr-1 self-center">
+                            cambia velas/línea adentro
+                          </span>
+                        </div>
+
+                        {/* Chart iframe */}
+                        {stats?.loading && (
+                          <div className="h-44 flex items-center justify-center rounded-lg" style={{ background: 'rgba(0,0,0,0.3)' }}>
+                            <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+                          </div>
+                        )}
+                        {stats?.fetched && stats.pairAddress && (
+                          <div className="rounded-lg overflow-hidden" style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.06)' }}>
+                            <iframe
+                              key={`${tokenKey}-${chartInterval}`}
+                              src={`https://dexscreener.com/world/${stats.pairAddress}?embed=1&theme=dark&trades=0&info=0&interval=${chartInterval}`}
+                              title={`${token.symbol} chart`}
+                              className="w-full"
+                              style={{ height: 280, border: 0 }}
+                              loading="lazy"
+                            />
+                          </div>
+                        )}
+                        {stats?.fetched && !stats.pairAddress && (
+                          <div className="h-24 flex items-center justify-center rounded-lg text-[11px] text-white/40 text-center px-3"
+                            style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                            Sin datos de mercado en World Chain para este token aún.
+                          </div>
+                        )}
+
+                        {/* Stats grid */}
+                        {stats?.fetched && (stats.liquidityUsd || stats.volume24h || stats.fdv) && (
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {stats.liquidityUsd != null && stats.liquidityUsd > 0 && (
+                              <div className="rounded-lg p-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                <p className="text-[9px] text-white/35 uppercase tracking-wider flex items-center gap-1"><Droplets className="w-2.5 h-2.5" />Liquidez</p>
+                                <p className="text-[11px] font-bold text-white font-mono mt-0.5">${shortNum(stats.liquidityUsd)}</p>
+                              </div>
+                            )}
+                            {stats.volume24h != null && stats.volume24h > 0 && (
+                              <div className="rounded-lg p-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                <p className="text-[9px] text-white/35 uppercase tracking-wider flex items-center gap-1"><Activity className="w-2.5 h-2.5" />Vol 24h</p>
+                                <p className="text-[11px] font-bold text-white font-mono mt-0.5">${shortNum(stats.volume24h)}</p>
+                              </div>
+                            )}
+                            {stats.fdv != null && stats.fdv > 0 && (
+                              <div className="rounded-lg p-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                <p className="text-[9px] text-white/35 uppercase tracking-wider flex items-center gap-1"><BarChart2 className="w-2.5 h-2.5" />FDV</p>
+                                <p className="text-[11px] font-bold text-white font-mono mt-0.5">${shortNum(stats.fdv)}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Mini change row 5m / 1h / 24h */}
+                        {stats?.fetched && (stats.change5m != null || stats.change1h != null || stats.change24h != null) && (
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {[
+                              { label: '5m',  v: stats.change5m  ?? 0 },
+                              { label: '1h',  v: stats.change1h  ?? 0 },
+                              { label: '24h', v: stats.change24h ?? 0 },
+                            ].map(c => {
+                              const up = c.v >= 0
+                              return (
+                                <div key={c.label}
+                                  className={cn('rounded-lg p-1.5 text-center font-mono',
+                                    up ? 'text-green-400' : 'text-red-400')}
+                                  style={{ background: up ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${up ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'}` }}>
+                                  <p className="text-[8px] text-white/40 uppercase">{c.label}</p>
+                                  <p className="text-[11px] font-bold">{up ? '+' : ''}{c.v.toFixed(2)}%</p>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {/* Buy / Sell action buttons */}
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <button
+                            onClick={() => {
+                              // Comprar este token: pago en USDC (o WLD si es USDC)
+                              const pay = token.address.toLowerCase() === TOKENS.USDC.toLowerCase()
+                                ? DEFAULT_TOKENS.find(t => t.symbol === 'WLD')!
+                                : DEFAULT_TOKENS.find(t => t.symbol === 'USDC')!
+                              setFromToken(pay); setToToken(token); setFromAmt('')
+                              setMaxRawAmt(null); setExpandedToken(null); setView('swap')
+                            }}
+                            className="h-10 rounded-xl text-sm font-bold text-white transition-all hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-1.5"
+                            style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', boxShadow: '0 0 14px rgba(16,185,129,0.25)' }}>
+                            <ArrowDownToLine className="w-4 h-4" />
+                            Comprar {token.symbol}
+                          </button>
+                          <button
+                            onClick={() => {
+                              // Vender este token: recibir USDC (o WLD si es USDC)
+                              const recv = token.address.toLowerCase() === TOKENS.USDC.toLowerCase()
+                                ? DEFAULT_TOKENS.find(t => t.symbol === 'WLD')!
+                                : DEFAULT_TOKENS.find(t => t.symbol === 'USDC')!
+                              setFromToken(token); setToToken(recv); setFromAmt('')
+                              setMaxRawAmt(null); setExpandedToken(null); setView('swap')
+                            }}
+                            disabled={bal === 0n}
+                            className="h-10 rounded-xl text-sm font-bold text-white transition-all hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                            style={{ background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)', boxShadow: '0 0 14px rgba(239,68,68,0.25)' }}>
+                            <ArrowUpFromLine className="w-4 h-4" />
+                            Vender {token.symbol}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )
               })}
               {/* Add token */}
