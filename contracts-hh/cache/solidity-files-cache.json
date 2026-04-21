@@ -442,6 +442,44 @@
         "IUniswapV3SwapCallback",
         "IVolumeRewards"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaVolumeRewardsV2.sol": {
+      "lastModificationDate": 1776774165178,
+      "contentHash": "922c76547b7f93b547ca30fd30f18343",
+      "sourceName": "contracts/AcuaVolumeRewardsV2.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaVolumeRewardsV2",
+        "IERC20VR"
+      ]
     }
   }
 }

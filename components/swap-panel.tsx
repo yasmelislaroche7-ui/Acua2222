@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils'
 
 // ─── Contracts ────────────────────────────────────────────────────────────────
 const ACUA_SWAP_ROUTER    = '0xA2FD6cd36a661E270FC7AdaA82D0d22f4660706d'
-const ACUA_VOLUME_REWARDS = '0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48'
+const ACUA_VOLUME_REWARDS = '0xc74D6B65f8E30E040CE744117228118d107f77f1'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 // 50% slippage tolerance — allows swaps with any amount regardless of market conditions
@@ -712,6 +712,9 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   const [fromToken, setFromToken] = useState<TokenItem>(DEFAULT_TOKENS[0])
   const [toToken,   setToToken]   = useState<TokenItem>(DEFAULT_TOKENS[1])
   const [fromAmt,   setFromAmt]   = useState('')
+  // When the user picks MAX we keep the exact bigint balance so we don't lose
+  // precision through formatUnits → parseUnits roundtrip on the Permit2 amount.
+  const [maxRawAmt, setMaxRawAmt] = useState<bigint | null>(null)
   const [quote,     setQuote]     = useState<QuoteResult | null>(null)
   const [quoting,   setQuoting]   = useState(false)
   const [swapping,  setSwapping]  = useState(false)
@@ -805,6 +808,19 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
     if (quoteTimer.current) clearTimeout(quoteTimer.current)
     quoteTimer.current = setTimeout(() => runQuote(fromToken, toToken, fromAmt), 500)
   }, [fromAmt, fromToken, toToken]) // eslint-disable-line
+
+  // ── MAX helper ──────────────────────────────────────────────────────────────
+  // Stores the exact raw bigint balance so the Permit2 amount and the V3 swap
+  // amount match the wallet to the wei. This fixes "swap full balance" errors.
+  const setMax = useCallback(() => {
+    const bal = balances[fromToken.address.toLowerCase()] ?? 0n
+    if (bal === 0n) return
+    setMaxRawAmt(bal)
+    setFromAmt(ethers.formatUnits(bal, fromToken.decimals))
+  }, [balances, fromToken])
+
+  // Drop the "max" lock as soon as the user types or changes token
+  useEffect(() => { setMaxRawAmt(null) }, [fromToken.address, toToken.address])
 
   // ── Load volume ──────────────────────────────────────────────────────────────
   const loadVolume = useCallback(async () => {
@@ -902,17 +918,26 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
     setSwapping(true); setSwapMsg(null); setSwapStep(''); setSlipWarning(null)
 
     try {
+      const userBal = balances[fromToken.address.toLowerCase()] ?? 0n
       let rawAmt: bigint
-      try {
-        rawAmt = ethers.parseUnits(fromAmt, fromToken.decimals)
-      } catch {
-        setSwapMsg({ ok: false, text: 'Monto inválido.' }); return
+      // If user clicked MAX, use the exact bigint balance to avoid any
+      // formatUnits/parseUnits precision drift that can cause Permit2 to
+      // request slightly more (or less) than the wallet holds.
+      if (maxRawAmt !== null && maxRawAmt > 0n) {
+        rawAmt = maxRawAmt > userBal ? userBal : maxRawAmt
+      } else {
+        try {
+          rawAmt = ethers.parseUnits(fromAmt, fromToken.decimals)
+        } catch {
+          setSwapMsg({ ok: false, text: 'Monto inválido.' }); return
+        }
       }
       if (rawAmt === 0n) {
         setSwapMsg({ ok: false, text: 'El monto debe ser mayor a cero.' }); return
       }
-      const userBal = balances[fromToken.address.toLowerCase()] ?? 0n
-      if (rawAmt > userBal) {
+      // Cap at wallet balance — never request more than the user actually has
+      if (rawAmt > userBal) rawAmt = userBal
+      if (rawAmt === 0n) {
         setSwapMsg({ ok: false, text: `Saldo insuficiente de ${fromToken.symbol}.` }); return
       }
 
@@ -1034,7 +1059,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       setSwapping(false)
       setSwapStep('')
     }
-  }, [fromAmt, quote, fromToken, toToken, prices, wldPrices, balances, loadBalances, loadVolume]) // eslint-disable-line
+  }, [fromAmt, quote, fromToken, toToken, prices, wldPrices, balances, maxRawAmt, loadBalances, loadVolume]) // eslint-disable-line
 
   // ── doSwap: check slippage warning first ─────────────────────────────────────
   const doSwap = useCallback(() => {
@@ -1184,16 +1209,28 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                   ))}
                 </div>
 
-                {/* Claim button — always visible if UTH2 > 0 */}
-                {volData.uth2Amount > 0n && (
-                  <button onClick={doClaimVolume} disabled={claimingVol}
-                    className="w-full h-10 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2"
-                    style={{ background: 'linear-gradient(135deg, #14b8a6 0%, #0891b2 100%)', boxShadow: '0 0 18px rgba(20,184,166,0.3)' }}>
-                    {claimingVol
-                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Reclamando...</>
-                      : <><Gift className="w-4 h-4" /> Reclamar {parseFloat(ethers.formatEther(volData.uth2Amount)).toFixed(4)} UTH2</>}
-                  </button>
-                )}
+                {/* Claim button — always visible. Disabled if nothing to claim. */}
+                {(() => {
+                  const hasClaim = volData.uth2Amount > 0n
+                  return (
+                    <button onClick={doClaimVolume} disabled={claimingVol || !hasClaim}
+                      className="w-full h-10 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2"
+                      style={{
+                        background: hasClaim
+                          ? 'linear-gradient(135deg, #14b8a6 0%, #0891b2 100%)'
+                          : 'linear-gradient(135deg, rgba(20,184,166,0.35) 0%, rgba(8,145,178,0.35) 100%)',
+                        boxShadow: hasClaim ? '0 0 18px rgba(20,184,166,0.3)' : 'none',
+                      }}>
+                      {claimingVol ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Reclamando...</>
+                      ) : hasClaim ? (
+                        <><Gift className="w-4 h-4" /> Reclamar {parseFloat(ethers.formatEther(volData.uth2Amount)).toFixed(4)} UTH2</>
+                      ) : (
+                        <><Gift className="w-4 h-4" /> Reclamar UTH2 (haz swap para acumular)</>
+                      )}
+                    </button>
+                  )
+                })()}
 
                 {volMsg && (
                   <div className={cn('rounded-xl px-3 py-2 text-xs',
@@ -1344,10 +1381,16 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
               <div className="rounded-2xl p-3.5 space-y-2.5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-white/30 font-medium uppercase tracking-wider">De</span>
-                  <button onClick={() => setFromAmt(ethers.formatUnits(getBal(fromToken), fromToken.decimals))}
-                    className="text-[10px] text-indigo-400 hover:text-indigo-300 font-mono transition-colors">
-                    Saldo: {formatToken(getBal(fromToken), fromToken.decimals, 4)}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-white/40 font-mono">
+                      Saldo: {formatToken(getBal(fromToken), fromToken.decimals, 4)}
+                    </span>
+                    <button onClick={setMax}
+                      className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md transition-all hover:scale-105"
+                      style={{ background: 'rgba(99,102,241,0.18)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.35)' }}>
+                      Max
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <button onClick={() => setPickerFor('from')}
@@ -1358,7 +1401,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                     <ChevronDown className="w-3.5 h-3.5 text-white/40" />
                   </button>
                   <input type="number" min="0" step="any" value={fromAmt}
-                    onChange={e => setFromAmt(e.target.value)} placeholder="0.0"
+                    onChange={e => { setMaxRawAmt(null); setFromAmt(e.target.value) }} placeholder="0.0"
                     className="flex-1 min-w-0 bg-transparent text-right text-2xl font-bold font-mono text-white placeholder:text-white/15 outline-none" />
                 </div>
                 {fromAmt && parseFloat(fromAmt) > 0 && (() => {

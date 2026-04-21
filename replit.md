@@ -86,12 +86,17 @@ User is `owners[1]` (index 1, second owner) of the AIR staking contract.
   - `quoteSingle(tokenIn, tokenOut, fee, amountIn)` — spot price from pool.slot0()
   - Fees: 2% swap + 0.1% H2O buyback (configurable, total max 10%)
   - Uses Permit2 AllowanceTransfer
-- **AcuaVolumeRewards**: `0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48`
+- **AcuaVolumeRewardsV2**: `0xc74D6B65f8E30E040CE744117228118d107f77f1` (active)
+  - Wired to current AcuaSwapRouter `0xA2FD6cd36a661E270FC7AdaA82D0d22f4660706d`
+  - Multi-router support via `setRouter(addr, bool)` mapping (future-proof)
   - Records USDC-equiv volume per user per 30-day period
+  - Records every swap event (`SwapTracked`) even when usdcAmount==0
   - Configurable tiers 1-8: setTiers(numTiers, thresholds[], rewards[])
-  - UTH2 rewards claimable after month ends
+  - UTH2 rewards claimable mid-month (no waiting), one tx, no Permit2
   - `getPeriodInfo()` — countdown for frontend
   - `getAllTiers()` — thresholds + rewards arrays
+- AcuaVolumeRewards V1 (deprecated): `0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48`
+  - Was wired to a stale router; left in place for any pre-existing claims
 
 ### World Chain Uniswap V3 Key Pools
 | Pair | Fee | Address |
