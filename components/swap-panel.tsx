@@ -27,6 +27,9 @@ const IMPACT_WARN_BPS = 300   // warn >3%
 const IMPACT_MAX_BPS  = 1500  // block >15% (very high impact)
 const QUOTE_TTL_MS    = 25000 // requote after 25 seconds
 
+// WETH on World Chain (OP-stack canonical bridge address)
+const WETH_ADDR = '0x4200000000000000000000000000000000000006'
+
 // ─── MiniKit error code → friendly Spanish message ────────────────────────────
 const TX_ERROR_MESSAGES: Record<string, string> = {
   user_rejected:                     'Cancelaste la transacción.',
@@ -99,6 +102,7 @@ const DEFAULT_TOKENS: TokenItem[] = [
   { symbol: 'WLD',    name: 'Worldcoin',  address: TOKENS.WLD,    decimals: 18, color: '#3b82f6', logoUri: TOKEN_LOGOS.WLD  },
   { symbol: 'H2O',    name: 'H2O Token',  address: TOKENS.H2O,    decimals: 18, color: '#06b6d4' },
   { symbol: 'USDC',   name: 'USD Coin',   address: TOKENS.USDC,   decimals: 6,  color: '#2563eb', logoUri: TOKEN_LOGOS.USDC },
+  { symbol: 'WETH',   name: 'Wrapped ETH', address: WETH_ADDR,    decimals: 18, color: '#627eea' },
   { symbol: 'FIRE',   name: 'Fire Token', address: TOKENS.FIRE,   decimals: 18, color: '#f97316' },
   { symbol: 'wCOP',   name: 'wCOP',       address: TOKENS.wCOP,   decimals: 18, color: '#f59e0b' },
   { symbol: 'wARS',   name: 'wARS',       address: TOKENS.wARS,   decimals: 18, color: '#10b981' },
@@ -155,6 +159,9 @@ const VOLUME_REWARDS_ABI = [
   'function getPeriodInfo() view returns (uint256 monthId, uint256 periodStart, uint256 periodEnd, uint256 secondsLeft)',
   'function getAllTiers() view returns (uint256[] thresholds, uint256[] rewards)',
   'function claimRewards(uint256 monthId) nonpayable',
+  'function totalDistributed() view returns (uint256)',
+  'event VolumeRecorded(address indexed user, uint256 indexed monthId, uint256 added, uint256 total)',
+  'event RewardClaimed(address indexed user, uint256 indexed monthId, uint256 uth2Amount)',
 ]
 const CLAIM_ABI = [{
   name: 'claimRewards', type: 'function', stateMutability: 'nonpayable',
@@ -220,52 +227,77 @@ async function fetchUsdPrices(addresses: string[]): Promise<Record<string, numbe
   return prices
 }
 
-// ─── Best route with low-fee priority + multi-hop ─────────────────────────────
+// ─── Pool liquidity ABI (to filter empty pools) ───────────────────────────────
+const POOL_LIQUIDITY_ABI = ['function liquidity() view returns (uint128)']
+
+// Helper: quote single hop if pool has real liquidity
+async function tryQuoteSingle(
+  router: ethers.Contract,
+  provider: ethers.JsonRpcProvider,
+  tokenIn: string, tokenOut: string, fee: number, amtIn: bigint
+): Promise<{ amountOut: bigint; poolAddr: string } | null> {
+  try {
+    const [out, poolAddr] = await router.quoteSingle(tokenIn, tokenOut, fee, amtIn)
+    const amountOut = BigInt(out.toString())
+    if (amountOut === 0n) return null
+
+    // Verify pool has real liquidity (filters empty/ghost pools)
+    try {
+      const pool = new ethers.Contract(poolAddr, POOL_LIQUIDITY_ABI, provider)
+      const liq = BigInt((await pool.liquidity()).toString())
+      if (liq === 0n) return null
+    } catch { return null }
+
+    return { amountOut, poolAddr }
+  } catch { return null }
+}
+
+// ─── Smart multi-hop router — all fee tiers × WLD / USDC / WETH hops ──────────
 async function getBestRouteQuote(
   tokenIn: string, tokenOut: string, netAmountIn: bigint
 ): Promise<QuoteResult | null> {
-  const p = getProvider()
+  const p      = getProvider()
   const router = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, p)
   const results: { amountOut: bigint; fee: number; fee2?: number; hopToken?: string; label: string }[] = []
 
-  // Single-hop: all tiers in parallel
-  await Promise.all(FEE_TIERS.map(async fee => {
-    try {
-      const [out] = await router.quoteSingle(tokenIn, tokenOut, fee, netAmountIn)
-      const amountOut = BigInt(out.toString())
-      if (amountOut > 0n) {
-        results.push({ amountOut, fee, label: `Directo ${(fee / 10000).toFixed(fee < 1000 ? 2 : 2)}%` })
-      }
-    } catch {}
-  }))
-
-  // Multi-hop via WLD and USDC (skip if one of them is the in/out token)
-  const wld  = TOKENS.WLD.toLowerCase()
-  const usdc = TOKENS.USDC.toLowerCase()
   const inL  = tokenIn.toLowerCase()
   const outL = tokenOut.toLowerCase()
 
-  const hops: string[] = []
-  if (inL !== wld  && outL !== wld)  hops.push(TOKENS.WLD)
-  if (inL !== usdc && outL !== usdc) hops.push(TOKENS.USDC)
+  // ── 1. Single-hop: try ALL fee tiers in parallel ───────────────────────────
+  await Promise.all(FEE_TIERS.map(async fee => {
+    const r = await tryQuoteSingle(router, p, tokenIn, tokenOut, fee, netAmountIn)
+    if (r) {
+      const pct = fee >= 10000 ? '1%' : fee >= 3000 ? '0.3%' : fee >= 500 ? '0.05%' : '0.01%'
+      results.push({ amountOut: r.amountOut, fee, label: `Directo ${pct}` })
+    }
+  }))
 
-  await Promise.all(hops.flatMap(hop =>
-    [500, 3000].flatMap(f1 =>
-      [500, 3000].map(async f2 => {
-        try {
-          const [mid] = await router.quoteSingle(tokenIn, hop, f1, netAmountIn)
-          const midAmt = BigInt(mid.toString())
-          if (midAmt === 0n) return
-          const [out2] = await router.quoteSingle(hop, tokenOut, f2, midAmt)
-          const amountOut = BigInt(out2.toString())
-          if (amountOut > 0n) {
-            const hopSym = hop.toLowerCase() === wld ? 'WLD' : 'USDC'
-            results.push({
-              amountOut, fee: f1, fee2: f2, hopToken: hop,
-              label: `Via ${hopSym} (${(f1/10000).toFixed(2)}+${(f2/10000).toFixed(2)}%)`,
-            })
-          }
-        } catch {}
+  // ── 2. Two-hop via intermediate tokens (WLD, USDC, WETH) ───────────────────
+  // Each hop candidate is only used if it's not already the input or output token
+  const HOP_CANDIDATES = [
+    { addr: TOKENS.WLD,  sym: 'WLD'  },
+    { addr: TOKENS.USDC, sym: 'USDC' },
+    { addr: WETH_ADDR,   sym: 'WETH' },
+  ].filter(h => h.addr.toLowerCase() !== inL && h.addr.toLowerCase() !== outL)
+
+  // Try all fee tier combos for each hop token (4×4 = 16 combos per hop)
+  await Promise.all(HOP_CANDIDATES.flatMap(({ addr: hop, sym: hopSym }) =>
+    FEE_TIERS.flatMap(f1 =>
+      FEE_TIERS.map(async f2 => {
+        // Hop 1: tokenIn → hop
+        const r1 = await tryQuoteSingle(router, p, tokenIn, hop, f1, netAmountIn)
+        if (!r1 || r1.amountOut === 0n) return
+
+        // Hop 2: hop → tokenOut
+        const r2 = await tryQuoteSingle(router, p, hop, tokenOut, f2, r1.amountOut)
+        if (!r2 || r2.amountOut === 0n) return
+
+        const pct1 = f1 >= 10000 ? '1%' : f1 >= 3000 ? '0.3%' : f1 >= 500 ? '0.05%' : '0.01%'
+        const pct2 = f2 >= 10000 ? '1%' : f2 >= 3000 ? '0.3%' : f2 >= 500 ? '0.05%' : '0.01%'
+        results.push({
+          amountOut: r2.amountOut, fee: f1, fee2: f2, hopToken: hop,
+          label: `Vía ${hopSym} (${pct1}+${pct2})`,
+        })
       })
     )
   ))
@@ -275,9 +307,7 @@ async function getBestRouteQuote(
   // Sort: highest output first; tie-break by lowest combined fee
   results.sort((a, b) => {
     if (a.amountOut !== b.amountOut) return a.amountOut > b.amountOut ? -1 : 1
-    const fA = a.fee + (a.fee2 ?? 0)
-    const fB = b.fee + (b.fee2 ?? 0)
-    return fA - fB
+    return (a.fee + (a.fee2 ?? 0)) - (b.fee + (b.fee2 ?? 0))
   })
 
   const best = results[0]
@@ -457,6 +487,10 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   const [volData, setVolData] = useState<{
     uth2Amount: bigint; userVolume: bigint; tierStatus: number[]
     monthId: bigint; secondsLeft: number; thresholds: bigint[]; rewards: bigint[]
+    // ─ Global stats ─
+    totalDistributed: bigint   // total UTH2 distribuido a todos
+    userTotalClaimed: bigint   // total UTH2 reclamado por este usuario (todos los meses)
+    globalMonthVolume: bigint  // volumen acumulado de todos los usuarios este mes
   } | null>(null)
 
   // ── Load balances + prices ──────────────────────────────────────────────────
@@ -526,17 +560,58 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   const loadVolume = useCallback(async () => {
     setLoadingVol(true)
     try {
-      const p = getProvider()
+      const p  = getProvider()
       const vc = new ethers.Contract(ACUA_VOLUME_REWARDS, VOLUME_REWARDS_ABI, p)
-      const [[uth2, vol, tiers], [monthId,,, secsLeft], [ths, rws]] = await Promise.all([
-        vc.pendingNow(userAddress), vc.getPeriodInfo(), vc.getAllTiers(),
+
+      // ── On-chain reads (fast) ────────────────────────────────────────────────
+      const [[uth2, vol, tiers], [monthId,,, secsLeft], [ths, rws], totalDist] =
+        await Promise.all([
+          vc.pendingNow(userAddress),
+          vc.getPeriodInfo(),
+          vc.getAllTiers(),
+          vc.totalDistributed().catch(() => 0n),
+        ])
+
+      const monthIdBig = BigInt(monthId.toString())
+
+      // ── Event queries for global stats (run in parallel) ─────────────────────
+      // RewardClaimed events for this user (indexed) — total UTH2 claimed by user
+      // VolumeRecorded events for current monthId (indexed) — sum last total per user
+      const [claimedLogs, volumeLogs] = await Promise.all([
+        vc.queryFilter(vc.filters.RewardClaimed(userAddress), 0, 'latest').catch(() => []),
+        vc.queryFilter(vc.filters.VolumeRecorded(null, monthIdBig), 0, 'latest').catch(() => []),
       ])
+
+      // User total claimed (sum all RewardClaimed events)
+      let userTotalClaimed = 0n
+      for (const log of claimedLogs as any[]) {
+        try { userTotalClaimed += BigInt(log.args.uth2Amount.toString()) } catch {}
+      }
+
+      // Global month volume: for each user keep only their latest total in this month
+      const latestPerUser = new Map<string, bigint>()
+      for (const log of volumeLogs as any[]) {
+        try {
+          const user  = (log.args.user as string).toLowerCase()
+          const total = BigInt(log.args.total.toString())
+          const prev  = latestPerUser.get(user) ?? 0n
+          if (total > prev) latestPerUser.set(user, total)
+        } catch {}
+      }
+      let globalMonthVolume = 0n
+      for (const v of latestPerUser.values()) globalMonthVolume += v
+
       setVolData({
-        uth2Amount: BigInt(uth2.toString()), userVolume: BigInt(vol.toString()),
-        tierStatus: Array.from(tiers).map((v: any) => Number(v)),
-        monthId: BigInt(monthId.toString()), secondsLeft: Number(secsLeft.toString()),
-        thresholds: Array.from(ths).map((v: any) => BigInt(v.toString())),
-        rewards: Array.from(rws).map((v: any) => BigInt(v.toString())),
+        uth2Amount:   BigInt(uth2.toString()),
+        userVolume:   BigInt(vol.toString()),
+        tierStatus:   Array.from(tiers).map((v: any) => Number(v)),
+        monthId:      monthIdBig,
+        secondsLeft:  Number(secsLeft.toString()),
+        thresholds:   Array.from(ths).map((v: any) => BigInt(v.toString())),
+        rewards:      Array.from(rws).map((v: any) => BigInt(v.toString())),
+        totalDistributed: BigInt(totalDist.toString()),
+        userTotalClaimed,
+        globalMonthVolume,
       })
     } catch (e) { console.error('[Vol]', e) }
     finally { setLoadingVol(false) }
@@ -791,6 +866,38 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
               <div className="flex justify-center py-3"><Loader2 className="w-4 h-4 animate-spin text-teal-400" /></div>
             ) : volData ? (
               <>
+                {/* ── 4 stat cards ─────────────────────────────────────────── */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  {/* Mi volumen este mes */}
+                  <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(20,184,166,0.08)', border: '1px solid rgba(20,184,166,0.18)' }}>
+                    <p className="text-[9px] text-white/40 uppercase tracking-wide">Mi volumen (mes)</p>
+                    <p className="text-sm font-bold font-mono text-teal-300">
+                      ${(Number(volData.userVolume)/1_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  {/* Volumen global este mes */}
+                  <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.18)' }}>
+                    <p className="text-[9px] text-white/40 uppercase tracking-wide">Vol. total (mes)</p>
+                    <p className="text-sm font-bold font-mono text-indigo-300">
+                      ${(Number(volData.globalMonthVolume)/1_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  {/* Mi UTH2 reclamado total */}
+                  <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.18)' }}>
+                    <p className="text-[9px] text-white/40 uppercase tracking-wide">Mi UTH2 reclamado</p>
+                    <p className="text-sm font-bold font-mono text-purple-300">
+                      {parseFloat(ethers.formatEther(volData.userTotalClaimed)).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                    </p>
+                  </div>
+                  {/* Total UTH2 distribuido a todos */}
+                  <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.18)' }}>
+                    <p className="text-[9px] text-white/40 uppercase tracking-wide">UTH2 total (todos)</p>
+                    <p className="text-sm font-bold font-mono text-yellow-300">
+                      {parseFloat(ethers.formatEther(volData.totalDistributed)).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                    </p>
+                  </div>
+                </div>
+
                 {/* Progress bar */}
                 {volData.thresholds.length > 0 && (() => {
                   const volNum = Number(volData.userVolume)
@@ -802,7 +909,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                     <div className="space-y-1">
                       <div className="flex items-center justify-between text-[10px]">
                         <span className="text-white/40">Progreso del mes</span>
-                        {nextT !== null && <span className="text-white/40">${((nextT - volNum)/1_000_000).toFixed(2)} más</span>}
+                        {nextT !== null && <span className="text-white/40">${((nextT - volNum)/1_000_000).toFixed(2)} más para siguiente tier</span>}
                       </div>
                       <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
                         <div className="h-full rounded-full transition-all duration-700"
