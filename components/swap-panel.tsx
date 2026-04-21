@@ -314,45 +314,63 @@ async function fetchAllTokenPrices(tokens: TokenItem[]): Promise<{
     }
   }
 
-  // ── 5. On-chain WLD-quote fallback for tokens with no price yet ───────────
-  // Only used if DexScreener returned nothing — uses correct token decimals
+  // ── 5. On-chain bridge-quote fallback for tokens with no price yet ────────
+  // Tries BOTH WLD and USDC as bridge tokens with permissive liquidity so
+  // tokens with smaller pools still get a visible price. Picks the deepest
+  // pool across all (bridge, fee) combinations.
   const decimalsMap = new Map(tokens.map(t => [t.address.toLowerCase(), t.decimals]))
   const missing = addresses.filter(a => !usdPrices[a.toLowerCase()])
-  if (missing.length > 0 && wldUsd > 0) {
+  if (missing.length > 0 && (wldUsd > 0 || usdPrices[TOKENS.USDC.toLowerCase()] > 0)) {
     const provider = getProvider()
     const router   = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, provider)
     const poolAbi  = ['function liquidity() view returns (uint128)']
-    const oneWLD   = ethers.parseEther('1') // 1 WLD (18 decimals)
-    const MIN_PRICE_LIQ = 100_000_000_000_000n // 1e14 — only liquid pools for pricing
+    // Permissive threshold for *price discovery only* — swap routing still
+    // uses MIN_SWAP_POOL_LIQ. 1e9 keeps out completely empty pools while
+    // letting low-cap tokens display a price.
+    const MIN_PRICE_LIQ = 1_000_000_000n // 1e9
+
+    const usdcUsd = usdPrices[TOKENS.USDC.toLowerCase()] ?? 1.0
+    const bridges: { addr: string; oneUnit: bigint; usd: number }[] = []
+    if (wldUsd > 0)  bridges.push({ addr: TOKENS.WLD,  oneUnit: ethers.parseUnits('1', 18), usd: wldUsd })
+    if (usdcUsd > 0) bridges.push({ addr: TOKENS.USDC, oneUnit: ethers.parseUnits('1', 6),  usd: usdcUsd })
 
     await Promise.allSettled(missing.map(async tokenAddr => {
-      const decimals = decimalsMap.get(tokenAddr.toLowerCase()) ?? 18
-      let bestOut = 0n
-      let bestLiq = 0n
+      const tokenL   = tokenAddr.toLowerCase()
+      const decimals = decimalsMap.get(tokenL) ?? 18
 
-      for (const fee of FEE_TIERS) {
-        try {
-          const [rawOut, poolAddr] = await router.quoteSingle(TOKENS.WLD, tokenAddr, fee, oneWLD)
-          const out = BigInt(rawOut.toString())
-          if (out === 0n) continue
+      // Track the best (deepest-liquidity) quote across bridge+fee combos
+      let bestPriceUsd = 0
+      let bestLiq      = 0n
+      let bestBridgeUsd = 0
+      let bestTokensPerBridge = 0
 
-          // Verify pool liquidity is meaningful (not a ghost pool)
+      await Promise.all(bridges.flatMap(({ addr: bridge, oneUnit, usd: bridgeUsd }) =>
+        FEE_TIERS.map(async fee => {
           try {
-            const pool = new ethers.Contract(poolAddr, poolAbi, provider)
-            const liq = BigInt((await pool.liquidity()).toString())
-            if (liq < MIN_PRICE_LIQ) continue   // skip dead / dust pools
-            if (liq > bestLiq) { bestOut = out; bestLiq = liq }
-          } catch { continue }
-        } catch { continue }
-      }
+            const [rawOut, poolAddr] = await router.quoteSingle(bridge, tokenAddr, fee, oneUnit)
+            const out = BigInt(rawOut.toString())
+            if (out === 0n) return
+            try {
+              const pool = new ethers.Contract(poolAddr, poolAbi, provider)
+              const liq  = BigInt((await pool.liquidity()).toString())
+              if (liq < MIN_PRICE_LIQ) return
+              if (liq <= bestLiq) return
+              const tokensPerBridge = parseFloat(ethers.formatUnits(out.toString(), decimals))
+              if (tokensPerBridge <= 0) return
+              bestLiq             = liq
+              bestBridgeUsd       = bridgeUsd
+              bestTokensPerBridge = tokensPerBridge
+              bestPriceUsd        = bridgeUsd / tokensPerBridge
+            } catch { return }
+          } catch { return }
+        })
+      ))
 
-      if (bestOut > 0n) {
-        const tokensPerWld = parseFloat(ethers.formatUnits(bestOut.toString(), decimals))
-        if (tokensPerWld > 0) {
-          wldPrices[tokenAddr.toLowerCase()] = 1 / tokensPerWld
-          usdPrices[tokenAddr.toLowerCase()] = wldUsd / tokensPerWld
-        }
+      if (bestPriceUsd > 0) {
+        usdPrices[tokenL] = bestPriceUsd
+        if (wldUsd > 0) wldPrices[tokenL] = bestPriceUsd / wldUsd
       }
+      void bestBridgeUsd; void bestTokensPerBridge
     }))
   }
 
@@ -398,13 +416,13 @@ async function fetchFreshTokenPrice(token: TokenItem): Promise<number> {
 
   if (bestPrice > 0) return bestPrice
 
-  // 2. On-chain WLD quote fallback (only if DexScreener returned nothing)
+  // 2. On-chain bridge quote fallback (WLD or USDC). Permissive liquidity
+  // because this is for *display + volume tracking* only.
   try {
     const provider = getProvider()
     const router   = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, provider)
     const poolAbi  = ['function liquidity() view returns (uint128)']
 
-    // First get fresh WLD/USD from DexScreener
     let wldUsd = 0
     try {
       const wldRes  = await fetch(
@@ -413,36 +431,42 @@ async function fetchFreshTokenPrice(token: TokenItem): Promise<number> {
       )
       const wldData = await wldRes.json()
       if (Array.isArray(wldData.pairs)) {
+        let wldLiq = 0
         for (const pair of wldData.pairs) {
           if (!WORLDCHAIN_IDS.has((pair.chainId ?? '').toLowerCase())) continue
           const p   = parseFloat(pair.priceUsd ?? '0')
           const liq = parseFloat(pair.liquidity?.usd ?? '0')
-          if (p > 0 && liq >= MIN_PAIR_LIQ_USD && liq > bestLiq) { wldUsd = p; bestLiq = liq }
+          if (p > 0 && liq >= MIN_PAIR_LIQ_USD && liq > wldLiq) { wldUsd = p; wldLiq = liq }
         }
       }
     } catch {}
 
-    if (wldUsd > 0) {
-      const oneWLD = ethers.parseEther('1')
-      let topOut = 0n; let topLiq = 0n
-      for (const fee of FEE_TIERS) {
+    const bridges: { addr: string; oneUnit: bigint; usd: number }[] = []
+    if (wldUsd > 0) bridges.push({ addr: TOKENS.WLD,  oneUnit: ethers.parseUnits('1', 18), usd: wldUsd })
+    bridges.push({ addr: TOKENS.USDC, oneUnit: ethers.parseUnits('1', 6),  usd: 1.0 })
+
+    let bestPx = 0
+    let topLiq = 0n
+    await Promise.all(bridges.flatMap(({ addr: bridge, oneUnit, usd: bridgeUsd }) =>
+      FEE_TIERS.map(async fee => {
         try {
-          const [rawOut, poolAddr] = await router.quoteSingle(TOKENS.WLD, token.address, fee, oneWLD)
+          const [rawOut, poolAddr] = await router.quoteSingle(bridge, token.address, fee, oneUnit)
           const out = BigInt(rawOut.toString())
-          if (out === 0n) continue
+          if (out === 0n) return
           try {
             const pool = new ethers.Contract(poolAddr, poolAbi, provider)
             const liq  = BigInt((await pool.liquidity()).toString())
-            if (liq < 100_000_000_000_000n) continue // min 1e14
-            if (liq > topLiq) { topOut = out; topLiq = liq }
-          } catch { continue }
-        } catch { continue }
-      }
-      if (topOut > 0n) {
-        const tokensPerWld = parseFloat(ethers.formatUnits(topOut.toString(), token.decimals))
-        if (tokensPerWld > 0) return wldUsd / tokensPerWld
-      }
-    }
+            if (liq < 1_000_000_000n) return // 1e9 min
+            if (liq <= topLiq) return
+            const tokensPerBridge = parseFloat(ethers.formatUnits(out.toString(), token.decimals))
+            if (tokensPerBridge <= 0) return
+            topLiq = liq
+            bestPx = bridgeUsd / tokensPerBridge
+          } catch { return }
+        } catch { return }
+      })
+    ))
+    if (bestPx > 0) return bestPx
   } catch {}
 
   return 0 // price unknown — volume will be recorded as 0

@@ -1,9 +1,11 @@
 const { ethers } = require("hardhat");
 
 // ─── CONFIG ──────────────────────────────────────
-const VOLUME_REWARDS_ADDRESS = "0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48";
+// AcuaVolumeRewardsV2 (activo) — multi-router, wired al swap router actual.
+// V1 (deprecated): 0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48
+const VOLUME_REWARDS_ADDRESS = "0xc74D6B65f8E30E040CE744117228118d107f77f1";
 const UTH2_ADDRESS           = "0x9eA8653640E22A5b69887985BB75d496dc97022a";
-const FUND_AMOUNT            = "9"; // cantidad a enviar
+const FUND_AMOUNT            = "100"; // cantidad a enviar
 
 const ERC20_ABI = [
   "function approve(address spender, uint256 amount) external returns (bool)",
