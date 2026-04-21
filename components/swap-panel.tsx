@@ -7,7 +7,7 @@ import {
   ArrowUpDown, RefreshCw, Plus, ChevronDown, Loader2, Search,
   X, Wallet, ChevronUp, AlertCircle, Repeat2, Clock,
   TrendingUp, Coins, Award, Check, Zap, ShieldAlert,
-  Sparkles, ArrowRight, BarChart2, Gift,
+  Sparkles, ArrowRight, BarChart2, Gift, AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,18 +16,17 @@ import {
 import { cn } from '@/lib/utils'
 
 // ─── Contracts ────────────────────────────────────────────────────────────────
-// V2 router uses Permit2 SignatureTransfer (same as staking) — 1 tx + native MiniKit permit2 sig
 const ACUA_SWAP_ROUTER    = '0xA2FD6cd36a661E270FC7AdaA82D0d22f4660706d'
 const ACUA_VOLUME_REWARDS = '0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const SLIPPAGE_BPS    = 500   // 5% slippage — quoteSingle is spot-price (no impact), needs buffer
-const ACUA_FEE_BPS    = 210   // 2.1% total fee (2% swap + 0.1% H2O buyback)
-const IMPACT_WARN_BPS = 300   // warn >3%
-const IMPACT_MAX_BPS  = 1500  // block >15% (very high impact)
-const QUOTE_TTL_MS    = 25000 // requote after 25 seconds
+// 50% slippage tolerance — allows swaps with any amount regardless of market conditions
+const SLIPPAGE_BPS    = 5000
+const ACUA_FEE_BPS    = 210   // 2.1% total fee (2% to owner + 0.1% H2O buyback via WLD)
+const IMPACT_WARN_BPS = 300   // yellow warning >3%
+const IMPACT_HIGH_BPS = 1500  // red warning >15%
+const QUOTE_TTL_MS    = 25000
 
-// WETH on World Chain (OP-stack canonical bridge address)
 const WETH_ADDR = '0x4200000000000000000000000000000000000006'
 
 // ─── MiniKit error code → friendly Spanish message ────────────────────────────
@@ -41,8 +40,8 @@ const TX_ERROR_MESSAGES: Record<string, string> = {
   malicious_operation:               'Operación bloqueada por seguridad de World App.',
   daily_tx_limit_reached:            'Límite diario de transacciones alcanzado. Intenta mañana.',
   validation_error:                  'Error de validación. Verifica el monto e intenta de nuevo.',
-  transaction_failed:                'La transacción falló en cadena. Puede ser slippage o liquidez insuficiente. Intenta con menos monto.',
-  permitted_amount_exceeds_slippage: 'El monto supera el límite de slippage. Intenta con menos.',
+  transaction_failed:                'La transacción falló en cadena. Puede ser slippage o liquidez insuficiente.',
+  permitted_amount_exceeds_slippage: 'El monto supera el límite de slippage. Intenta de nuevo.',
   permitted_amount_not_found:        'Permiso de Permit2 no encontrado. Intenta de nuevo.',
   invalid_operation:                 'Operación inválida. Verifica los parámetros del swap.',
   unauthorized:                      'No autorizado. Verifica que los contratos estén registrados en World App.',
@@ -55,13 +54,10 @@ function parseMiniKitTxError(payload: any): string {
   const code: string = payload.error_code ?? payload.errorCode ?? ''
   if (code && TX_ERROR_MESSAGES[code]) return TX_ERROR_MESSAGES[code]
 
-  // Try to extract a human-readable reason from details
   const details = payload.details
   if (details) {
-    // details can be an object or string
     if (typeof details === 'string' && details.length > 0) {
-      // Check for known Solidity revert reasons
-      if (details.includes('Too much slippage')) return 'Slippage excedido. El precio se movió demasiado. Intenta con menos monto.'
+      if (details.includes('Too much slippage')) return 'Slippage excedido. Confirma para continuar con el swap.'
       if (details.includes('Bad amount')) return 'Monto inválido para el contrato.'
       if (details.includes('No active swap')) return 'Error interno de callback. Intenta de nuevo.'
       if (details.includes('insufficient')) return 'Liquidez insuficiente en este par.'
@@ -69,22 +65,17 @@ function parseMiniKitTxError(payload: any): string {
       return details
     }
     if (typeof details === 'object') {
-      try {
-        const str = JSON.stringify(details)
-        if (str !== '{}') return str
-      } catch { /* skip */ }
+      try { const str = JSON.stringify(details); if (str !== '{}') return str } catch { /* skip */ }
     }
   }
 
-  // Fallback chain
   if (typeof payload.message === 'string' && payload.message.length > 0) return payload.message
   if (typeof payload.reason === 'string' && payload.reason.length > 0) return payload.reason
   if (code) return `Error de World App: ${code}`
   return 'Transacción no completada. Intenta de nuevo.'
 }
 
-// ─── Fee tiers (Uniswap V3 fee per 1,000,000) ────────────────────────────────
-// 100=0.01%, 500=0.05%, 3000=0.30%, 10000=1.00%
+// ─── Fee tiers ────────────────────────────────────────────────────────────────
 const FEE_TIERS = [100, 500, 3000, 10000]
 
 // ─── Token logos ─────────────────────────────────────────────────────────────
@@ -99,21 +90,19 @@ export interface TokenItem {
 }
 
 const DEFAULT_TOKENS: TokenItem[] = [
-  { symbol: 'WLD',    name: 'Worldcoin',  address: TOKENS.WLD,    decimals: 18, color: '#3b82f6', logoUri: TOKEN_LOGOS.WLD  },
-  { symbol: 'H2O',    name: 'H2O Token',  address: TOKENS.H2O,    decimals: 18, color: '#06b6d4' },
-  { symbol: 'USDC',   name: 'USD Coin',   address: TOKENS.USDC,   decimals: 6,  color: '#2563eb', logoUri: TOKEN_LOGOS.USDC },
-  { symbol: 'WETH',   name: 'Wrapped ETH', address: WETH_ADDR,    decimals: 18, color: '#627eea' },
-  { symbol: 'FIRE',   name: 'Fire Token', address: TOKENS.FIRE,   decimals: 18, color: '#f97316' },
-  { symbol: 'wCOP',   name: 'wCOP',       address: TOKENS.wCOP,   decimals: 18, color: '#f59e0b' },
-  { symbol: 'wARS',   name: 'wARS',       address: TOKENS.wARS,   decimals: 18, color: '#10b981' },
-  { symbol: 'BTCH2O', name: 'BTC H2O',    address: TOKENS.BTCH2O, decimals: 18, color: '#f59e0b' },
-  { symbol: 'AIR',    name: 'AIR Token',  address: TOKENS.AIR,    decimals: 18, color: '#8b5cf6' },
-  { symbol: 'UTH2',   name: 'UTH2',       address: TOKENS.UTH2,   decimals: 18, color: '#a78bfa' },
+  { symbol: 'WLD',    name: 'Worldcoin',   address: TOKENS.WLD,    decimals: 18, color: '#3b82f6', logoUri: TOKEN_LOGOS.WLD  },
+  { symbol: 'H2O',    name: 'H2O Token',   address: TOKENS.H2O,    decimals: 18, color: '#06b6d4' },
+  { symbol: 'USDC',   name: 'USD Coin',    address: TOKENS.USDC,   decimals: 6,  color: '#2563eb', logoUri: TOKEN_LOGOS.USDC },
+  { symbol: 'WETH',   name: 'Wrapped ETH', address: WETH_ADDR,     decimals: 18, color: '#627eea' },
+  { symbol: 'FIRE',   name: 'Fire Token',  address: TOKENS.FIRE,   decimals: 18, color: '#f97316' },
+  { symbol: 'wCOP',   name: 'wCOP',        address: TOKENS.wCOP,   decimals: 18, color: '#f59e0b' },
+  { symbol: 'wARS',   name: 'wARS',        address: TOKENS.wARS,   decimals: 18, color: '#10b981' },
+  { symbol: 'BTCH2O', name: 'BTC H2O',     address: TOKENS.BTCH2O, decimals: 18, color: '#f59e0b' },
+  { symbol: 'AIR',    name: 'AIR Token',   address: TOKENS.AIR,    decimals: 18, color: '#8b5cf6' },
+  { symbol: 'UTH2',   name: 'UTH2',        address: TOKENS.UTH2,   decimals: 18, color: '#a78bfa' },
 ]
 
-// ─── ABIs (V2 — Permit2 SignatureTransfer, identical pattern to staking) ───────
-// permit struct: { permitted: { token, amount }, nonce, deadline }
-// signature arg: 'PERMIT2_SIGNATURE_PLACEHOLDER_0' (filled by MiniKit)
+// ─── ABIs ─────────────────────────────────────────────────────────────────────
 const PERMIT_STRUCT = {
   name: 'permit', type: 'tuple',
   components: [
@@ -167,6 +156,7 @@ const CLAIM_ABI = [{
   name: 'claimRewards', type: 'function', stateMutability: 'nonpayable',
   inputs: [{ name: 'monthId', type: 'uint256' }], outputs: [],
 }]
+const POOL_LIQUIDITY_ABI = ['function liquidity() view returns (uint128)']
 
 // ─── Quote result ─────────────────────────────────────────────────────────────
 interface QuoteResult {
@@ -179,16 +169,26 @@ interface QuoteResult {
   timestamp: number
 }
 
-// ─── Price feed: CoinGecko + DexScreener combined ────────────────────────────
+// ─── Enhanced price feed: USD + WLD-bridge pricing ───────────────────────────
 const CG_IDS: Record<string, string> = {
   [TOKENS.WLD.toLowerCase()]:  'worldcoin-wld',
   [TOKENS.USDC.toLowerCase()]: 'usd-coin',
 }
 
-async function fetchUsdPrices(addresses: string[]): Promise<Record<string, number>> {
-  const prices: Record<string, number> = {}
+// Returns { usdPrices, wldPrices } for all addresses
+// - usdPrices: token → USD price
+// - wldPrices: token → price in WLD (how many WLD = 1 token)
+async function fetchAllTokenPrices(addresses: string[]): Promise<{
+  usdPrices: Record<string, number>
+  wldPrices: Record<string, number>
+}> {
+  const usdPrices: Record<string, number> = {}
+  const wldPrices: Record<string, number> = {}
 
-  // CoinGecko for known tokens (reliable, no API key needed for basic)
+  // Hardcode USDC = $1.0 always
+  usdPrices[TOKENS.USDC.toLowerCase()] = 1.0
+
+  // CoinGecko for WLD and USDC
   const cgAddrs = addresses.filter(a => CG_IDS[a.toLowerCase()])
   if (cgAddrs.length > 0) {
     try {
@@ -198,12 +198,12 @@ async function fetchUsdPrices(addresses: string[]): Promise<Record<string, numbe
       const data = await res.json()
       for (const addr of cgAddrs) {
         const id = CG_IDS[addr.toLowerCase()]
-        if (data[id]?.usd) prices[addr.toLowerCase()] = data[id].usd
+        if (data[id]?.usd) usdPrices[addr.toLowerCase()] = data[id].usd
       }
     } catch {}
   }
 
-  // DexScreener for all tokens (covers custom/exotic pairs)
+  // DexScreener for all tokens
   try {
     const chunk = addresses.slice(0, 30).join(',')
     const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${chunk}`, { signal: AbortSignal.timeout(5000) })
@@ -218,19 +218,57 @@ async function fetchUsdPrices(addresses: string[]): Promise<Record<string, numbe
         if (!best[addr] || liq > best[addr].liq) best[addr] = { price: p, liq }
       }
       for (const [addr, v] of Object.entries(best)) {
-        // Only override CoinGecko if CoinGecko didn't return a price
-        if (!prices[addr]) prices[addr] = v.price
+        if (!usdPrices[addr]) usdPrices[addr] = v.price
       }
     }
   } catch {}
 
-  return prices
+  // Calculate WLD prices for all tokens
+  const wldUsd = usdPrices[TOKENS.WLD.toLowerCase()]
+  if (wldUsd && wldUsd > 0) {
+    for (const addr of addresses) {
+      const addrL = addr.toLowerCase()
+      if (addrL === TOKENS.WLD.toLowerCase()) {
+        wldPrices[addrL] = 1.0
+        continue
+      }
+      const tokenUsd = usdPrices[addrL]
+      if (tokenUsd && tokenUsd > 0) {
+        // tokenWldPrice = tokenUsdPrice / wldUsdPrice (how many WLD = 1 token)
+        wldPrices[addrL] = tokenUsd / wldUsd
+      }
+    }
+  }
+
+  // For tokens with no USD price, try on-chain WLD quote
+  const missingUsd = addresses.filter(a => !usdPrices[a.toLowerCase()] && !wldPrices[a.toLowerCase()])
+  if (missingUsd.length > 0 && wldUsd && wldUsd > 0) {
+    const p = getProvider()
+    const router = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, p)
+    // Use 1 WLD as reference amount
+    const oneWLD = ethers.parseEther('1')
+    await Promise.allSettled(missingUsd.map(async tokenAddr => {
+      try {
+        for (const fee of FEE_TIERS) {
+          try {
+            const [out] = await router.quoteSingle(TOKENS.WLD, tokenAddr, fee, oneWLD)
+            const tokensPerWld = parseFloat(ethers.formatUnits(out.toString(), 18))
+            if (tokensPerWld > 0) {
+              // 1 WLD = tokensPerWld tokens → 1 token = 1/tokensPerWld WLD
+              wldPrices[tokenAddr.toLowerCase()] = 1 / tokensPerWld
+              usdPrices[tokenAddr.toLowerCase()] = wldUsd / tokensPerWld
+              break
+            }
+          } catch {}
+        }
+      } catch {}
+    }))
+  }
+
+  return { usdPrices, wldPrices }
 }
 
-// ─── Pool liquidity ABI (to filter empty pools) ───────────────────────────────
-const POOL_LIQUIDITY_ABI = ['function liquidity() view returns (uint128)']
-
-// Helper: quote single hop if pool has real liquidity
+// ─── Pool liquidity check ─────────────────────────────────────────────────────
 async function tryQuoteSingle(
   router: ethers.Contract,
   provider: ethers.JsonRpcProvider,
@@ -241,7 +279,6 @@ async function tryQuoteSingle(
     const amountOut = BigInt(out.toString())
     if (amountOut === 0n) return null
 
-    // Verify pool has real liquidity (filters empty/ghost pools)
     try {
       const pool = new ethers.Contract(poolAddr, POOL_LIQUIDITY_ABI, provider)
       const liq = BigInt((await pool.liquidity()).toString())
@@ -252,7 +289,7 @@ async function tryQuoteSingle(
   } catch { return null }
 }
 
-// ─── Smart multi-hop router — all fee tiers × WLD / USDC / WETH hops ──────────
+// ─── Smart multi-hop router ───────────────────────────────────────────────────
 async function getBestRouteQuote(
   tokenIn: string, tokenOut: string, netAmountIn: bigint
 ): Promise<QuoteResult | null> {
@@ -263,7 +300,6 @@ async function getBestRouteQuote(
   const inL  = tokenIn.toLowerCase()
   const outL = tokenOut.toLowerCase()
 
-  // ── 1. Single-hop: try ALL fee tiers in parallel ───────────────────────────
   await Promise.all(FEE_TIERS.map(async fee => {
     const r = await tryQuoteSingle(router, p, tokenIn, tokenOut, fee, netAmountIn)
     if (r) {
@@ -272,23 +308,18 @@ async function getBestRouteQuote(
     }
   }))
 
-  // ── 2. Two-hop via intermediate tokens (WLD, USDC, WETH) ───────────────────
-  // Each hop candidate is only used if it's not already the input or output token
   const HOP_CANDIDATES = [
     { addr: TOKENS.WLD,  sym: 'WLD'  },
     { addr: TOKENS.USDC, sym: 'USDC' },
     { addr: WETH_ADDR,   sym: 'WETH' },
   ].filter(h => h.addr.toLowerCase() !== inL && h.addr.toLowerCase() !== outL)
 
-  // Try all fee tier combos for each hop token (4×4 = 16 combos per hop)
   await Promise.all(HOP_CANDIDATES.flatMap(({ addr: hop, sym: hopSym }) =>
     FEE_TIERS.flatMap(f1 =>
       FEE_TIERS.map(async f2 => {
-        // Hop 1: tokenIn → hop
         const r1 = await tryQuoteSingle(router, p, tokenIn, hop, f1, netAmountIn)
         if (!r1 || r1.amountOut === 0n) return
 
-        // Hop 2: hop → tokenOut
         const r2 = await tryQuoteSingle(router, p, hop, tokenOut, f2, r1.amountOut)
         if (!r2 || r2.amountOut === 0n) return
 
@@ -304,7 +335,6 @@ async function getBestRouteQuote(
 
   if (results.length === 0) return null
 
-  // Sort: highest output first; tie-break by lowest combined fee
   results.sort((a, b) => {
     if (a.amountOut !== b.amountOut) return a.amountOut > b.amountOut ? -1 : 1
     return (a.fee + (a.fee2 ?? 0)) - (b.fee + (b.fee2 ?? 0))
@@ -334,6 +364,20 @@ function calcImpactBps(
   return Math.round(((valIn - valOut) / valIn) * 10000)
 }
 
+// ─── Format price helpers ────────────────────────────────────────────────────
+function fmtUsd(n: number): string {
+  if (n >= 1000) return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+  if (n >= 1)    return `$${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+  if (n >= 0.01) return `$${n.toFixed(4)}`
+  return `$${n.toExponential(2)}`
+}
+function fmtWld(n: number): string {
+  if (n >= 1000) return `${n.toLocaleString('en-US', { maximumFractionDigits: 0 })} WLD`
+  if (n >= 1)    return `${n.toLocaleString('en-US', { maximumFractionDigits: 3 })} WLD`
+  if (n >= 0.0001) return `${n.toFixed(5)} WLD`
+  return `${n.toExponential(2)} WLD`
+}
+
 // ─── Token Logo ───────────────────────────────────────────────────────────────
 function TokenLogo({ token, size = 'md' }: { token: TokenItem; size?: 'xs' | 'sm' | 'md' | 'lg' }) {
   const [err, setErr] = useState(false)
@@ -352,8 +396,13 @@ function TokenLogo({ token, size = 'md' }: { token: TokenItem; size?: 'xs' | 'sm
 }
 
 // ─── Token Picker ─────────────────────────────────────────────────────────────
-function TokenPicker({ tokens, onSelect, onClose, exclude }: {
-  tokens: TokenItem[]; onSelect: (t: TokenItem) => void; onClose: () => void; exclude?: string
+function TokenPicker({ tokens, onSelect, onClose, exclude, usdPrices, wldPrices }: {
+  tokens: TokenItem[]
+  onSelect: (t: TokenItem) => void
+  onClose: () => void
+  exclude?: string
+  usdPrices: Record<string, number>
+  wldPrices: Record<string, number>
 }) {
   const [q, setQ] = useState('')
   const filtered = tokens.filter(t =>
@@ -375,17 +424,26 @@ function TokenPicker({ tokens, onSelect, onClose, exclude }: {
           </div>
         </div>
         <div className="max-h-72 overflow-y-auto divide-y divide-white/5">
-          {filtered.map(t => (
-            <button key={t.address} onClick={() => { onSelect(t); onClose() }}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left">
-              <TokenLogo token={t} size="sm" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white">{t.symbol}</p>
-                <p className="text-xs text-white/40">{t.name}</p>
-              </div>
-              {t.isCustom && <span className="text-[9px] text-white/30 border border-white/10 rounded px-1">custom</span>}
-            </button>
-          ))}
+          {filtered.map(t => {
+            const addrL = t.address.toLowerCase()
+            const usdP = usdPrices[addrL]
+            const wldP = wldPrices[addrL]
+            return (
+              <button key={t.address} onClick={() => { onSelect(t); onClose() }}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left">
+                <TokenLogo token={t} size="sm" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white">{t.symbol}</p>
+                  <p className="text-xs text-white/40">{t.name}</p>
+                </div>
+                <div className="text-right shrink-0 space-y-0.5">
+                  {usdP && <p className="text-xs font-mono text-green-400/80">{fmtUsd(usdP)}</p>}
+                  {wldP && t.symbol !== 'WLD' && <p className="text-[10px] font-mono text-blue-400/70">{fmtWld(wldP)}</p>}
+                  {t.isCustom && <span className="text-[9px] text-white/30 border border-white/10 rounded px-1">custom</span>}
+                </div>
+              </button>
+            )
+          })}
           {filtered.length === 0 && <p className="text-xs text-white/30 text-center py-6">Sin resultados</p>}
         </div>
       </div>
@@ -444,7 +502,7 @@ function lsSet(k: string, v: string) { try { localStorage.setItem(k, v) } catch 
 // ─── Impact color ─────────────────────────────────────────────────────────────
 function impactColor(bps: number | null) {
   if (bps === null) return 'text-white/50'
-  if (bps > IMPACT_MAX_BPS) return 'text-red-400'
+  if (bps > IMPACT_HIGH_BPS) return 'text-red-400'
   if (bps > IMPACT_WARN_BPS) return 'text-yellow-400'
   return 'text-green-400'
 }
@@ -460,7 +518,8 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
 
   const [view,       setView]       = useState<'wallet' | 'swap'>('swap')
   const [balances,   setBalances]   = useState<Record<string, bigint>>({})
-  const [prices,     setPrices]     = useState<Record<string, number>>({})
+  const [prices,     setPrices]     = useState<Record<string, number>>({})    // USD prices
+  const [wldPrices,  setWldPrices]  = useState<Record<string, number>>({})    // WLD prices
   const [loadingBal, setLoadingBal] = useState(false)
   const [lastPriceUpdate, setLastPriceUpdate] = useState(0)
 
@@ -475,6 +534,9 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   const [pickerFor, setPickerFor] = useState<'from' | 'to' | null>(null)
   const [impact,    setImpact]    = useState<number | null>(null)
 
+  // Slippage warning: shown when impact is high before executing swap
+  const [slipWarning, setSlipWarning] = useState<{ bps: number; level: 'warn' | 'high' } | null>(null)
+
   const [addAddr,    setAddAddr]    = useState('')
   const [addLoading, setAddLoading] = useState(false)
   const [addMsg,     setAddMsg]     = useState('')
@@ -487,10 +549,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   const [volData, setVolData] = useState<{
     uth2Amount: bigint; userVolume: bigint; tierStatus: number[]
     monthId: bigint; secondsLeft: number; thresholds: bigint[]; rewards: bigint[]
-    // ─ Global stats ─
-    totalDistributed: bigint   // total UTH2 distribuido a todos
-    userTotalClaimed: bigint   // total UTH2 reclamado por este usuario (todos los meses)
-    globalMonthVolume: bigint  // volumen acumulado de todos los usuarios este mes
+    totalDistributed: bigint; userTotalClaimed: bigint; globalMonthVolume: bigint
   } | null>(null)
 
   // ── Load balances + prices ──────────────────────────────────────────────────
@@ -508,8 +567,10 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       const bals: Record<string, bigint> = {}
       settled.forEach(r => { if (r.status === 'fulfilled') bals[r.value.addr.toLowerCase()] = r.value.bal })
       setBalances(bals)
-      const usd = await fetchUsdPrices(addrs)
-      setPrices(usd)
+
+      const { usdPrices, wldPrices: wldP } = await fetchAllTokenPrices(addrs)
+      setPrices(usdPrices)
+      setWldPrices(wldP)
       setLastPriceUpdate(Date.now())
     } catch (e) { console.error('[Swap] loadBalances', e) }
     finally { setLoadingBal(false) }
@@ -522,8 +583,12 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
     const id = setInterval(async () => {
       try {
         const addrs = allTokens.map(t => t.address)
-        const usd = await fetchUsdPrices(addrs)
-        if (Object.keys(usd).length > 0) { setPrices(usd); setLastPriceUpdate(Date.now()) }
+        const { usdPrices, wldPrices: wldP } = await fetchAllTokenPrices(addrs)
+        if (Object.keys(usdPrices).length > 0) {
+          setPrices(usdPrices)
+          setWldPrices(wldP)
+          setLastPriceUpdate(Date.now())
+        }
       } catch {}
     }, 30_000)
     return () => clearInterval(id)
@@ -551,7 +616,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   }, [prices]) // eslint-disable-line
 
   useEffect(() => {
-    setQuote(null); setSwapMsg(null); setImpact(null)
+    setQuote(null); setSwapMsg(null); setImpact(null); setSlipWarning(null)
     if (quoteTimer.current) clearTimeout(quoteTimer.current)
     quoteTimer.current = setTimeout(() => runQuote(fromToken, toToken, fromAmt), 500)
   }, [fromAmt, fromToken, toToken]) // eslint-disable-line
@@ -563,7 +628,6 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       const p  = getProvider()
       const vc = new ethers.Contract(ACUA_VOLUME_REWARDS, VOLUME_REWARDS_ABI, p)
 
-      // ── On-chain reads (fast) ────────────────────────────────────────────────
       const [[uth2, vol, tiers], [monthId,,, secsLeft], [ths, rws], totalDist] =
         await Promise.all([
           vc.pendingNow(userAddress),
@@ -574,21 +638,16 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
 
       const monthIdBig = BigInt(monthId.toString())
 
-      // ── Event queries for global stats (run in parallel) ─────────────────────
-      // RewardClaimed events for this user (indexed) — total UTH2 claimed by user
-      // VolumeRecorded events for current monthId (indexed) — sum last total per user
       const [claimedLogs, volumeLogs] = await Promise.all([
         vc.queryFilter(vc.filters.RewardClaimed(userAddress), 0, 'latest').catch(() => []),
         vc.queryFilter(vc.filters.VolumeRecorded(null, monthIdBig), 0, 'latest').catch(() => []),
       ])
 
-      // User total claimed (sum all RewardClaimed events)
       let userTotalClaimed = 0n
       for (const log of claimedLogs as any[]) {
         try { userTotalClaimed += BigInt(log.args.uth2Amount.toString()) } catch {}
       }
 
-      // Global month volume: for each user keep only their latest total in this month
       const latestPerUser = new Map<string, bigint>()
       for (const log of volumeLogs as any[]) {
         try {
@@ -647,9 +706,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   }, [volData, loadVolume])
 
   // ── Execute swap ─────────────────────────────────────────────────────────────
-  // Uses Permit2 SignatureTransfer (same as staking) — 1 tx + MiniKit native permit2 sig.
-  // No pre-approvals needed. World App signs the permit off-chain and injects the signature.
-  const doSwap = useCallback(async () => {
+  const executeSwap = useCallback(async () => {
     if (!fromAmt || !quote) return
 
     if (!MiniKit.isInstalled()) {
@@ -657,10 +714,9 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       return
     }
 
-    setSwapping(true); setSwapMsg(null); setSwapStep('')
+    setSwapping(true); setSwapMsg(null); setSwapStep(''); setSlipWarning(null)
 
     try {
-      // ── Parse & validate ───────────────────────────────────────────────────
       let rawAmt: bigint
       try {
         rawAmt = ethers.parseUnits(fromAmt, fromToken.decimals)
@@ -675,42 +731,48 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
         setSwapMsg({ ok: false, text: `Saldo insuficiente de ${fromToken.symbol}.` }); return
       }
 
-      // ── Requote if stale ───────────────────────────────────────────────────
       setSwapStep('Verificando cotización...')
       let activeQuote = quote
       if (Date.now() - quote.timestamp > QUOTE_TTL_MS) {
         const net = rawAmt - rawAmt * BigInt(ACUA_FEE_BPS) / 10000n
         const fresh = await getBestRouteQuote(fromToken.address, toToken.address, net)
         if (!fresh) {
-          setSwapMsg({ ok: false, text: 'Sin liquidez disponible para este par. Prueba con otro.' }); return
+          setSwapMsg({ ok: false, text: 'Sin liquidez disponible para este par. Prueba con otro token.' }); return
         }
         activeQuote = fresh
       }
 
-      // ── Min output with 5% slippage ────────────────────────────────────────
+      // Very permissive minOut (50% tolerance) — allows high-volume & volatile market swaps
       const minOut = activeQuote.amountOut * BigInt(10000 - SLIPPAGE_BPS) / 10000n
 
       // ── USDC equivalent for volume tracking ───────────────────────────────
-      const priceUsd = prices[fromToken.address.toLowerCase()] ?? 0
+      // Always use best available price; USDC is hardcoded to $1.0
+      let priceUsd = prices[fromToken.address.toLowerCase()] ?? 0
+      // Fallback: calculate via WLD bridge if USD price missing
+      if (!priceUsd) {
+        const wldP = wldPrices[fromToken.address.toLowerCase()]
+        const wldUsd = prices[TOKENS.WLD.toLowerCase()]
+        if (wldP && wldUsd) priceUsd = wldP * wldUsd
+      }
+      // If fromToken IS USDC, always use 1.0
+      if (fromToken.address.toLowerCase() === TOKENS.USDC.toLowerCase()) priceUsd = 1.0
+
       const floatAmt = parseFloat(ethers.formatUnits(rawAmt, fromToken.decimals))
       const usdcEquivNum = Math.floor(floatAmt * priceUsd * 1_000_000)
       const usdcEquiv = BigInt(isNaN(usdcEquivNum) || usdcEquivNum < 0 ? 0 : usdcEquivNum)
 
-      // ── Permit2 SignatureTransfer params ───────────────────────────────────
       const nonce    = randomNonce()
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600) // 1 hour
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
       const rawAmtStr  = rawAmt.toString()
       const nonceStr   = nonce.toString()
       const deadlineStr = deadline.toString()
 
-      // permit struct passed into the swap function (MiniKit injects sig)
       const permitArg = {
         permitted: { token: fromToken.address, amount: rawAmtStr },
         nonce:     nonceStr,
         deadline:  deadlineStr,
       }
 
-      // ── Build 1 transaction + permit2 sig (same as staking pattern) ───────
       let swapTx: any
       if (activeQuote.multi && activeQuote.hopToken && activeQuote.fee2 !== undefined) {
         swapTx = {
@@ -784,7 +846,19 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       setSwapping(false)
       setSwapStep('')
     }
-  }, [fromAmt, quote, fromToken, toToken, prices, balances, loadBalances, loadVolume]) // eslint-disable-line
+  }, [fromAmt, quote, fromToken, toToken, prices, wldPrices, balances, loadBalances, loadVolume]) // eslint-disable-line
+
+  // ── doSwap: check slippage warning first ─────────────────────────────────────
+  const doSwap = useCallback(() => {
+    if (!quote || !fromAmt) return
+    const impBps = impact ?? null
+    if (impBps !== null && impBps > IMPACT_WARN_BPS && !slipWarning) {
+      // Show warning and wait for user confirmation
+      setSlipWarning({ bps: impBps, level: impBps > IMPACT_HIGH_BPS ? 'high' : 'warn' })
+      return
+    }
+    executeSwap()
+  }, [quote, fromAmt, impact, slipWarning, executeSwap])
 
   // ── Add custom token ──────────────────────────────────────────────────────────
   const addToken = useCallback(async () => {
@@ -822,13 +896,12 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   const quoteAge = quote ? Math.floor((Date.now() - quote.timestamp) / 1000) : 0
   const quoteStale = quoteAge > 20
   const impactBps = impact
-  const isHighImpact = impactBps !== null && impactBps > IMPACT_MAX_BPS
 
   // ─── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-3">
 
-      {/* ═══ VOLUME REWARDS — compact, top ════════════════════════════════════ */}
+      {/* ═══ VOLUME REWARDS ════════════════════════════════════════════════════ */}
       <div className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #0a2a2a 0%, #0d1a2a 100%)', border: '1px solid rgba(20,184,166,0.2)' }}>
         <button onClick={() => setVolOpen(v => !v)} className="w-full flex items-center justify-between px-3.5 py-3">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -868,28 +941,24 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
               <>
                 {/* ── 4 stat cards ─────────────────────────────────────────── */}
                 <div className="grid grid-cols-2 gap-1.5">
-                  {/* Mi volumen este mes */}
                   <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(20,184,166,0.08)', border: '1px solid rgba(20,184,166,0.18)' }}>
                     <p className="text-[9px] text-white/40 uppercase tracking-wide">Mi volumen (mes)</p>
                     <p className="text-sm font-bold font-mono text-teal-300">
                       ${(Number(volData.userVolume)/1_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                   </div>
-                  {/* Volumen global este mes */}
                   <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.18)' }}>
                     <p className="text-[9px] text-white/40 uppercase tracking-wide">Vol. total (mes)</p>
                     <p className="text-sm font-bold font-mono text-indigo-300">
                       ${(Number(volData.globalMonthVolume)/1_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                   </div>
-                  {/* Mi UTH2 reclamado total */}
                   <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.18)' }}>
                     <p className="text-[9px] text-white/40 uppercase tracking-wide">Mi UTH2 reclamado</p>
                     <p className="text-sm font-bold font-mono text-purple-300">
                       {parseFloat(ethers.formatEther(volData.userTotalClaimed)).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                     </p>
                   </div>
-                  {/* Total UTH2 distribuido a todos */}
                   <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.18)' }}>
                     <p className="text-[9px] text-white/40 uppercase tracking-wide">UTH2 total (todos)</p>
                     <p className="text-sm font-bold font-mono text-yellow-300">
@@ -927,83 +996,67 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                   ))}
                 </div>
 
-                {/* Claim */}
-                {volData.uth2Amount > 0n ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between rounded-xl px-3 py-2" style={{ background: 'rgba(20,184,166,0.1)', border: '1px solid rgba(20,184,166,0.25)' }}>
-                      <div>
-                        <p className="text-[10px] text-white/40">UTH2 disponible</p>
-                        <p className="text-base font-bold font-mono text-teal-300">{parseFloat(ethers.formatEther(volData.uth2Amount)).toFixed(4)} UTH2</p>
-                      </div>
-                      <Award className="w-6 h-6 text-teal-400" />
-                    </div>
-                    <Button onClick={doClaimVolume} disabled={claimingVol}
-                      className="w-full h-9 text-xs font-semibold bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30">
-                      {claimingVol ? <><Loader2 className="w-3 h-3 animate-spin mr-1.5" />Reclamando...</> : <><Gift className="w-3 h-3 mr-1.5" />Reclamar UTH2</>}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="rounded-xl px-3 py-2.5 space-y-1" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div className="flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                      <p className="text-[11px] font-semibold text-cyan-300">Haz Trade Swap Inteligente</p>
-                    </div>
-                    <p className="text-[10px] text-white/40 leading-relaxed">
-                      Crea volumen haciendo swaps y reclama UTH2 todos los meses. Cuanto más tradeas, mayor es tu recompensa.
-                    </p>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <ArrowRight className="w-3 h-3 text-teal-400" />
-                      <span className="text-[10px] text-teal-300 font-medium">
-                        {Number(volData.userVolume) > 0 ? '✓ Todo reclamado este mes' : 'Empieza a hacer swaps →'}
-                      </span>
-                    </div>
+                {/* Claim button — always visible if UTH2 > 0 */}
+                {volData.uth2Amount > 0n && (
+                  <button onClick={doClaimVolume} disabled={claimingVol}
+                    className="w-full h-10 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2"
+                    style={{ background: 'linear-gradient(135deg, #14b8a6 0%, #0891b2 100%)', boxShadow: '0 0 18px rgba(20,184,166,0.3)' }}>
+                    {claimingVol
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Reclamando...</>
+                      : <><Gift className="w-4 h-4" /> Reclamar {parseFloat(ethers.formatEther(volData.uth2Amount)).toFixed(4)} UTH2</>}
+                  </button>
+                )}
+
+                {volMsg && (
+                  <div className={cn('rounded-xl px-3 py-2 text-xs',
+                    volMsg.ok ? 'bg-green-500/10 border border-green-500/20 text-green-300'
+                              : 'bg-red-500/10 border border-red-500/20 text-red-300')}>
+                    {volMsg.text}
                   </div>
                 )}
-                {volMsg && <p className={cn('text-[10px] text-center font-medium', volMsg.ok ? 'text-green-400' : 'text-red-400')}>{volMsg.text}</p>}
-                <button onClick={loadVolume} className="w-full text-[10px] text-white/25 flex items-center justify-center gap-1 hover:text-white/50 py-0.5">
-                  <RefreshCw className={cn('w-2.5 h-2.5', loadingVol && 'animate-spin')} /> Actualizar
+
+                {/* Refresh button */}
+                <button onClick={loadVolume} disabled={loadingVol}
+                  className="w-full flex items-center justify-center gap-1.5 text-[10px] text-white/25 hover:text-white/50 transition-colors py-1">
+                  <RefreshCw className={cn('w-2.5 h-2.5', loadingVol && 'animate-spin')} />
+                  Actualizar estadísticas
                 </button>
               </>
             ) : (
-              <button onClick={loadVolume} className="w-full text-xs text-teal-400 hover:underline py-2 flex items-center justify-center gap-1">
-                <RefreshCw className="w-3 h-3" /> Cargar datos
-              </button>
+              <div className="flex flex-col items-center gap-2 py-4">
+                <p className="text-xs text-white/30">Haz swap para empezar a acumular volumen y ganar UTH2</p>
+                <button onClick={loadVolume} className="text-[10px] text-teal-400 hover:text-teal-300 transition-colors flex items-center gap-1">
+                  <RefreshCw className="w-2.5 h-2.5" /> Cargar datos
+                </button>
+              </div>
             )}
           </div>
         )}
       </div>
 
-      {/* ═══ SWAP CARD ════════════════════════════════════════════════════════ */}
-      <div className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(160deg, #0d1117 0%, #111827 100%)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      {/* ═══ MAIN SWAP CARD ════════════════════════════════════════════════════ */}
+      <div className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(180deg, #0f1923 0%, #0a1118 100%)', border: '1px solid rgba(255,255,255,0.07)' }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.2)' }}>
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.15)' }}>
               <Repeat2 className="w-3.5 h-3.5 text-indigo-400" />
             </div>
-            <div>
-              <p className="text-xs font-bold text-white">Acua Swap</p>
-              <p className="text-[10px] text-white/30">Uniswap V3 · World Chain · <span className="text-green-400">gas &lt;0.001 gwei</span></p>
-            </div>
+            <span className="text-xs font-bold text-white">Acua Swap</span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'rgba(99,102,241,0.12)', color: '#818cf8' }}>Smart Route</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <button onClick={loadBalances} disabled={loadingBal}
-              className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/5 text-white/30 hover:text-white/70 transition-colors">
-              <RefreshCw className={cn('w-3.5 h-3.5', loadingBal && 'animate-spin')} />
+          <div className="flex items-center gap-1 rounded-lg p-0.5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <button onClick={() => { setView('wallet'); loadBalances() }}
+              className={cn('px-2.5 py-1.5 text-[11px] font-medium transition-colors flex items-center gap-1',
+                view === 'wallet' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70')}>
+              <Wallet className="w-3 h-3" />Tokens
             </button>
-            <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-              <button onClick={() => setView('wallet')}
-                className={cn('px-2.5 py-1.5 text-[11px] font-medium transition-colors flex items-center gap-1',
-                  view === 'wallet' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70')}>
-                <Wallet className="w-3 h-3" />Tokens
-              </button>
-              <button onClick={() => setView('swap')}
-                className={cn('px-2.5 py-1.5 text-[11px] font-medium transition-colors flex items-center gap-1',
-                  view === 'swap' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70')}>
-                <Repeat2 className="w-3 h-3" />Swap
-              </button>
-            </div>
+            <button onClick={() => setView('swap')}
+              className={cn('px-2.5 py-1.5 text-[11px] font-medium transition-colors flex items-center gap-1',
+                view === 'swap' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70')}>
+              <Repeat2 className="w-3 h-3" />Swap
+            </button>
           </div>
         </div>
 
@@ -1039,7 +1092,10 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
               })()}
               {loadingBal && !Object.keys(balances).length && <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-indigo-400" /></div>}
               {allTokens.map(token => {
-                const bal = getBal(token); const usd = getUsd(token, bal); const price = prices[token.address.toLowerCase()]
+                const bal = getBal(token)
+                const usd = getUsd(token, bal)
+                const usdPrice = prices[token.address.toLowerCase()]
+                const wldPrice = wldPrices[token.address.toLowerCase()]
                 return (
                   <button key={token.address}
                     onClick={() => { setFromToken(token); setView('swap') }}
@@ -1052,10 +1108,14 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                         {token.isCustom && <span className="text-[9px] text-white/30 border border-white/10 rounded px-1">custom</span>}
                       </div>
                       <p className="text-xs text-white/30">{token.name}</p>
+                      {/* Dual prices: USD + WLD */}
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {usdPrice && <span className="text-[10px] text-green-400/70 font-mono">{fmtUsd(usdPrice)}</span>}
+                        {wldPrice && token.symbol !== 'WLD' && <span className="text-[10px] text-blue-400/60 font-mono">{fmtWld(wldPrice)}</span>}
+                      </div>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-sm font-mono font-semibold text-white">{bal === 0n ? '0' : formatToken(bal, token.decimals, 4)}</p>
-                      {price && <p className="text-[10px] text-white/30">${price < 0.01 ? price.toExponential(2) : price.toLocaleString('en-US', { maximumFractionDigits: 4 })}</p>}
                       {usd && parseFloat(usd) > 0 && <p className="text-[10px] text-green-400 font-mono">${usd}</p>}
                     </div>
                   </button>
@@ -1079,10 +1139,10 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
           {/* ─── SWAP VIEW ─── */}
           {view === 'swap' && (
             <div className="space-y-2">
-              {/* Fee bar */}
+              {/* Fee + route info bar */}
               <div className="flex items-center justify-between rounded-lg px-3 py-2 text-[10px]" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
                 <span className="text-white/40 flex items-center gap-1">
-                  <Coins className="w-3 h-3" /> Comisión: <strong className="text-white/60">2%</strong> + 0.1% H2O · Slippage: <strong className="text-white/60">{(SLIPPAGE_BPS / 100).toFixed(0)}%</strong>
+                  <Coins className="w-3 h-3" /> 2% owner · 0.1% H2O vía WLD · Slippage: <strong className="text-white/60">{(SLIPPAGE_BPS / 100).toFixed(0)}%</strong>
                 </span>
                 {quote && (
                   <span className={cn('px-1.5 py-0.5 rounded font-mono font-bold text-[9px]',
@@ -1113,17 +1173,23 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                     onChange={e => setFromAmt(e.target.value)} placeholder="0.0"
                     className="flex-1 min-w-0 bg-transparent text-right text-2xl font-bold font-mono text-white placeholder:text-white/15 outline-none" />
                 </div>
-                {fromAmt && parseFloat(fromAmt) > 0 && prices[fromToken.address.toLowerCase()] && (
-                  <p className="text-[10px] text-white/30 text-right font-mono">
-                    ≈ ${(parseFloat(fromAmt) * prices[fromToken.address.toLowerCase()]).toFixed(2)} USD
-                  </p>
-                )}
+                {fromAmt && parseFloat(fromAmt) > 0 && (() => {
+                  const usdP = prices[fromToken.address.toLowerCase()]
+                  const wldP = wldPrices[fromToken.address.toLowerCase()]
+                  const floatAmt = parseFloat(fromAmt)
+                  return (
+                    <div className="flex items-center justify-end gap-2">
+                      {usdP && <p className="text-[10px] text-white/30 font-mono">≈ ${(floatAmt * usdP).toFixed(2)} USD</p>}
+                      {wldP && fromToken.symbol !== 'WLD' && <p className="text-[10px] text-blue-400/50 font-mono">≈ {(floatAmt * wldP).toFixed(4)} WLD</p>}
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Flip button */}
               <div className="flex justify-center -my-0.5">
                 <button
-                  onClick={() => { setFromToken(toToken); setToToken(fromToken); setFromAmt(''); setQuote(null); setImpact(null) }}
+                  onClick={() => { setFromToken(toToken); setToToken(fromToken); setFromAmt(''); setQuote(null); setImpact(null); setSlipWarning(null) }}
                   className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:rotate-180 hover:scale-110 duration-300"
                   style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)' }}>
                   <ArrowUpDown className="w-4 h-4 text-indigo-400" />
@@ -1164,11 +1230,17 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                     )}
                   </div>
                 </div>
-                {quote && prices[toToken.address.toLowerCase()] && (
-                  <p className="text-[10px] text-white/30 text-right font-mono">
-                    ≈ ${(parseFloat(ethers.formatUnits(quote.amountOut, toToken.decimals)) * prices[toToken.address.toLowerCase()]).toFixed(2)} USD
-                  </p>
-                )}
+                {quote && (() => {
+                  const usdP = prices[toToken.address.toLowerCase()]
+                  const wldP = wldPrices[toToken.address.toLowerCase()]
+                  const floatOut = parseFloat(ethers.formatUnits(quote.amountOut, toToken.decimals))
+                  return (
+                    <div className="flex items-center justify-end gap-2">
+                      {usdP && <p className="text-[10px] text-white/30 font-mono">≈ ${(floatOut * usdP).toFixed(2)} USD</p>}
+                      {wldP && toToken.symbol !== 'WLD' && <p className="text-[10px] text-blue-400/50 font-mono">≈ {(floatOut * wldP).toFixed(4)} WLD</p>}
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Details card */}
@@ -1184,7 +1256,9 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                   </div>
                   {impactBps !== null && (
                     <div className="flex justify-between">
-                      <span className={cn('flex items-center gap-1', impactBps > IMPACT_WARN_BPS ? 'text-yellow-400' : 'text-white/40')}>
+                      <span className={cn('flex items-center gap-1',
+                        impactBps > IMPACT_HIGH_BPS ? 'text-red-400' :
+                        impactBps > IMPACT_WARN_BPS ? 'text-yellow-400' : 'text-white/40')}>
                         {impactBps > IMPACT_WARN_BPS && <ShieldAlert className="w-2.5 h-2.5" />} Impacto de precio
                       </span>
                       <span className={cn('font-mono font-bold', impactColor(impactBps))}>
@@ -1209,15 +1283,53 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                 </div>
               )}
 
-              {/* High impact warning */}
-              {impactBps !== null && impactBps > IMPACT_WARN_BPS && (
+              {/* ── Slippage warning card (replaces hard block) ─────────────── */}
+              {slipWarning && (
+                <div className={cn('rounded-xl px-3 py-3 space-y-2.5',
+                  slipWarning.level === 'high'
+                    ? 'bg-red-500/10 border border-red-500/30'
+                    : 'bg-yellow-500/8 border border-yellow-500/25')}>
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className={cn('w-4 h-4 shrink-0 mt-0.5',
+                      slipWarning.level === 'high' ? 'text-red-400' : 'text-yellow-400')} />
+                    <div className="flex-1">
+                      <p className={cn('text-xs font-bold',
+                        slipWarning.level === 'high' ? 'text-red-300' : 'text-yellow-300')}>
+                        {slipWarning.level === 'high' ? '⚠ Slippage alto — Mercado volátil' : '⚡ Slippage elevado — Mercado normal'}
+                      </p>
+                      <p className="text-[10px] text-white/50 mt-0.5">
+                        El impacto de precio es <strong className={slipWarning.level === 'high' ? 'text-red-300' : 'text-yellow-300'}>{(slipWarning.bps / 100).toFixed(1)}%</strong>.
+                        Puedes continuar el swap o esperar una mejor conversión.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={executeSwap}
+                      className={cn('flex-1 h-9 rounded-lg text-xs font-bold transition-all hover:scale-[1.02] active:scale-[0.98]',
+                        slipWarning.level === 'high'
+                          ? 'bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30'
+                          : 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/25 hover:bg-yellow-500/25')}>
+                      Continuar swap
+                    </button>
+                    <button onClick={() => setSlipWarning(null)}
+                      className="flex-1 h-9 rounded-lg text-xs font-bold bg-white/5 text-white/50 border border-white/10 hover:bg-white/10 transition-all hover:scale-[1.02] active:scale-[0.98]">
+                      Esperar conversión
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Price impact info (when no warning panel open) */}
+              {!slipWarning && impactBps !== null && impactBps > IMPACT_WARN_BPS && (
                 <div className={cn('flex items-start gap-2 rounded-xl px-3 py-2.5',
-                  impactBps > IMPACT_MAX_BPS ? 'bg-red-500/10 border border-red-500/25' : 'bg-yellow-500/8 border border-yellow-500/20')}>
-                  <ShieldAlert className={cn('w-3.5 h-3.5 shrink-0 mt-0.5', impactBps > IMPACT_MAX_BPS ? 'text-red-400' : 'text-yellow-400')} />
-                  <p className={cn('text-[11px]', impactBps > IMPACT_MAX_BPS ? 'text-red-300' : 'text-yellow-300')}>
-                    {impactBps > IMPACT_MAX_BPS
-                      ? `Impacto muy alto (${(impactBps/100).toFixed(1)}%). Reduce el monto para proteger tu inversión.`
-                      : `Impacto elevado (${(impactBps/100).toFixed(1)}%). Considera reducir el monto.`}
+                  impactBps > IMPACT_HIGH_BPS ? 'bg-red-500/8 border border-red-500/20' : 'bg-yellow-500/6 border border-yellow-500/15')}>
+                  <ShieldAlert className={cn('w-3.5 h-3.5 shrink-0 mt-0.5',
+                    impactBps > IMPACT_HIGH_BPS ? 'text-red-400' : 'text-yellow-400')} />
+                  <p className={cn('text-[11px]',
+                    impactBps > IMPACT_HIGH_BPS ? 'text-red-300' : 'text-yellow-300')}>
+                    {impactBps > IMPACT_HIGH_BPS
+                      ? `Mercado muy volátil (${(impactBps/100).toFixed(1)}% impacto). Se pedirá confirmación antes del swap.`
+                      : `Impacto elevado (${(impactBps/100).toFixed(1)}%). Se pedirá confirmación antes del swap.`}
                   </p>
                 </div>
               )}
@@ -1230,24 +1342,22 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                 </div>
               )}
 
-              {/* Swap button */}
-              <button
-                onClick={doSwap}
-                disabled={swapping || !quote || !fromAmt || parseFloat(fromAmt) <= 0 || isHighImpact}
-                className={cn(
-                  'w-full h-12 rounded-xl text-sm font-bold transition-all duration-200',
-                  'disabled:opacity-40 disabled:cursor-not-allowed',
-                  swapping ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.01] active:scale-[0.99]',
-                  isHighImpact ? 'bg-red-500/20 text-red-300 border border-red-500/30'
-                    : 'text-white',
-                )}
-                style={isHighImpact ? {} : { background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', boxShadow: quote && !swapping ? '0 0 20px rgba(99,102,241,0.3)' : 'none' }}>
-                {swapping
-                  ? <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{swapStep || 'Procesando...'}</span>
-                  : isHighImpact
-                    ? <span className="flex items-center justify-center gap-2"><ShieldAlert className="w-4 h-4" /> Impacto muy alto</span>
+              {/* Swap button — always enabled when quote exists */}
+              {!slipWarning && (
+                <button
+                  onClick={doSwap}
+                  disabled={swapping || !quote || !fromAmt || parseFloat(fromAmt) <= 0}
+                  className={cn(
+                    'w-full h-12 rounded-xl text-sm font-bold transition-all duration-200 text-white',
+                    'disabled:opacity-40 disabled:cursor-not-allowed',
+                    swapping ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.01] active:scale-[0.99]',
+                  )}
+                  style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', boxShadow: quote && !swapping ? '0 0 20px rgba(99,102,241,0.3)' : 'none' }}>
+                  {swapping
+                    ? <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{swapStep || 'Procesando...'}</span>
                     : <span className="flex items-center justify-center gap-2"><Zap className="w-4 h-4" /> Swap</span>}
-              </button>
+                </button>
+              )}
 
               {swapMsg && (
                 <div className={cn('rounded-xl px-3 py-2.5 text-xs',
@@ -1290,10 +1400,14 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
 
       {/* Token picker */}
       {pickerFor && (
-        <TokenPicker tokens={allTokens}
+        <TokenPicker
+          tokens={allTokens}
           onSelect={t => pickerFor === 'from' ? setFromToken(t) : setToToken(t)}
           onClose={() => setPickerFor(null)}
-          exclude={pickerFor === 'from' ? toToken.address : fromToken.address} />
+          exclude={pickerFor === 'from' ? toToken.address : fromToken.address}
+          usdPrices={prices}
+          wldPrices={wldPrices}
+        />
       )}
     </div>
   )
