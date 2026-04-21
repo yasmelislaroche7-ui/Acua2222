@@ -359,6 +359,95 @@ async function fetchAllTokenPrices(tokens: TokenItem[]): Promise<{
   return { usdPrices, wldPrices }
 }
 
+// ─── Fresh single-token price — called at swap execution time ─────────────────
+// Always queries DexScreener live so the usdcEquivalent for volume tracking
+// is accurate even if the cached price state is stale or missing.
+async function fetchFreshTokenPrice(token: TokenItem): Promise<number> {
+  // Stablecoins: never call network
+  const addrL = token.address.toLowerCase()
+  if (addrL === TOKENS.USDC.toLowerCase()) return 1.0
+  if (addrL === '0x1C60ba0A0eD1019e8Eb035E6daF4155A5cE2380B'.toLowerCase()) return 1.08 // EURC
+
+  let bestPrice = 0
+  let bestLiq   = 0
+  let bestScore = -1
+
+  // 1. DexScreener — World Chain only, min $500 liq
+  try {
+    const res = await fetch(
+      `https://api.dexscreener.com/latest/dex/tokens/${token.address}`,
+      { signal: AbortSignal.timeout(5000) }
+    )
+    const data = await res.json()
+    if (Array.isArray(data.pairs)) {
+      for (const pair of data.pairs) {
+        const chainId = (pair.chainId ?? '').toLowerCase()
+        if (!WORLDCHAIN_IDS.has(chainId)) continue
+
+        const p   = parseFloat(pair.priceUsd ?? '0')
+        const liq = parseFloat(pair.liquidity?.usd ?? '0')
+        if (!p || p <= 0 || liq < MIN_PAIR_LIQ_USD) continue
+
+        const score = pairScore(pair.quoteToken?.address ?? '')
+        if (score > bestScore || (score === bestScore && liq > bestLiq)) {
+          bestPrice = p; bestLiq = liq; bestScore = score
+        }
+      }
+    }
+  } catch {}
+
+  if (bestPrice > 0) return bestPrice
+
+  // 2. On-chain WLD quote fallback (only if DexScreener returned nothing)
+  try {
+    const provider = getProvider()
+    const router   = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, provider)
+    const poolAbi  = ['function liquidity() view returns (uint128)']
+
+    // First get fresh WLD/USD from DexScreener
+    let wldUsd = 0
+    try {
+      const wldRes  = await fetch(
+        `https://api.dexscreener.com/latest/dex/tokens/${TOKENS.WLD}`,
+        { signal: AbortSignal.timeout(4000) }
+      )
+      const wldData = await wldRes.json()
+      if (Array.isArray(wldData.pairs)) {
+        for (const pair of wldData.pairs) {
+          if (!WORLDCHAIN_IDS.has((pair.chainId ?? '').toLowerCase())) continue
+          const p   = parseFloat(pair.priceUsd ?? '0')
+          const liq = parseFloat(pair.liquidity?.usd ?? '0')
+          if (p > 0 && liq >= MIN_PAIR_LIQ_USD && liq > bestLiq) { wldUsd = p; bestLiq = liq }
+        }
+      }
+    } catch {}
+
+    if (wldUsd > 0) {
+      const oneWLD = ethers.parseEther('1')
+      let topOut = 0n; let topLiq = 0n
+      for (const fee of FEE_TIERS) {
+        try {
+          const [rawOut, poolAddr] = await router.quoteSingle(TOKENS.WLD, token.address, fee, oneWLD)
+          const out = BigInt(rawOut.toString())
+          if (out === 0n) continue
+          try {
+            const pool = new ethers.Contract(poolAddr, poolAbi, provider)
+            const liq  = BigInt((await pool.liquidity()).toString())
+            if (liq < 100_000_000_000_000n) continue // min 1e14
+            if (liq > topLiq) { topOut = out; topLiq = liq }
+          } catch { continue }
+        } catch { continue }
+      }
+      if (topOut > 0n) {
+        const tokensPerWld = parseFloat(ethers.formatUnits(topOut.toString(), token.decimals))
+        if (tokensPerWld > 0) return wldUsd / tokensPerWld
+      }
+    }
+  } catch {}
+
+  return 0 // price unknown — volume will be recorded as 0
+}
+
 // ─── Pool liquidity check ─────────────────────────────────────────────────────
 // Minimum liquidity for swap routing — filters dead/ghost pools
 // Uniswap V3 liquidity() is in virtual units; 1e10 is tiny but distinguishes
@@ -842,16 +931,19 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       const minOut = activeQuote.amountOut * BigInt(10000 - SLIPPAGE_BPS) / 10000n
 
       // ── USDC equivalent for volume tracking ───────────────────────────────
-      // Always use best available price; USDC is hardcoded to $1.0
-      let priceUsd = prices[fromToken.address.toLowerCase()] ?? 0
-      // Fallback: calculate via WLD bridge if USD price missing
+      // Fetch fresh price from DexScreener at swap time so volume is always
+      // recorded correctly even if the cached price state is stale.
+      setSwapStep('Obteniendo precio actualizado...')
+      let priceUsd = await fetchFreshTokenPrice(fromToken)
+      // If DexScreener didn't return anything, fall back to cached state
       if (!priceUsd) {
-        const wldP = wldPrices[fromToken.address.toLowerCase()]
-        const wldUsd = prices[TOKENS.WLD.toLowerCase()]
-        if (wldP && wldUsd) priceUsd = wldP * wldUsd
+        priceUsd = prices[fromToken.address.toLowerCase()] ?? 0
+        if (!priceUsd) {
+          const wldP   = wldPrices[fromToken.address.toLowerCase()]
+          const wldUsd = prices[TOKENS.WLD.toLowerCase()]
+          if (wldP && wldUsd) priceUsd = wldP * wldUsd
+        }
       }
-      // If fromToken IS USDC, always use 1.0
-      if (fromToken.address.toLowerCase() === TOKENS.USDC.toLowerCase()) priceUsd = 1.0
 
       const floatAmt = parseFloat(ethers.formatUnits(rawAmt, fromToken.decimals))
       const usdcEquivNum = Math.floor(floatAmt * priceUsd * 1_000_000)
