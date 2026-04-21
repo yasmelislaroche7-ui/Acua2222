@@ -1,7 +1,7 @@
 const { ethers } = require("hardhat");
 
 // ─── CONFIG — fill these before running ──────────────────────────────────────
-const VOLUME_REWARDS_ADDRESS = "0x0000000000000000000000000000000000000000"; // <-- fill after deploy
+const VOLUME_REWARDS_ADDRESS = "0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48"; // <-- fill after deploy
 const UTH2_ADDRESS           = "0x9eA8653640E22A5b69887985BB75d496dc97022a";
 const FUND_AMOUNT            = "9"; // UTH2 to send (edit as needed)
 
@@ -21,7 +21,7 @@ async function main() {
   const [signer] = await ethers.getSigners();
   console.log("Signer  :", signer.address);
 
-  if (VOLUME_REWARDS_ADDRESS === "0x0000000000000000000000000000000000000000") {
+  if (VOLUME_REWARDS_ADDRESS === "0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48") {
     throw new Error("Set VOLUME_REWARDS_ADDRESS first!");
   }
 
