@@ -127,6 +127,13 @@ const DEFAULT_TOKENS: TokenItem[] = [
   decimals: 18,
   color: '#f5b041'
   },
+  {
+  symbol: 'SUSHI',
+  name: 'SUSHI Token',
+  address: '0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38',
+  decimals: 18,
+  color: '#fa52a0'
+},
 ]
 
 // ─── ABIs ─────────────────────────────────────────────────────────────────────
