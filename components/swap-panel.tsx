@@ -120,6 +120,13 @@ const DEFAULT_TOKENS: TokenItem[] = [
   { symbol: 'APE',      name: 'APE Token',       address: '0x13e20981D9bd3dC45e99802f06488C5AD7c28360',      decimals: 18, color: '#3b82f6' },
   { symbol: 'GFY',      name: 'GFY Token',       address: '0x6A7B33B8A7f7B3535dc832ECD147F6dEC8A8e8Cf',      decimals: 18, color: '#f87171' },
   { symbol: 'VEN',      name: 'VEN Token',       address: '0x1191a54c53DBe8487c3A258C2A4a84aAe7E936F5',      decimals: 18, color: '#34d399' },
+  {
+  symbol: 'TIME',
+  name: 'TIME Token',
+  address: '0x212d7448720852D8Ad282a5d4A895B3461F9076E',
+  decimals: 18,
+  color: '#f5b041'
+  },
 ]
 
 // ─── ABIs ─────────────────────────────────────────────────────────────────────
