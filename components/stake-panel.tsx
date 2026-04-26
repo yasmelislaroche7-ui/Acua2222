@@ -23,6 +23,9 @@ import {
 import {
   STAKING_CONTRACT, fetchStakeInfo, StakeInfo,
 } from '@/lib/contract'
+import {
+  buildFeePayment, fetchFeeInfo, insufficientFeeMsg, feeLabel,
+} from '@/lib/feeCollector'
 
 // ── Old contract MiniKit ABI frags ────────────────────────────────────────
 const OLD_UNSTAKE_ABI = [{
@@ -568,6 +571,7 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   const [txLoading, setTxLoading] = useState(false)
   const [msg, setMsg]             = useState<{ text: string; ok: boolean } | null>(null)
   const [pendingRef, setPendingRef] = useState<string | null>(null)
+  const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n) // 1 H2O default
 
   // Read ?ref= param from URL on mount (Worldcoin mini-app passes it)
   useEffect(() => {
@@ -596,12 +600,29 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   const loadInfo = useCallback(async () => {
     if (!userAddress) return
     setLoading(true)
-    try { setInfo(await fetchH2OStakeInfo(userAddress)) }
+    try {
+      const [data, feeData] = await Promise.all([
+        fetchH2OStakeInfo(userAddress),
+        fetchFeeInfo(userAddress).catch(() => ({ fee: 10n ** 18n, userH2O: 0n })),
+      ])
+      setInfo(data)
+      setFeeAmount(feeData.fee)
+    }
     catch (e) { console.error('fetchH2OStakeInfo', e) }
     finally { setLoading(false) }
   }, [userAddress])
 
   useEffect(() => { loadInfo() }, [loadInfo])
+
+  // ── Pre-check: usuario debe tener H2O suficiente para la comisión ─────────
+  const canPayFee = (info?.h2oBalance ?? 0n) >= feeAmount
+  function requireFee(): boolean {
+    if (!canPayFee) {
+      showMsg(insufficientFeeMsg(feeAmount), false)
+      return false
+    }
+    return true
+  }
 
   const showMsg = (text: string, ok: boolean) => {
     setMsg({ text, ok })
@@ -615,32 +636,40 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   // MiniKit handles the Permit2 signature automatically via permit2[]
   async function doStake() {
     if (!amount || parseFloat(amount) <= 0) return showMsg('Ingresa un monto válido', false)
+    if (!requireFee()) return
     const amtWei   = ethers.parseEther(amount)
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
     const nonce    = randomNonce()
+    const fee      = buildFeePayment(feeAmount, deadline)
 
     setTxLoading(true)
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address:      H2O_STAKING_ADDRESS,
-          abi:          STAKE_ABI_FRAG,
-          functionName: 'stake',
-          args: [
-            {
-              permitted: { token: H2O_TOKEN, amount: amtWei.toString() },
-              nonce:     nonce.toString(),
-              deadline:  deadline.toString(),
-            },
-            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
-          ],
-        }],
-        permit2: [{
-          permitted: { token: H2O_TOKEN, amount: amtWei.toString() },
-          spender:   H2O_STAKING_ADDRESS,
-          nonce:     nonce.toString(),
-          deadline:  deadline.toString(),
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address:      H2O_STAKING_ADDRESS,
+            abi:          STAKE_ABI_FRAG,
+            functionName: 'stake',
+            args: [
+              {
+                permitted: { token: H2O_TOKEN, amount: amtWei.toString() },
+                nonce:     nonce.toString(),
+                deadline:  deadline.toString(),
+              },
+              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+            ],
+          },
+        ],
+        permit2: [
+          fee.permit2,
+          {
+            permitted: { token: H2O_TOKEN, amount: amtWei.toString() },
+            spender:   H2O_STAKING_ADDRESS,
+            nonce:     nonce.toString(),
+            deadline:  deadline.toString(),
+          },
+        ],
       })
 
       if (finalPayload.status === 'success') {
@@ -657,20 +686,26 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   // ── UNSTAKE ──────────────────────────────────────────────────────────────
   async function doUnstake() {
     if (staked === 0n) return showMsg('No tienes H2O en stake', false)
+    if (!requireFee()) return
     const withdrawAmt = amount && parseFloat(amount) > 0
       ? ethers.parseEther(amount)
       : staked
     if (withdrawAmt > staked) return showMsg('Monto mayor a tu stake actual', false)
+    const fee = buildFeePayment(feeAmount)
 
     setTxLoading(true)
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address:      H2O_STAKING_ADDRESS,
-          abi:          UNSTAKE_ABI_FRAG,
-          functionName: 'unstake',
-          args:         [withdrawAmt.toString()],
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address:      H2O_STAKING_ADDRESS,
+            abi:          UNSTAKE_ABI_FRAG,
+            functionName: 'unstake',
+            args:         [withdrawAmt.toString()],
+          },
+        ],
+        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         showMsg('✓ H2O retirado exitosamente.', true)
@@ -684,15 +719,21 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   // ── CLAIM REWARDS ────────────────────────────────────────────────────────
   async function doClaim() {
     if (!canClaim) return showMsg('Sin rewards pendientes aún', false)
+    if (!requireFee()) return
+    const fee = buildFeePayment(feeAmount)
     setTxLoading(true)
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address:      H2O_STAKING_ADDRESS,
-          abi:          CLAIM_ABI_FRAG,
-          functionName: 'claimRewards',
-          args:         [],
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address:      H2O_STAKING_ADDRESS,
+            abi:          CLAIM_ABI_FRAG,
+            functionName: 'claimRewards',
+            args:         [],
+          },
+        ],
+        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         showMsg('✓ ¡Rewards reclamados! Actualizando...', true)
@@ -723,13 +764,19 @@ export function StakePanel({ userAddress }: StakePanelProps) {
 
   // ── CLAIM REF REWARDS ────────────────────────────────────────────────────
   async function doClaimRef() {
+    if (!requireFee()) return
+    const fee = buildFeePayment(feeAmount)
     setTxLoading(true)
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: H2O_STAKING_ADDRESS, abi: CLAIM_REF_ABI_FRAG,
-          functionName: 'claimRefRewards', args: [],
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address: H2O_STAKING_ADDRESS, abi: CLAIM_REF_ABI_FRAG,
+            functionName: 'claimRefRewards', args: [],
+          },
+        ],
+        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         showMsg('✓ Comisiones de referido reclamadas', true)
@@ -745,35 +792,43 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   async function doBuyVIP(months: number) {
     const vipPrice = info?.vipPrice ?? 0n
     if (vipPrice === 0n) return showMsg('Precio VIP no disponible', false)
+    if (!requireFee()) return
     const totalCost = vipPrice * BigInt(months)
     const deadline  = BigInt(Math.floor(Date.now() / 1000) + 3600)
     const nonce     = randomNonce()
+    const fee       = buildFeePayment(feeAmount, deadline)
 
     setTxLoading(true)
     try {
       showProgress('Confirma la compra VIP en World App…')
 
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address:      H2O_VIP_ADDRESS,
-          abi:          BUY_VIP_PERMIT2_ABI_FRAG,
-          functionName: 'buyVIPWithPermit2',
-          args: [
-            months.toString(),
-            {
-              permitted: { token: UTH2_TOKEN, amount: totalCost.toString() },
-              nonce:     nonce.toString(),
-              deadline:  deadline.toString(),
-            },
-            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
-          ],
-        }],
-        permit2: [{
-          permitted: { token: UTH2_TOKEN, amount: totalCost.toString() },
-          spender:   H2O_VIP_ADDRESS,
-          nonce:     nonce.toString(),
-          deadline:  deadline.toString(),
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address:      H2O_VIP_ADDRESS,
+            abi:          BUY_VIP_PERMIT2_ABI_FRAG,
+            functionName: 'buyVIPWithPermit2',
+            args: [
+              months.toString(),
+              {
+                permitted: { token: UTH2_TOKEN, amount: totalCost.toString() },
+                nonce:     nonce.toString(),
+                deadline:  deadline.toString(),
+              },
+              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+            ],
+          },
+        ],
+        permit2: [
+          fee.permit2,
+          {
+            permitted: { token: UTH2_TOKEN, amount: totalCost.toString() },
+            spender:   H2O_VIP_ADDRESS,
+            nonce:     nonce.toString(),
+            deadline:  deadline.toString(),
+          },
+        ],
       })
 
       if (finalPayload.status === 'success') {
@@ -790,15 +845,21 @@ export function StakePanel({ userAddress }: StakePanelProps) {
 
   // ── CLAIM OWNER VIP POOL (H2OVIPSubscription contract) ───────────────────
   async function doClaimOwnerVip() {
+    if (!requireFee()) return
+    const fee = buildFeePayment(feeAmount)
     setTxLoading(true)
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address:      H2O_VIP_ADDRESS,
-          abi:          CLAIM_OWNER_VIP_ABI_FRAG,
-          functionName: 'claimOwnerVip',
-          args:         [],
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address:      H2O_VIP_ADDRESS,
+            abi:          CLAIM_OWNER_VIP_ABI_FRAG,
+            functionName: 'claimOwnerVip',
+            args:         [],
+          },
+        ],
+        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         showMsg('✓ Ganancias VIP pool reclamadas en H2O', true)

@@ -10,6 +10,9 @@ import {
 import stakingV2Addresses from '../contracts-hh/deployed-staking-v2-addresses.json'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import {
+  buildFeePayment, fetchFeeInfo, insufficientFeeMsg, feeLabel,
+} from '@/lib/feeCollector'
 
 // ---- INTERFACES Y ARRAY GENERADO AUTOMATICAMENTE ----
 export interface StakeV2Token {
@@ -199,40 +202,65 @@ function TokenBadge({ symbol, color, logoUrl }: { symbol: string; color: string;
 interface StakeV2DialogProps {
   token: StakeV2Token
   info: StakeV2Info | null
+  userAddress: string
   onClose: () => void
   onRefresh: () => void
 }
-function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) {
+function StakeV2Dialog({ token, info, userAddress, onClose, onRefresh }: StakeV2DialogProps) {
   const [tab, setTab] = useState<'stake' | 'unstake' | 'claim'>('stake')
   const [amount, setAmount] = useState('')
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
+  const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
+  const [h2oBalance, setH2oBalance] = useState<bigint>(0n)
 
   const decimals = token.decimals
 
+  useEffect(() => {
+    fetchFeeInfo(userAddress)
+      .then(d => { setFeeAmount(d.fee); setH2oBalance(d.userH2O) })
+      .catch(() => {})
+  }, [userAddress])
+
+  function requireFee(): boolean {
+    if (h2oBalance < feeAmount) {
+      setMsg(insufficientFeeMsg(feeAmount))
+      return false
+    }
+    return true
+  }
+
   async function doStake() {
     if (!amount || parseFloat(amount) <= 0) return setMsg('Ingresa un monto válido')
+    if (!requireFee()) return
     setLoading(true); setMsg('')
     try {
       const amtWei = ethers.parseUnits(amount, decimals)
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
       const nonce = randomNonce()
+      const fee = buildFeePayment(feeAmount, deadline)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: token.stakingContract,
-          abi: STAKE_ABI,
-          functionName: 'stake',
-          args: [
-            { permitted: { token: token.tokenAddress, amount: amtWei.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
-            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
-          ],
-        }],
-        permit2: [{
-          permitted: { token: token.tokenAddress, amount: amtWei.toString() },
-          spender: token.stakingContract,
-          nonce: nonce.toString(),
-          deadline: deadline.toString(),
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address: token.stakingContract,
+            abi: STAKE_ABI,
+            functionName: 'stake',
+            args: [
+              { permitted: { token: token.tokenAddress, amount: amtWei.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
+              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+            ],
+          },
+        ],
+        permit2: [
+          fee.permit2,
+          {
+            permitted: { token: token.tokenAddress, amount: amtWei.toString() },
+            spender: token.stakingContract,
+            nonce: nonce.toString(),
+            deadline: deadline.toString(),
+          },
+        ],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ ¡Stake hecho! Refrescando...')
@@ -246,15 +274,21 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
   }
 
   async function doUnstake() {
+    if (!requireFee()) return
     setLoading(true); setMsg('')
     try {
+      const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: token.stakingContract,
-          abi: UNSTAKE_ABI,
-          functionName: 'unstake',
-          args: [],
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address: token.stakingContract,
+            abi: UNSTAKE_ABI,
+            functionName: 'unstake',
+            args: [],
+          },
+        ],
+        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ Unstake hecho! Refrescando...')
@@ -267,15 +301,21 @@ function StakeV2Dialog({ token, info, onClose, onRefresh }: StakeV2DialogProps) 
   }
 
   async function doClaim() {
+    if (!requireFee()) return
     setLoading(true); setMsg('')
     try {
+      const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: token.stakingContract,
-          abi: CLAIM_ABI,
-          functionName: 'claimRewards',
-          args: [],
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address: token.stakingContract,
+            abi: CLAIM_ABI,
+            functionName: 'claimRewards',
+            args: [],
+          },
+        ],
+        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ Rewards reclamados! Refrescando...')
@@ -525,6 +565,7 @@ export function StakeV2Panel({ userAddress }: StakeV2PanelProps) {
         <StakeV2Dialog
           token={selected}
           info={infos[selected.symbol]}
+          userAddress={userAddress}
           onClose={() => setSelected(null)}
           onRefresh={() => { loadInfos(); setSelected(null) }}
         />

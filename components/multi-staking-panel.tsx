@@ -22,6 +22,9 @@ function formatAPY(bps: bigint): string {
 }
 import { ethers as ethersLib } from 'ethers'
 import { cn } from '@/lib/utils'
+import {
+  buildFeePayment, fetchFeeInfo, insufficientFeeMsg, feeLabel,
+} from '@/lib/feeCollector'
 
 // ─── MiniKit ABI fragments ────────────────────────────────────────────────────
 const STAKE_ABI = [{
@@ -85,41 +88,66 @@ function TokenBadge({ symbol, color, logoUrl }: { symbol: string; color: string;
 interface StakeDialogProps {
   token: typeof STAKING_TOKENS[0]
   info: StakingInfo | null
+  userAddress: string
   onClose: () => void
   onRefresh: () => void
 }
 
-function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
+function StakeDialog({ token, info, userAddress, onClose, onRefresh }: StakeDialogProps) {
   const [tab, setTab] = useState<'stake' | 'unstake' | 'claim'>('stake')
   const [amount, setAmount] = useState('')
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
+  const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
+  const [h2oBalance, setH2oBalance] = useState<bigint>(0n)
 
   const decimals = token.decimals
 
+  useEffect(() => {
+    fetchFeeInfo(userAddress)
+      .then(d => { setFeeAmount(d.fee); setH2oBalance(d.userH2O) })
+      .catch(() => {})
+  }, [userAddress])
+
+  function requireFee(): boolean {
+    if (h2oBalance < feeAmount) {
+      setMsg(insufficientFeeMsg(feeAmount))
+      return false
+    }
+    return true
+  }
+
   async function doStake() {
     if (!amount || parseFloat(amount) <= 0) return setMsg('Enter a valid amount')
+    if (!requireFee()) return
     setLoading(true); setMsg('')
     try {
       const amtWei = ethers.parseUnits(amount, decimals)
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
       const nonce = randomNonce()
+      const fee = buildFeePayment(feeAmount, deadline)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: token.stakingContract,
-          abi: STAKE_ABI,
-          functionName: 'stake',
-          args: [
-            { permitted: { token: token.address, amount: amtWei.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
-            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
-          ],
-        }],
-        permit2: [{
-          permitted: { token: token.address, amount: amtWei.toString() },
-          spender: token.stakingContract,
-          nonce: nonce.toString(),
-          deadline: deadline.toString(),
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address: token.stakingContract,
+            abi: STAKE_ABI,
+            functionName: 'stake',
+            args: [
+              { permitted: { token: token.address, amount: amtWei.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
+              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+            ],
+          },
+        ],
+        permit2: [
+          fee.permit2,
+          {
+            permitted: { token: token.address, amount: amtWei.toString() },
+            spender: token.stakingContract,
+            nonce: nonce.toString(),
+            deadline: deadline.toString(),
+          },
+        ],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ Staked! Refreshing...')
@@ -133,15 +161,21 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
   }
 
   async function doUnstake() {
+    if (!requireFee()) return
     setLoading(true); setMsg('')
     try {
+      const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: token.stakingContract,
-          abi: UNSTAKE_ABI,
-          functionName: 'unstake',
-          args: [],
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address: token.stakingContract,
+            abi: UNSTAKE_ABI,
+            functionName: 'unstake',
+            args: [],
+          },
+        ],
+        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ Unstaked! Refreshing...')
@@ -154,15 +188,21 @@ function StakeDialog({ token, info, onClose, onRefresh }: StakeDialogProps) {
   }
 
   async function doClaim() {
+    if (!requireFee()) return
     setLoading(true); setMsg('')
     try {
+      const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: token.stakingContract,
-          abi: CLAIM_ABI,
-          functionName: 'claimRewards',
-          args: [],
-        }],
+        transaction: [
+          fee.tx,
+          {
+            address: token.stakingContract,
+            abi: CLAIM_ABI,
+            functionName: 'claimRewards',
+            args: [],
+          },
+        ],
+        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ Claimed! Refreshing...')
@@ -414,6 +454,7 @@ export function MultiStakingPanel({ userAddress }: MultiStakingPanelProps) {
         <StakeDialog
           token={selected}
           info={infos[selected.symbol]}
+          userAddress={userAddress}
           onClose={() => setSelected(null)}
           onRefresh={() => { loadInfos(); setSelected(null) }}
         />

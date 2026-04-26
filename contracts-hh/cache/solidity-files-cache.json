@@ -480,6 +480,46 @@
         "AcuaVolumeRewardsV2",
         "IERC20VR"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/H2OFeeCollector.sol": {
+      "lastModificationDate": 1777221989492,
+      "contentHash": "7917a598da97ea2ea21236829a7f6346",
+      "sourceName": "contracts/H2OFeeCollector.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "H2OFeeCollector",
+        "IERC20"
+      ]
     }
   }
 }
