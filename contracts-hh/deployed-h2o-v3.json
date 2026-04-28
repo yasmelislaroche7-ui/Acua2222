@@ -1,0 +1,32 @@
+{
+  "deployedAt": null,
+  "network": "worldchain",
+  "chainId": 480,
+  "deployer": null,
+  "contract": null,
+  "npm": "0xec12a9F9a09f50550686363766Cc153D03c27b5e",
+  "pricing": {
+    "usdcWldPool": null,
+    "wldH2oPool": null
+  },
+  "pools": [
+    { "id": 0,  "label": "WLD/SUSHI",  "fee": 3000, "comingSoon": false },
+    { "id": 1,  "label": "WLD/USDC",   "fee": 3000, "comingSoon": false },
+    { "id": 2,  "label": "WLD/BTCH2O", "fee": 3000, "comingSoon": false },
+    { "id": 3,  "label": "USDC/SUSHI", "fee": 3000, "comingSoon": false },
+    { "id": 4,  "label": "WETH/WLD",   "fee": 3000, "comingSoon": false },
+    { "id": 5,  "label": "WETH/USDC",  "fee": 3000, "comingSoon": false },
+    { "id": 6,  "label": "WBTC/WLD",   "fee": 3000, "comingSoon": false },
+    { "id": 7,  "label": "WETH/SUSHI", "fee": 3000, "comingSoon": false },
+    { "id": 8,  "label": "WLD/VIBE",   "fee": 3000, "comingSoon": false },
+    { "id": 9,  "label": "WLD/ORO",    "fee": 3000, "comingSoon": false },
+    { "id": 10, "label": "WLD/ORB",    "fee": 3000, "comingSoon": false },
+    { "id": 11, "label": "WLD/PUF",    "fee": 3000, "comingSoon": false },
+    { "id": 12, "label": "WLD/wARS",   "fee": 3000, "comingSoon": false },
+    { "id": 13, "label": "WLD/oXAUT",  "fee": 3000, "comingSoon": false },
+    { "id": 14, "label": "WLD/AIR",    "fee": 3000, "comingSoon": false },
+    { "id": 15, "label": "UTH2/USDC",  "fee": 500,  "comingSoon": false, "stable": true }
+  ],
+  "fees": { "depositBps": 200, "withdrawBps": 200, "claimBps": 2000 },
+  "_note": "Este archivo se sobreescribe automaticamente al correr scripts/deploy-h2o-v3.js. Hasta entonces 'contract' es null y el panel del frontend muestra mensaje de despliegue pendiente."
+}

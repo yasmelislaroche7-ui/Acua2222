@@ -520,6 +520,48 @@
         "H2OFeeCollector",
         "IERC20"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaH2OV3LP.sol": {
+      "lastModificationDate": 1777335103223,
+      "contentHash": "6bbecff897222c18973f6d0e639195c4",
+      "sourceName": "contracts/AcuaH2OV3LP.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaH2OV3LP",
+        "IERC20H",
+        "INPM",
+        "IUniV3Pool"
+      ]
     }
   }
 }

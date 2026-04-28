@@ -12,6 +12,7 @@ import { StakePanel } from '@/components/stake-panel'
 import { OwnerPanel } from '@/components/owner-panel'
 import { MultiStakingPanel } from '@/components/multi-staking-panel'
 import { StakeV2Panel } from '@/components/stake-v2-panel'
+import { H2OV3Panel } from '@/components/h2o-v3-panel'
 import { MiningUTH2Panel } from '@/components/mining-uth2-panel'
 import { MiningWLDPanel } from '@/components/mining-wld-panel'
 import { MiningTimePanel } from '@/components/mining-time-panel'
@@ -35,7 +36,7 @@ import {
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
-type Tab = 'h2o' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin'
+type Tab = 'h2o' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin'
 type InstalledState = null | true | false
 
 // ─── Hardcoded special addresses ──────────────────────────────────────────────
@@ -378,6 +379,18 @@ export default function AcuaApp() {
             Stake H2O
           </button>
           <button
+            onClick={() => setActiveTab('h2o-v3')}
+            className={cn(
+              'flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all border',
+              activeTab === 'h2o-v3'
+                ? 'bg-cyan-500/15 border-cyan-500 text-cyan-400'
+                : 'bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
+            )}
+          >
+            <Droplets className="w-4 h-4" />
+            H2O v3
+          </button>
+          <button
             onClick={() => setActiveTab('stake-v2')}
             className={cn(
               'flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all border',
@@ -393,7 +406,7 @@ export default function AcuaApp() {
 
         {/* Secondary tabs — horizontally scrollable */}
         <div className="flex overflow-x-auto scrollbar-none border-t border-border/50">
-          {mainTabs.filter(t => t.tab !== 'h2o' && t.tab !== 'stake-v2').map(t => (
+          {mainTabs.filter(t => t.tab !== 'h2o' && t.tab !== 'h2o-v3' && t.tab !== 'stake-v2').map(t => (
             <TabBtn
               key={t.tab}
               active={activeTab === t.tab}
@@ -421,6 +434,8 @@ export default function AcuaApp() {
         )}
 
         {activeTab === 'stake-v2' && <StakeV2Panel userAddress={addr} />}
+
+        {activeTab === 'h2o-v3' && <H2OV3Panel userAddress={addr} />}
 
         {activeTab === 'stake-plus' && <MultiStakingPanel userAddress={addr} />}
 
