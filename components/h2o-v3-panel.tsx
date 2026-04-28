@@ -483,15 +483,23 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
   const [activePool, setActivePool] = useState<H2OV3Pool | null>(null)
   const [msg, setMsg] = useState('')
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (silent = false) => {
     if (!H2O_V3_ADDRESS) {
       setLoading(false)
       setMsg('Contrato AcuaH2OV3LP aún no desplegado. Ejecuta scripts/deploy-h2o-v3.js')
       return
     }
-    setLoading(true); setMsg('')
+    if (!silent) { setLoading(true); setMsg('') }
     try {
-      const ps = await fetchAllPools()
+      const psRaw = await fetchAllPools()
+      // Filtrar pools desactivadas y deduplicar por pool address (mantener el id mas bajo)
+      const seen = new Set<string>()
+      const ps = psRaw.filter(p => {
+        if (!p.active) return false
+        const key = (p.poolAddress || '').toLowerCase() + ':' + p.fee
+        if (seen.has(key)) return false
+        seen.add(key); return true
+      })
       setPools(ps)
       const posMap: Record<number, H2OV3Position | null> = {}
       const aprMap: Record<number, bigint> = {}
@@ -508,11 +516,16 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
       setPositions(posMap)
       setAprs(aprMap)
     } catch (e: any) {
-      setMsg(e.message || 'Error cargando pools')
-    } finally { setLoading(false) }
+      if (!silent) setMsg(e.message || 'Error cargando pools')
+    } finally { if (!silent) setLoading(false) }
   }, [userAddress])
 
-  useEffect(() => { refresh() }, [refresh])
+  // Carga inicial + auto-refresh cada 30s para mantener APR/posiciones al dia
+  useEffect(() => {
+    refresh()
+    const id = setInterval(() => { refresh(true) }, 30_000)
+    return () => clearInterval(id)
+  }, [refresh])
 
   // Si el contrato no esta desplegado todavia, mostramos placeholder con la lista del deploy
   if (!H2O_V3_ADDRESS) {
