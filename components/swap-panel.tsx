@@ -21,8 +21,10 @@ const ACUA_SWAP_ROUTER    = '0xA2FD6cd36a661E270FC7AdaA82D0d22f4660706d'
 const ACUA_VOLUME_REWARDS = '0xc74D6B65f8E30E040CE744117228118d107f77f1'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-// 50% slippage tolerance — allows swaps with any amount regardless of market conditions
-const SLIPPAGE_BPS    = 5000
+// 95% slippage tolerance — removes effective limit so swaps of any size succeed even in shallow pools.
+// The router's quoteSingle uses spot price only (no depth), so large swaps in low-liquidity pools
+// would otherwise revert with "Too much slippage". Price impact is shown to the user before confirming.
+const SLIPPAGE_BPS    = 9500
 const ACUA_FEE_BPS    = 210   // 2.1% total fee (2% to owner + 0.1% H2O buyback via WLD)
 const IMPACT_WARN_BPS = 300   // yellow warning >3%
 const IMPACT_HIGH_BPS = 1500  // red warning >15%
@@ -1653,7 +1655,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
               {/* Fee + route info bar */}
               <div className="flex items-center justify-between rounded-lg px-3 py-2 text-[10px]" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
                 <span className="text-white/40 flex items-center gap-1">
-                  <Coins className="w-3 h-3" /> 2% owner · 0.1% H2O vía WLD · Slippage: <strong className="text-white/60">{(SLIPPAGE_BPS / 100).toFixed(0)}%</strong>
+                  <Coins className="w-3 h-3" /> 2% owner · 0.1% H2O vía WLD · Slippage: <strong className="text-white/60">Auto</strong>
                 </span>
                 {quote && (
                   <span className={cn('px-1.5 py-0.5 rounded font-mono font-bold text-[9px]',
@@ -1768,8 +1770,8 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                     <span className="font-mono">{feeAmt} {fromToken.symbol}</span>
                   </div>
                   <div className="flex justify-between text-white/40">
-                    <span className="flex items-center gap-1"><Zap className="w-2.5 h-2.5 text-yellow-400" /> Slippage máx</span>
-                    <span className="font-mono text-yellow-400/70">{(SLIPPAGE_BPS / 100).toFixed(0)}%</span>
+                    <span className="flex items-center gap-1"><Zap className="w-2.5 h-2.5 text-yellow-400" /> Slippage</span>
+                    <span className="font-mono text-yellow-400/70">Auto · sin límite</span>
                   </div>
                   {impactBps !== null && (
                     <div className="flex justify-between">

@@ -8,6 +8,13 @@ import deployed from '../contracts-hh/deployed-h2o-v3.json'
 export const H2O_V3_ADDRESS: string | null = deployed?.contract || null
 export const H2O_V3_DEPLOY = deployed
 
+// H2O token address — used to filter out H2O-paired pools (those go in a future panel).
+export const H2O_TOKEN_ADDRESS = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'
+
+export function isH2O(addr: string): boolean {
+  return (addr || '').toLowerCase() === H2O_TOKEN_ADDRESS.toLowerCase()
+}
+
 export const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
 
 // ─── ABI tuple para Permit2 PermitTransferFrom (igual que stake-v2-panel) ─────

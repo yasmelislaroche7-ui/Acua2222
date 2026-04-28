@@ -15,7 +15,7 @@ import {
   H2O_V3_ADDRESS, H2O_V3_TX_ABI, H2O_V3_DEPLOY,
   fetchAllPools, fetchUserPosition, fetchAprBps, fetchAllPoolsLive,
   fetchUserBalance, quoteAmount1FromAmount0, quoteAmount0FromAmount1,
-  tokenMeta, isKnownToken, formatToken, bpsToPct, feeTierLabel, randomNonce,
+  tokenMeta, isKnownToken, isH2O, formatToken, bpsToPct, feeTierLabel, randomNonce,
   fetchH2OUsdcRate, h2oToUsdc, formatUsd,
   type H2OV3Pool, type H2OV3Position, type PoolLiveData,
 } from '@/lib/h2o-v3'
@@ -291,10 +291,21 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
   const [h2oBal, setH2oBal] = useState<bigint>(0n)
   const [bal0, setBal0] = useState<bigint>(0n)
   const [bal1, setBal1] = useState<bigint>(0n)
+  // Manual price entry (token1 per token0) used when pool has no spot price.
+  const [manualPrice, setManualPrice] = useState('')
 
   const t0 = useMemo(() => tokenMeta(pool.token0), [pool.token0])
   const t1 = useMemo(() => tokenMeta(pool.token1), [pool.token1])
   const sqrtPriceX96 = live?.sqrtPriceX96 ?? 0n
+  // True if Uniswap pool has no spot price → user must enter manual price as full-range LP.
+  const noSpotPrice = sqrtPriceX96 === 0n
+  // Effective price for ratio calc: spot if available, else parsed manual.
+  const effectivePrice = useMemo(() => {
+    if (sqrtPriceX96 > 0n) return null // use sqrtPriceX96 directly via quoteAmount*
+    const n = parseFloat(manualPrice)
+    if (!isFinite(n) || n <= 0) return null
+    return n // human-readable token1-per-token0
+  }, [sqrtPriceX96, manualPrice])
 
   useEffect(() => {
     fetchFeeInfo(userAddress).then(d => { setFeeAmount(d.fee); setH2oBal(d.userH2O) }).catch(() => {})
@@ -312,21 +323,38 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
   function onAmt0Change(v: string) {
     setAmount0(v)
     setActiveInput('a')
-    if (!sqrtPriceX96 || !v || isNaN(parseFloat(v))) { setAmount1(''); return }
+    if (!v || isNaN(parseFloat(v))) { setAmount1(''); return }
     try {
-      const a0raw = ethers.parseUnits(v || '0', t0.decimals)
-      const a1raw = quoteAmount1FromAmount0(a0raw, sqrtPriceX96)
-      setAmount1(ethers.formatUnits(a1raw, t1.decimals))
+      if (sqrtPriceX96 > 0n) {
+        const a0raw = ethers.parseUnits(v || '0', t0.decimals)
+        const a1raw = quoteAmount1FromAmount0(a0raw, sqrtPriceX96)
+        setAmount1(ethers.formatUnits(a1raw, t1.decimals))
+      } else if (effectivePrice) {
+        // manual price: amount1 = amount0 * price (human units)
+        const a0 = parseFloat(v)
+        const a1 = a0 * effectivePrice
+        setAmount1(isFinite(a1) ? a1.toString() : '')
+      } else {
+        setAmount1('')
+      }
     } catch {}
   }
   function onAmt1Change(v: string) {
     setAmount1(v)
     setActiveInput('b')
-    if (!sqrtPriceX96 || !v || isNaN(parseFloat(v))) { setAmount0(''); return }
+    if (!v || isNaN(parseFloat(v))) { setAmount0(''); return }
     try {
-      const a1raw = ethers.parseUnits(v || '0', t1.decimals)
-      const a0raw = quoteAmount0FromAmount1(a1raw, sqrtPriceX96)
-      setAmount0(ethers.formatUnits(a0raw, t0.decimals))
+      if (sqrtPriceX96 > 0n) {
+        const a1raw = ethers.parseUnits(v || '0', t1.decimals)
+        const a0raw = quoteAmount0FromAmount1(a1raw, sqrtPriceX96)
+        setAmount0(ethers.formatUnits(a0raw, t0.decimals))
+      } else if (effectivePrice) {
+        const a1 = parseFloat(v)
+        const a0 = a1 / effectivePrice
+        setAmount0(isFinite(a0) ? a0.toString() : '')
+      } else {
+        setAmount0('')
+      }
     } catch {}
   }
 
@@ -533,14 +561,37 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
             <div className="space-y-3">
               {pool.comingSoon ? (
                 <div className="text-center py-6 text-sm text-amber-400">Pool próximamente disponible</div>
-              ) : sqrtPriceX96 === 0n ? (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-300 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>Esta pool aún no está inicializada en Uniswap. Espera a que tenga precio antes de depositar.</span>
-                </div>
               ) : (
                 <>
-                  {pool.needsInit && (
+                  {noSpotPrice && (
+                    <div className="space-y-2">
+                      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-2.5 text-[11px] text-amber-300 flex items-start gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span>
+                          Pool sin precio en Uniswap todavía. Ingresa un precio inicial manual: el primer aporte creará la posición full-range a ese precio.
+                        </span>
+                      </div>
+                      <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 space-y-1.5">
+                        <div className="text-[10px] uppercase tracking-wider text-amber-300/80 font-bold">
+                          Precio inicial — 1 {t0.symbol} = ?
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number" inputMode="decimal" placeholder="0.0"
+                            value={manualPrice}
+                            onChange={e => { setManualPrice(e.target.value); setAmount0(''); setAmount1('') }}
+                            disabled={loading}
+                            className="flex-1 bg-transparent text-lg font-mono outline-none text-amber-100 placeholder:text-amber-500/30"
+                          />
+                          <span className="text-xs font-bold text-amber-100 px-2 py-1 rounded-lg bg-amber-950/60 border border-amber-500/20">
+                            {t1.symbol}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!noSpotPrice && pool.needsInit && (
                     <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-2.5 text-[11px] text-amber-300 flex items-start gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                       <span>Serás de los primeros LPs en esta pool — precio basado en el spot actual de Uniswap.</span>
@@ -548,7 +599,7 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
                   )}
 
                   <div className="text-[10px] uppercase tracking-wider text-cyan-400/70 font-bold">
-                    Ingresa solo UN monto, calculamos el otro al precio del pool
+                    Ingresa solo UN monto, calculamos el otro al precio {noSpotPrice ? 'manual' : 'del pool'}
                   </div>
 
                   <AmountInput
@@ -576,7 +627,10 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
                     disabled={loading}
                     isAuto={activeInput === 'a' && amount1 !== ''}
                   />
-                  <Button onClick={doDeposit} disabled={loading} className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold shadow-[0_0_24px_-4px_rgba(34,211,238,0.6)]">
+                  <Button
+                    onClick={doDeposit}
+                    disabled={loading || (noSpotPrice && !effectivePrice)}
+                    className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold shadow-[0_0_24px_-4px_rgba(34,211,238,0.6)]">
                     {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Droplets className="w-4 h-4 mr-2" />}
                     Aportar liquidez
                   </Button>
@@ -655,7 +709,7 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
           <div className="text-[10px] text-cyan-500/60 flex items-start gap-1.5 pt-2 border-t border-cyan-500/10">
             <Info className="w-3 h-3 shrink-0 mt-0.5" />
             <span>
-              Aporte 2% · Retiro 2% · Recompensas en H2O equivalente al precio spot · Posición {pool.stable ? 'narrow range' : 'full-range'} {pool.stable ? '' : 'nunca sale de rango'}.
+              Recompensas pagadas en H2O al precio spot · Posición {pool.stable ? 'narrow range' : 'full-range Uniswap V3'} {pool.stable ? '' : 'nunca sale de rango'}.
             </span>
           </div>
         </div>
@@ -769,6 +823,8 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         if (!p.active) return false
         // Filtrar pools con tokens desconocidos (no estan en el Swap)
         if (!isKnownToken(p.token0) || !isKnownToken(p.token1)) return false
+        // Ocultar pools H2O/* — pertenecen a otro panel
+        if (isH2O(p.token0) || isH2O(p.token1)) return false
         return true
       })
 
@@ -788,7 +844,18 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         const liqB = liveAll[existing.poolId]?.poolLiquidity ?? 0n
         if (liqA > liqB) bestByPair.set(key, p)
       }
-      const ps = Array.from(bestByPair.values())
+
+      // Filtrar pools "fantasma" (uniswap pool sin liquidez Y sin precio inicial).
+      // Mantenemos pools con poca liquidez (ej: wARS/WLD 0.3% / 1%) si tienen precio.
+      // Tambien mantenemos pools sin liquidez pero con precio (primer LP puede entrar).
+      const dedupArr = Array.from(bestByPair.values())
+      const ps = dedupArr.filter(p => {
+        const ld = liveAll[p.poolId]
+        if (!ld) return false // sin datos vivos = no se puede operar
+        // Drop solo si pool no inicializado Y sin liquidez (ghost pool)
+        if (ld.sqrtPriceX96 === 0n && ld.poolLiquidity === 0n) return false
+        return true
+      })
 
       // Reducir liveAll a las pools finalmente visibles
       const live: Record<number, PoolLiveData> = {}
