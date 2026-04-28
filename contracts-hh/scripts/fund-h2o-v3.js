@@ -12,7 +12,7 @@ const { ethers } = require("hardhat");
 const path = require("path");
 const fs = require("fs");
 
-const FUND_AMOUNT = "1000"; // H2O
+const FUND_AMOUNT = "100000"; // H2O
 const H2O_TOKEN = "0x17392e5483983945dEB92e0518a8F2C4eB6bA59d";
 
 const ERC20_ABI = [
