@@ -154,28 +154,53 @@ export interface TokenMeta {
 }
 
 // Catalogo local de tokens (para mostrar simbolo, decimales, logo)
+// Mantenido sincronizado con el listado de tokens del Swap.
 const TOKEN_META_BY_ADDR: Record<string, TokenMeta> = {
-  '0x17392e5483983945deb92e0518a8f2c4eb6ba59d': { address: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', symbol: 'H2O',    decimals: 18, logoUrl: '/tokens/h2o.jpg' },
-  '0x2cfc85d8e48f8eab294be644d9e25c3030863003': { address: '0x2cFc85d8E48F8EAB294be644d9E25C3030863003', symbol: 'WLD',    decimals: 18, logoUrl: '/tokens/wld.jpg' },
-  '0x79a02482a880bce3f13e09da970dc34db4cd24d1': { address: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1', symbol: 'USDC',   decimals: 6,  logoUrl: '/tokens/usdc.jpg' },
-  '0xab09a728e53d3d6bc438be95eed46da0bbe7fb38': { address: '0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38', symbol: 'SUSHI',  decimals: 18, logoUrl: '/tokens/sushi.jpg' },
-  '0xecc4dae4dc3d359a93046bd944e9ee3421a6a484': { address: '0xEcC4dAe4DC3D359a93046bd944e9ee3421A6A484', symbol: 'BTCH2O', decimals: 18, logoUrl: '/tokens/btch2o.jpg' },
-  '0x4200000000000000000000000000000000000006': { address: '0x4200000000000000000000000000000000000006', symbol: 'WETH',   decimals: 18, logoUrl: '/tokens/weth.jpg' },
-  '0x03c7054bcb39f7b2e5b2c7acb37583e32d70cfa3': { address: '0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3', symbol: 'WBTC',   decimals: 8,  logoUrl: '/tokens/wbtc.jpg' },
-  '0x696ad02f0c7d68915ea39ca6e60934f7a8900fb1': { address: '0x696aD02f0c7d68915ea39cA6e60934f7a8900FB1', symbol: 'VIBE',   decimals: 18, logoUrl: '/tokens/vibe.jpg' },
-  '0xcd1e32b86953d79a6ac58e813d2ea7a1790cab63': { address: '0xcd1E32B86953D79a6AC58e813D2EA7a1790cAb63', symbol: 'ORO',    decimals: 18, logoUrl: '/tokens/oro.jpg' },
-  '0xf3f92a60e6004f3982f0fde0d43602fc0a30a0db': { address: '0xF3F92A60e6004f3982F0FdE0d43602fC0a30a0dB', symbol: 'ORB',    decimals: 18, logoUrl: '/tokens/orb.jpg' },
-  '0x1ae3498f1b417fe31be544b04b711f27ba437bd3': { address: '0x1aE3498f1B417fe31BE544B04B711F27Ba437bd3', symbol: 'PUF',    decimals: 18, logoUrl: '/tokens/puf.jpg' },
-  '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d': { address: '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d', symbol: 'wARS',   decimals: 18, logoUrl: '/tokens/wars.jpg' },
-  '0x30974f73a4ac9e606ed80da928e454977ac486d2': { address: '0x30974f73A4ac9E606Ed80da928e454977ac486D2', symbol: 'oXAUT',  decimals: 18, logoUrl: '/tokens/oxaut.jpg' },
-  '0xdba88118551d5adf16a7ab943403aea7ea06762b': { address: '0xDBA88118551d5Adf16a7AB943403Aea7ea06762b', symbol: 'AIR',    decimals: 18, logoUrl: '/tokens/air.jpg' },
-  '0x9ea8653640e22a5b69887985bb75d496dc97022a': { address: '0x9eA8653640E22A5b69887985BB75d496dc97022a', symbol: 'UTH2',   decimals: 18, logoUrl: '/tokens/uth2.jpg' },
+  '0x17392e5483983945deb92e0518a8f2c4eb6ba59d': { address: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', symbol: 'H2O',       decimals: 18, logoUrl: '/tokens/h2o.jpg' },
+  '0x2cfc85d8e48f8eab294be644d9e25c3030863003': { address: '0x2cFc85d8E48F8EAB294be644d9E25C3030863003', symbol: 'WLD',       decimals: 18, logoUrl: '/tokens/wld.jpg' },
+  '0x79a02482a880bce3f13e09da970dc34db4cd24d1': { address: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1', symbol: 'USDC',      decimals: 6,  logoUrl: '/tokens/usdc.jpg' },
+  '0xab09a728e53d3d6bc438be95eed46da0bbe7fb38': { address: '0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38', symbol: 'SUSHI',     decimals: 18, logoUrl: '/tokens/sushi.jpg' },
+  '0xecc4dae4dc3d359a93046bd944e9ee3421a6a484': { address: '0xEcC4dAe4DC3D359a93046bd944e9ee3421A6A484', symbol: 'BTCH2O',    decimals: 18, logoUrl: '/tokens/btch2o.jpg' },
+  '0x4200000000000000000000000000000000000006': { address: '0x4200000000000000000000000000000000000006', symbol: 'WETH',      decimals: 18, logoUrl: '/tokens/weth.jpg' },
+  '0x03c7054bcb39f7b2e5b2c7acb37583e32d70cfa3': { address: '0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3', symbol: 'WBTC',      decimals: 8,  logoUrl: '/tokens/wbtc.jpg' },
+  '0x696ad02f0c7d68915ea39ca6e60934f7a8900fb1': { address: '0x696aD02f0c7d68915ea39cA6e60934f7a8900FB1', symbol: 'VIBE',      decimals: 18, logoUrl: '/tokens/vibe.jpg' },
+  '0xcd1e32b86953d79a6ac58e813d2ea7a1790cab63': { address: '0xcd1E32B86953D79a6AC58e813D2EA7a1790cAb63', symbol: 'ORO',       decimals: 18, logoUrl: '/tokens/oro.jpg' },
+  '0xf3f92a60e6004f3982f0fde0d43602fc0a30a0db': { address: '0xF3F92A60e6004f3982F0FdE0d43602fC0a30a0dB', symbol: 'ORB',       decimals: 18, logoUrl: '/tokens/orb.jpg' },
+  '0x1ae3498f1b417fe31be544b04b711f27ba437bd3': { address: '0x1aE3498f1B417fe31BE544B04B711F27Ba437bd3', symbol: 'PUF',       decimals: 18, logoUrl: '/tokens/puf.jpg' },
+  '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d': { address: '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d', symbol: 'wARS',      decimals: 18, logoUrl: '/tokens/wars.jpg' },
+  '0x30974f73a4ac9e606ed80da928e454977ac486d2': { address: '0x30974f73A4ac9E606Ed80da928e454977ac486D2', symbol: 'oXAUT',     decimals: 6,  logoUrl: '/tokens/oxaut.jpg' },
+  '0xdba88118551d5adf16a7ab943403aea7ea06762b': { address: '0xDBA88118551d5Adf16a7AB943403Aea7ea06762b', symbol: 'AIR',       decimals: 18, logoUrl: '/tokens/air.jpg' },
+  '0x9ea8653640e22a5b69887985bb75d496dc97022a': { address: '0x9eA8653640E22A5b69887985BB75d496dc97022a', symbol: 'UTH2',      decimals: 18, logoUrl: '/tokens/uth2.jpg' },
+  // ─── Tokens del Swap (sincronizados con DEFAULT_TOKENS de swap-panel) ───
+  '0x8a1d45e102e886510e891d2ec656a708991e2d76': { address: '0x8a1d45e102e886510e891d2ec656a708991e2d76', symbol: 'wCOP',      decimals: 18, logoUrl: '/tokens/wcop.jpg' },
+  '0x22c40632c13a7f3cae9c343480607d886832c686': { address: '0x22c40632c13a7f3cae9c343480607d886832c686', symbol: 'FIRE',      decimals: 18, logoUrl: '/tokens/fire.jpg' },
+  '0x1c60ba0a0ed1019e8eb035e6daf4155a5ce2380b': { address: '0x1C60ba0A0eD1019e8Eb035E6daF4155A5cE2380B', symbol: 'EURC',      decimals: 6 },
+  '0xd76f5faf6888e24d9f04bf92a0c8b921fe4390e0': { address: '0xD76f5Faf6888e24D9F04Bf92a0c8B921FE4390e0', symbol: 'wBRL',      decimals: 18 },
+  '0xede54d9c024ee80c85ec0a75ed2d8774c7fbac9b': { address: '0xEdE54d9c024ee80C85ec0a75eD2d8774c7Fbac9B', symbol: 'WDD',       decimals: 18 },
+  '0x12e96c2bfea6e835cf8dd38a5834fa61cf723736': { address: '0x12E96C2BFEA6E835CF8Dd38a5834fa61Cf723736', symbol: 'uDOGE',     decimals: 18 },
+  '0x9b8df6e244526ab5f6e6400d331db28c8fdddb55': { address: '0x9B8Df6E244526ab5F6e6400d331DB28C8fdDdb55', symbol: 'uSOL',      decimals: 18 },
+  '0x2ba918fec90ca7aac5753a2551593470815866e6': { address: '0x2ba918fec90Ca7AaC5753a2551593470815866e6', symbol: 'DIAMANTE',  decimals: 18 },
+  '0x7a8892e9687704f7be8c26dfc5e51b6a86c8098b': { address: '0x7a8892E9687704F7BE8C26dfC5e51B6A86c8098B', symbol: 'BILLBOARD', decimals: 18 },
+  '0xbfda4f50a2d5b9b864511579d7dfa1c72f118575': { address: '0xbfdA4F50a2d5B9b864511579D7dfa1C72f118575', symbol: 'Cash',      decimals: 18 },
+  '0x26064dd7821f351202c61f0deb97678eef265e36': { address: '0x26064DD7821f351202c61f0deB97678eef265E36', symbol: 'AION',      decimals: 18 },
+  '0x24e2f756af6558818083e78b1205d156542bce80': { address: '0x24e2f756AF6558818083E78B1205D156542bCe80', symbol: 'SAMA',      decimals: 18 },
+  '0x13e20981d9bd3dc45e99802f06488c5ad7c28360': { address: '0x13e20981D9bd3dC45e99802f06488C5AD7c28360', symbol: 'APE',       decimals: 18 },
+  '0x6a7b33b8a7f7b3535dc832ecd147f6dec8a8e8cf': { address: '0x6A7B33B8A7f7B3535dc832ECD147F6dEC8A8e8Cf', symbol: 'GFY',       decimals: 18 },
+  '0x1191a54c53dbe8487c3a258c2a4a84aae7e936f5': { address: '0x1191a54c53DBe8487c3A258C2A4a84aAe7E936F5', symbol: 'VEN',       decimals: 18 },
+  '0x212d7448720852d8ad282a5d4a895b3461f9076e': { address: '0x212d7448720852D8Ad282a5d4A895B3461F9076E', symbol: 'TIME',      decimals: 18 },
 }
 
 export function tokenMeta(addr: string): TokenMeta {
   const k = (addr || '').toLowerCase()
   if (TOKEN_META_BY_ADDR[k]) return TOKEN_META_BY_ADDR[k]
   return { address: addr, symbol: addr.slice(0, 6) + '…' + addr.slice(-4), decimals: 18 }
+}
+
+// True si el token tiene metadata conocida (esta en el catalogo del swap).
+// Usado para filtrar pools con tokens raros que no aparecen en el Swap.
+export function isKnownToken(addr: string): boolean {
+  const k = (addr || '').toLowerCase()
+  return !!TOKEN_META_BY_ADDR[k]
 }
 
 export function getProvider() {

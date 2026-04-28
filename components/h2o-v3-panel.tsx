@@ -15,7 +15,7 @@ import {
   H2O_V3_ADDRESS, H2O_V3_TX_ABI, H2O_V3_DEPLOY,
   fetchAllPools, fetchUserPosition, fetchAprBps, fetchAllPoolsLive,
   fetchUserBalance, quoteAmount1FromAmount0, quoteAmount0FromAmount1,
-  tokenMeta, formatToken, bpsToPct, feeTierLabel, randomNonce,
+  tokenMeta, isKnownToken, formatToken, bpsToPct, feeTierLabel, randomNonce,
   fetchH2OUsdcRate, h2oToUsdc, formatUsd,
   type H2OV3Pool, type H2OV3Position, type PoolLiveData,
 } from '@/lib/h2o-v3'
@@ -158,9 +158,20 @@ function PoolRow({ pool, position, aprBps, live, usdcRate, onOpen }: PoolRowProp
 
         {/* Stats row */}
         <div className="grid grid-cols-3 gap-1 text-[10px]">
-          <div className="rounded-md bg-cyan-950/40 border border-cyan-500/10 px-2 py-1">
-            <div className="text-cyan-500/60 uppercase tracking-wider text-[8px]">APR</div>
-            <div className="text-cyan-200 font-bold font-mono">{aprPct}</div>
+          <div className={cn(
+            'rounded-md px-2 py-1 border',
+            aprBps > 0n
+              ? 'bg-emerald-500/10 border-emerald-500/30'
+              : 'bg-cyan-950/40 border-cyan-500/10',
+          )}>
+            <div className={cn(
+              'uppercase tracking-wider text-[8px]',
+              aprBps > 0n ? 'text-emerald-300/80' : 'text-cyan-500/60',
+            )}>APR</div>
+            <div className={cn(
+              'font-bold font-mono',
+              aprBps > 0n ? 'text-emerald-300' : 'text-cyan-200',
+            )}>{aprPct}</div>
           </div>
           <div className="rounded-md bg-cyan-950/40 border border-cyan-500/10 px-2 py-1">
             <div className="text-cyan-500/60 uppercase tracking-wider text-[8px]">TVL</div>
@@ -461,7 +472,7 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
         <div className="p-4 space-y-3">
           {/* Stats summary */}
           <div className="grid grid-cols-3 gap-2">
-            <StatPill label="APR" value={aprPct} accent />
+            <StatPill label="APR" value={aprPct} green={aprBps > 0n} accent={aprBps > 0n} />
             <StatPill
               label="TVL"
               value={tvlUsd > 0n ? formatUsd(tvlUsd) : (tvl > 0n ? `${formatToken(tvl, 18, 0)} H2O` : '—')}
@@ -653,16 +664,24 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
   )
 }
 
-function StatPill({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
+function StatPill({ label, value, sub, accent, green }: { label: string; value: string; sub?: string; accent?: boolean; green?: boolean }) {
   return (
     <div className={cn(
       'rounded-xl border px-2.5 py-2 min-w-0',
-      accent
-        ? 'bg-gradient-to-br from-cyan-500/15 to-blue-500/10 border-cyan-400/30'
-        : 'bg-cyan-950/40 border-cyan-500/15',
+      green
+        ? 'bg-gradient-to-br from-emerald-500/15 to-emerald-500/5 border-emerald-400/40 shadow-[0_0_12px_-4px_rgba(16,185,129,0.5)]'
+        : accent
+          ? 'bg-gradient-to-br from-cyan-500/15 to-blue-500/10 border-cyan-400/30'
+          : 'bg-cyan-950/40 border-cyan-500/15',
     )}>
-      <div className="text-[9px] uppercase tracking-wider text-cyan-500/70 font-bold">{label}</div>
-      <div className={cn('font-mono font-bold text-sm truncate', accent ? 'text-cyan-200' : 'text-cyan-100')}>{value}</div>
+      <div className={cn(
+        'text-[9px] uppercase tracking-wider font-bold',
+        green ? 'text-emerald-300/80' : 'text-cyan-500/70',
+      )}>{label}</div>
+      <div className={cn(
+        'font-mono font-bold text-sm truncate',
+        green ? 'text-emerald-300' : accent ? 'text-cyan-200' : 'text-cyan-100',
+      )}>{value}</div>
       {sub && <div className="text-[9px] text-cyan-500/60 font-mono truncate">{sub}</div>}
     </div>
   )
@@ -726,50 +745,87 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
   const [sortMode, setSortMode] = useState<SortMode>('tvl')
   const [search, setSearch] = useState('')
   const initialDoneRef = useRef(false)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   const refresh = useCallback(async (silent = false) => {
     if (!H2O_V3_ADDRESS) {
-      setLoading(false)
-      setMsg('Contrato AcuaH2OV3LP aún no desplegado.')
+      if (mountedRef.current) {
+        setLoading(false)
+        setMsg('Contrato AcuaH2OV3LP aún no desplegado.')
+      }
       return
     }
-    if (!silent) { setLoading(true); setMsg('') }
+    if (!silent && mountedRef.current) { setLoading(true); setMsg('') }
     try {
       const psRaw = await fetchAllPools()
-      const seen = new Set<string>()
-      const ps = psRaw.filter(p => {
+
+      // Cargamos datos vivos de TODAS las pools activas para poder elegir la
+      // mejor cuando hay duplicados por par (misma pareja, distinto pool addr).
+      const activeRaw = psRaw.filter(p => {
         if (!p.active) return false
-        const key = (p.poolAddress || '').toLowerCase() + ':' + p.fee
-        if (seen.has(key)) return false
-        seen.add(key); return true
+        // Filtrar pools con tokens desconocidos (no estan en el Swap)
+        if (!isKnownToken(p.token0) || !isKnownToken(p.token1)) return false
+        return true
       })
+
+      const liveAll = await fetchAllPoolsLive(activeRaw)
+
+      // Dedupe por par de tokens (sin importar orden) + fee.
+      // Cuando hay duplicados, ganamos la pool con mayor liquidez Uniswap.
+      const bestByPair = new Map<string, H2OV3Pool>()
+      for (const p of activeRaw) {
+        const a = p.token0.toLowerCase()
+        const b = p.token1.toLowerCase()
+        const pair = a < b ? `${a}-${b}` : `${b}-${a}`
+        const key = `${pair}:${p.fee}`
+        const existing = bestByPair.get(key)
+        if (!existing) { bestByPair.set(key, p); continue }
+        const liqA = liveAll[p.poolId]?.poolLiquidity ?? 0n
+        const liqB = liveAll[existing.poolId]?.poolLiquidity ?? 0n
+        if (liqA > liqB) bestByPair.set(key, p)
+      }
+      const ps = Array.from(bestByPair.values())
+
+      // Reducir liveAll a las pools finalmente visibles
+      const live: Record<number, PoolLiveData> = {}
+      for (const p of ps) if (liveAll[p.poolId]) live[p.poolId] = liveAll[p.poolId]
+
+      if (!mountedRef.current) return
       setPools(ps)
 
-      // Cargar en paralelo: posiciones + APRs + datos vivos + tasa USDC
-      const [, , live, rate] = await Promise.all([
+      // Cargar en paralelo: posiciones + APRs + tasa USDC
+      const [, , rate] = await Promise.all([
         Promise.all(ps.map(async p => {
           try {
             if (userAddress) {
               const pos = await fetchUserPosition(p.poolId, userAddress)
-              setPositions(prev => ({ ...prev, [p.poolId]: pos }))
+              if (mountedRef.current) setPositions(prev => ({ ...prev, [p.poolId]: pos }))
             }
           } catch {}
         })),
         Promise.all(ps.map(async p => {
           try {
             const apr = await fetchAprBps(p.poolId)
-            setAprs(prev => ({ ...prev, [p.poolId]: apr }))
+            if (mountedRef.current) setAprs(prev => ({ ...prev, [p.poolId]: apr }))
           } catch {}
         })),
-        fetchAllPoolsLive(ps),
         fetchH2OUsdcRate(),
       ])
+
+      if (!mountedRef.current) return
       setLivePool(live)
       setUsdcRate(rate)
       setLastUpdate(Date.now())
     } catch (e: any) {
-      if (!silent) setMsg(e.message || 'Error cargando pools')
-    } finally { if (!silent) setLoading(false); initialDoneRef.current = true }
+      if (!silent && mountedRef.current) setMsg(e?.message || 'Error cargando pools')
+    } finally {
+      if (!silent && mountedRef.current) setLoading(false)
+      initialDoneRef.current = true
+    }
   }, [userAddress])
 
   useEffect(() => {
