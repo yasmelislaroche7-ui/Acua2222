@@ -96,6 +96,7 @@ export const UNIV3_POOL_ABI = [
   'function fee() view returns (uint24)',
   'function liquidity() view returns (uint128)',
   'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 obsIndex, uint16 obsCard, uint16 obsCardNext, uint8 feeProto, bool unlocked)',
+  'function observe(uint32[] secondsAgos) view returns (int56[] tickCumulatives, uint160[] secondsPerLiquidityCumulativeX128s)',
 ]
 
 const ERC20_ABI = [
@@ -123,6 +124,18 @@ export interface H2OV3Pool {
   label?: string
   poolAddress?: string
   stable?: boolean
+  needsInit?: boolean // pool en uniswap existe pero sin liquidez
+}
+
+// Datos en vivo del pool subyacente Uniswap V3
+export interface PoolLiveData {
+  sqrtPriceX96: bigint
+  currentTick: number
+  poolLiquidity: bigint     // liquidez total del pool en Uniswap
+  priceToken1PerToken0: number  // human-readable price (token1 per token0, considerando decimals)
+  priceChange24h: number | null // % change vs 24h ago, null si no disponible
+  priceHistory: number[]    // sparkline data (precios al inicio del periodo)
+  tvlInH2O: bigint          // TVL del bote del wrapper en H2O equivalente
 }
 
 export interface H2OV3Position {
@@ -195,8 +208,19 @@ export async function fetchAllPools(): Promise<H2OV3Pool[]> {
       label: fromFile.label,
       poolAddress: p.poolAddr || fromFile.pool,
       stable: !!fromFile.stable,
+      needsInit: !!fromFile.needsInit,
     }
   })
+}
+
+// Carga datos vivos de todas las pools en paralelo (limita concurrencia)
+export async function fetchAllPoolsLive(pools: H2OV3Pool[]): Promise<Record<number, PoolLiveData>> {
+  const out: Record<number, PoolLiveData> = {}
+  await Promise.all(pools.map(async p => {
+    const live = await fetchPoolLive(p)
+    if (live) out[p.poolId] = live
+  }))
+  return out
 }
 
 export async function fetchUserPosition(poolId: number, user: string): Promise<H2OV3Position | null> {
@@ -228,6 +252,88 @@ export async function fetchPoolSpot(poolAddr: string): Promise<{ sqrtPriceX96: b
     const c = new ethers.Contract(poolAddr, UNIV3_POOL_ABI, provider)
     const s = await c.slot0()
     return { sqrtPriceX96: BigInt(s.sqrtPriceX96 ?? s[0]), tick: Number(s.tick ?? s[1]) }
+  } catch { return null }
+}
+
+// Convert a tick to a price (token1 per token0) considering decimals
+export function tickToPrice(tick: number, dec0: number, dec1: number): number {
+  // 1.0001^tick * 10^(dec0 - dec1)
+  const raw = Math.pow(1.0001, tick)
+  return raw * Math.pow(10, dec0 - dec1)
+}
+
+// sqrtPriceX96 -> price (token1 per token0) human-readable
+export function sqrtPriceToPrice(sqrtPriceX96: bigint, dec0: number, dec1: number): number {
+  if (sqrtPriceX96 === 0n) return 0
+  // price_raw = (sqrtPriceX96 / 2^96)^2 = sqrtPriceX96^2 / 2^192
+  // human price = price_raw * 10^(dec0 - dec1)
+  const SCALE = 10n ** 36n
+  const sq = (sqrtPriceX96 * sqrtPriceX96 * SCALE) >> 192n
+  const num = Number(sq) / Number(SCALE)
+  return num * Math.pow(10, dec0 - dec1)
+}
+
+// Lectura completa en vivo de un pool: slot0 + liquidity + observe(historico) + tvl
+export async function fetchPoolLive(pool: H2OV3Pool): Promise<PoolLiveData | null> {
+  if (!H2O_V3_ADDRESS || !pool.poolAddress) return null
+  const provider = getProvider()
+  const uni = new ethers.Contract(pool.poolAddress, UNIV3_POOL_ABI, provider)
+  const wrapper = new ethers.Contract(H2O_V3_ADDRESS, H2O_V3_VIEW_ABI, provider)
+  try {
+    const [slot0, poolLiq] = await Promise.all([uni.slot0(), uni.liquidity()])
+    const sqrtPriceX96 = BigInt(slot0.sqrtPriceX96 ?? slot0[0])
+    const currentTick = Number(slot0.tick ?? slot0[1])
+    const t0Meta = tokenMeta(pool.token0)
+    const t1Meta = tokenMeta(pool.token1)
+
+    // Historial de precio: 0, 1h, 6h, 12h, 24h ago (sparkline 5 puntos)
+    let priceHistory: number[] = []
+    let priceChange24h: number | null = null
+    try {
+      const SECONDS = [86400, 21600, 10800, 3600, 0]
+      const obs = await uni.observe(SECONDS)
+      const cumulatives = obs.tickCumulatives ?? obs[0]
+      const ticksAvg: number[] = []
+      for (let i = 0; i < cumulatives.length - 1; i++) {
+        const dt = SECONDS[i] - SECONDS[i + 1]
+        const dCum = BigInt(cumulatives[i + 1]) - BigInt(cumulatives[i])
+        ticksAvg.push(Number(dCum / BigInt(dt)))
+      }
+      ticksAvg.push(currentTick)
+      priceHistory = ticksAvg.map(t => tickToPrice(t, t0Meta.decimals, t1Meta.decimals))
+      if (priceHistory.length >= 2 && priceHistory[0] > 0) {
+        priceChange24h = ((priceHistory[priceHistory.length - 1] - priceHistory[0]) / priceHistory[0]) * 100
+      }
+    } catch { /* observe puede revertir si no hay observaciones suficientes */ }
+
+    // TVL del bote del wrapper en H2O = valor liquidez del wrapper convertida via tokenValueInH2O
+    // Calculamos amount0/amount1 del wrapper full-range desde su totalLiquidity
+    let tvlInH2O = 0n
+    try {
+      if (pool.totalLiquidity > 0n && sqrtPriceX96 > 0n) {
+        // amount0 = L * 2^96 / sqrtP    (full-range upper >> current)
+        // amount1 = L * sqrtP / 2^96
+        const L = pool.totalLiquidity
+        const Q96 = 1n << 96n
+        const amount0 = (L * Q96) / sqrtPriceX96
+        const amount1 = (L * sqrtPriceX96) / Q96
+        const [v0, v1] = await Promise.all([
+          wrapper.tokenValueInH2O(pool.token0, amount0).catch(() => 0n),
+          wrapper.tokenValueInH2O(pool.token1, amount1).catch(() => 0n),
+        ])
+        tvlInH2O = BigInt(v0) + BigInt(v1)
+      }
+    } catch {}
+
+    return {
+      sqrtPriceX96,
+      currentTick,
+      poolLiquidity: BigInt(poolLiq),
+      priceToken1PerToken0: sqrtPriceToPrice(sqrtPriceX96, t0Meta.decimals, t1Meta.decimals),
+      priceChange24h,
+      priceHistory,
+      tvlInH2O,
+    }
   } catch { return null }
 }
 

@@ -1,0 +1,53 @@
+{
+  "issues": [
+    {
+      "id": 7,
+      "label": "WETH/SUSHI",
+      "fee": 3000,
+      "status": "NO_POOL",
+      "configured": "0x67074170b439cEa5E376C874b8a7e37Cdd2E00c6",
+      "real": "NONE"
+    },
+    {
+      "id": 8,
+      "label": "WLD/VIBE",
+      "fee": 3000,
+      "status": "NO_POOL",
+      "configured": "0x8412098b963D803764F0429C0744ea738DF3028a",
+      "real": "NONE"
+    },
+    {
+      "id": 9,
+      "label": "WLD/ORO",
+      "fee": 3000,
+      "status": "NO_LIQ",
+      "configured": "0x40ee65c69a727Ac17D064c4Ef3eabD8b3F153492",
+      "real": "0x40ee65c69a727Ac17D064c4Ef3eabD8b3F153492"
+    },
+    {
+      "id": 10,
+      "label": "WLD/ORB",
+      "fee": 3000,
+      "status": "NO_LIQ",
+      "configured": "0x5EF83A547Bd4f80fE4557eBF17D8Ec095B2f874C",
+      "real": "0x5EF83A547Bd4f80fE4557eBF17D8Ec095B2f874C"
+    },
+    {
+      "id": 11,
+      "label": "PUF/WLD",
+      "fee": 3000,
+      "status": "NO_LIQ",
+      "configured": "0x86b90757698EfC3297B83902c40A380Ad9B42Ea8",
+      "real": "0x86b90757698EfC3297B83902c40A380Ad9B42Ea8"
+    },
+    {
+      "id": 13,
+      "label": "0x0DC4/WLD",
+      "fee": 3000,
+      "status": "NO_LIQ",
+      "configured": "0x6e23f3cC61386836eEC854D8070D310787DC0100",
+      "real": "0x6e23f3cC61386836eEC854D8070D310787DC0100"
+    }
+  ],
+  "auditedAt": "2026-04-28T00:53:18.372Z"
+}

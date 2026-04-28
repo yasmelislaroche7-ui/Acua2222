@@ -1,24 +1,58 @@
 'use client'
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
 import {
   Loader2, ChevronRight, Droplets, Gift, RefreshCw, Lock, Unlock, Info, Clock,
+  TrendingUp, TrendingDown, Activity, Waves, Sparkles, AlertCircle, CheckCircle2,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   H2O_V3_ADDRESS, H2O_V3_TX_ABI, H2O_V3_DEPLOY,
-  fetchAllPools, fetchUserPosition, fetchAprBps, fetchPoolSpot,
+  fetchAllPools, fetchUserPosition, fetchAprBps, fetchAllPoolsLive,
   fetchUserBalance, quoteAmount1FromAmount0, quoteAmount0FromAmount1,
   tokenMeta, formatToken, bpsToPct, feeTierLabel, randomNonce,
-  type H2OV3Pool, type H2OV3Position,
+  type H2OV3Pool, type H2OV3Position, type PoolLiveData,
 } from '@/lib/h2o-v3'
 import {
   buildFeePayment, fetchFeeInfo, insufficientFeeMsg,
 } from '@/lib/feeCollector'
+
+// ─── Sparkline SVG (mini chart de precio 24h) ─────────────────────────────────
+function Sparkline({ data, change, height = 28, width = 80 }: { data: number[]; change: number | null; height?: number; width?: number }) {
+  if (!data || data.length < 2) {
+    return <div className="text-[9px] text-muted-foreground/50 italic">sin datos</div>
+  }
+  const min = Math.min(...data)
+  const max = Math.max(...data)
+  const range = max - min || 1
+  const stepX = width / (data.length - 1)
+  const points = data.map((v, i) => `${(i * stepX).toFixed(2)},${(height - ((v - min) / range) * (height - 4) - 2).toFixed(2)}`).join(' ')
+  const isUp = change !== null && change >= 0
+  const stroke = isUp ? '#22d3ee' : '#fb7185'
+  const fill = isUp ? 'url(#sparkUp)' : 'url(#sparkDown)'
+  const lastY = height - ((data[data.length - 1] - min) / range) * (height - 4) - 2
+  return (
+    <svg width={width} height={height} className="overflow-visible">
+      <defs>
+        <linearGradient id="sparkUp" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="sparkDown" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#fb7185" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="#fb7185" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={`0,${height} ${points} ${width},${height}`} fill={fill} />
+      <polyline points={points} fill="none" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={width} cy={lastY} r="2" fill={stroke} />
+    </svg>
+  )
+}
 
 // ─── Token logo badge ─────────────────────────────────────────────────────────
 function TokenIcon({ symbol, logoUrl, size = 28 }: { symbol: string; logoUrl?: string; size?: number }) {
@@ -26,110 +60,219 @@ function TokenIcon({ symbol, logoUrl, size = 28 }: { symbol: string; logoUrl?: s
   if (logoUrl && !err) {
     return (
       <img src={logoUrl} alt={symbol} onError={() => setErr(true)}
-        className="rounded-full object-cover shrink-0 border border-border" style={{ width: size, height: size }} />
+        className="rounded-full object-cover shrink-0 border-2 border-cyan-500/20 bg-cyan-950/30" style={{ width: size, height: size }} />
     )
   }
   return (
-    <div className="rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 bg-cyan-500/15 border border-cyan-500/40 text-cyan-300"
+    <div className="rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 bg-gradient-to-br from-cyan-500/30 to-blue-600/30 border-2 border-cyan-500/40 text-cyan-200"
       style={{ width: size, height: size }}>
       {symbol.slice(0, 4)}
     </div>
   )
 }
 
+// ─── Pool Card ────────────────────────────────────────────────────────────────
 interface PoolRowProps {
   pool: H2OV3Pool
   position: H2OV3Position | null
   aprBps: bigint
+  live: PoolLiveData | undefined
   onOpen: () => void
 }
 
-function PoolRow({ pool, position, aprBps, onOpen }: PoolRowProps) {
+function PoolRow({ pool, position, aprBps, live, onOpen }: PoolRowProps) {
   const t0 = tokenMeta(pool.token0)
   const t1 = tokenMeta(pool.token1)
   const hasPosition = position && position.liquidity > 0n
   const hasPending = position && position.netH2O > 0n
   const aprPct = aprBps > 0n ? bpsToPct(aprBps) : '— %'
+  const change = live?.priceChange24h
+  const tvl = live?.tvlInH2O ?? 0n
+  const price = live?.priceToken1PerToken0 ?? 0
 
   return (
     <button
       onClick={onOpen}
       disabled={pool.comingSoon}
       className={cn(
-        'w-full flex items-center justify-between gap-3 p-3 rounded-xl border bg-surface-2 hover:border-cyan-500/40 transition-all text-left',
-        pool.comingSoon && 'opacity-60 cursor-not-allowed',
+        'group w-full text-left rounded-2xl border bg-gradient-to-br from-cyan-950/20 via-slate-950/40 to-blue-950/20 transition-all',
+        pool.comingSoon
+          ? 'opacity-50 cursor-not-allowed border-amber-500/20'
+          : 'border-cyan-500/15 hover:border-cyan-400/50 hover:shadow-[0_0_24px_-8px_rgba(34,211,238,0.4)]',
       )}
     >
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="flex -space-x-2 shrink-0">
-          <TokenIcon symbol={t0.symbol} logoUrl={t0.logoUrl} size={32} />
-          <TokenIcon symbol={t1.symbol} logoUrl={t1.logoUrl} size={32} />
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-sm font-bold text-foreground truncate">{t0.symbol} / {t1.symbol}</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-surface-3 border border-border text-muted-foreground font-mono">
-              {feeTierLabel(pool.fee)}
-            </span>
-            {pool.stable && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-mono">
-                STABLE
-              </span>
-            )}
-            {pool.comingSoon && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-400 font-mono">
-                COMING SOON
-              </span>
-            )}
+      <div className="p-3 space-y-2.5">
+        {/* Top row: tokens, badges, sparkline */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex -space-x-3 shrink-0">
+              <TokenIcon symbol={t0.symbol} logoUrl={t0.logoUrl} size={36} />
+              <TokenIcon symbol={t1.symbol} logoUrl={t1.logoUrl} size={36} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-sm font-extrabold text-cyan-50 truncate">{t0.symbol} / {t1.symbol}</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-mono font-bold">
+                  {feeTierLabel(pool.fee)}
+                </span>
+                {pool.stable && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-bold">
+                    STABLE
+                  </span>
+                )}
+                {pool.needsInit && !pool.comingSoon && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold flex items-center gap-0.5">
+                    <Sparkles className="w-2.5 h-2.5" /> NUEVO
+                  </span>
+                )}
+                {pool.comingSoon && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold">
+                    COMING SOON
+                  </span>
+                )}
+              </div>
+              <div className="text-[10px] text-cyan-400/60 mt-0.5 font-mono">
+                {price > 0 ? `1 ${t0.symbol} ≈ ${price.toLocaleString('en-US', { maximumFractionDigits: price < 0.01 ? 8 : price < 1 ? 6 : 4 })} ${t1.symbol}` : '—'}
+              </div>
+            </div>
           </div>
-          <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2">
-            <span>APR <span className="text-cyan-400 font-semibold">{aprPct}</span></span>
-            {hasPosition && (
-              <>
-                <span>·</span>
-                <span>Liquidity <span className="text-foreground font-mono">{formatToken(position!.liquidity, 0, 0)}</span></span>
-              </>
-            )}
-            {hasPending && (
-              <>
-                <span>·</span>
-                <span className="text-cyan-400 font-semibold">+{formatToken(position!.netH2O, 18, 4)} H2O</span>
-              </>
-            )}
+          {/* Sparkline + 24h change */}
+          {live && live.priceHistory.length >= 2 && (
+            <div className="flex flex-col items-end shrink-0">
+              <Sparkline data={live.priceHistory} change={change ?? null} />
+              {change !== null && change !== undefined && (
+                <span className={cn('text-[10px] font-bold flex items-center gap-0.5 mt-0.5',
+                  change >= 0 ? 'text-cyan-300' : 'text-rose-300')}>
+                  {change >= 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                  {change >= 0 ? '+' : ''}{change.toFixed(2)}%
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-1 text-[10px]">
+          <div className="rounded-md bg-cyan-950/40 border border-cyan-500/10 px-2 py-1">
+            <div className="text-cyan-500/60 uppercase tracking-wider text-[8px]">APR</div>
+            <div className="text-cyan-200 font-bold font-mono">{aprPct}</div>
+          </div>
+          <div className="rounded-md bg-cyan-950/40 border border-cyan-500/10 px-2 py-1">
+            <div className="text-cyan-500/60 uppercase tracking-wider text-[8px]">TVL</div>
+            <div className="text-cyan-200 font-bold font-mono">{tvl > 0n ? formatToken(tvl, 18, 0) : '0'} <span className="text-cyan-500/60 font-normal">H2O</span></div>
+          </div>
+          <div className="rounded-md bg-cyan-950/40 border border-cyan-500/10 px-2 py-1">
+            <div className="text-cyan-500/60 uppercase tracking-wider text-[8px]">Liq</div>
+            <div className="text-cyan-200 font-bold font-mono">{formatToken(pool.totalLiquidity, 0, 0)}</div>
           </div>
         </div>
+
+        {/* User position bar */}
+        {(hasPosition || hasPending) && (
+          <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
+            <Waves className="w-3 h-3 text-cyan-300 shrink-0" />
+            <div className="text-[10px] text-cyan-100 flex-1 flex items-center gap-2">
+              {hasPosition && (
+                <span>Tuyo <span className="text-cyan-300 font-mono font-bold">{formatToken(position!.liquidity, 0, 0)}L</span></span>
+              )}
+              {hasPending && (
+                <span className="ml-auto text-cyan-300 font-bold">+{formatToken(position!.netH2O, 18, 4)} H2O</span>
+              )}
+            </div>
+            <ChevronRight className="w-3 h-3 text-cyan-300/60 shrink-0" />
+          </div>
+        )}
       </div>
-      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
     </button>
   )
 }
 
-// ─── Dialog ───────────────────────────────────────────────────────────────────
+// ─── Big Price Chart (modal) ──────────────────────────────────────────────────
+function PriceChart({ data, change, t0Sym, t1Sym }: { data: number[]; change: number | null; t0Sym: string; t1Sym: string }) {
+  if (!data || data.length < 2) {
+    return (
+      <div className="rounded-xl border border-cyan-500/15 bg-cyan-950/20 p-4 flex items-center justify-center text-xs text-cyan-500/60">
+        Sin historial de precio disponible (pool nuevo)
+      </div>
+    )
+  }
+  const W = 320, H = 90
+  const min = Math.min(...data), max = Math.max(...data), range = max - min || 1
+  const stepX = W / (data.length - 1)
+  const points = data.map((v, i) => `${(i * stepX).toFixed(2)},${(H - ((v - min) / range) * (H - 8) - 4).toFixed(2)}`).join(' ')
+  const isUp = (change ?? 0) >= 0
+  const stroke = isUp ? '#22d3ee' : '#fb7185'
+  const labels = ['24h', '18h', '12h', '6h', 'now']
+  return (
+    <div className="rounded-xl border border-cyan-500/20 bg-gradient-to-br from-cyan-950/30 to-blue-950/30 p-3 space-y-2">
+      <div className="flex items-baseline justify-between">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-cyan-500/70">Precio (24h)</div>
+          <div className="text-lg font-bold text-cyan-100 font-mono">
+            {data[data.length - 1].toLocaleString('en-US', { maximumFractionDigits: data[data.length - 1] < 1 ? 8 : 4 })}
+            <span className="text-xs text-cyan-500/70 ml-1 font-normal">{t1Sym}/{t0Sym}</span>
+          </div>
+        </div>
+        {change !== null && (
+          <div className={cn('text-sm font-bold flex items-center gap-1', isUp ? 'text-cyan-300' : 'text-rose-300')}>
+            {isUp ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+            {isUp ? '+' : ''}{change.toFixed(2)}%
+          </div>
+        )}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+        <defs>
+          <linearGradient id="bigChart" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={stroke} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={stroke} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {/* grid */}
+        {[0.25, 0.5, 0.75].map(t => (
+          <line key={t} x1="0" y1={H * t} x2={W} y2={H * t} stroke="#06b6d4" strokeOpacity="0.06" strokeDasharray="2 4" />
+        ))}
+        <polygon points={`0,${H} ${points} ${W},${H}`} fill="url(#bigChart)" />
+        <polyline points={points} fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {data.map((_, i) => {
+          const x = i * stepX
+          const y = H - ((data[i] - min) / range) * (H - 8) - 4
+          return <circle key={i} cx={x} cy={y} r={i === data.length - 1 ? 3 : 2} fill={stroke} />
+        })}
+      </svg>
+      <div className="flex justify-between text-[9px] text-cyan-500/50 font-mono px-0.5">
+        {labels.map(l => <span key={l}>{l}</span>)}
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal Dialog ─────────────────────────────────────────────────────────────
 interface DialogProps {
   pool: H2OV3Pool
   position: H2OV3Position | null
+  live: PoolLiveData | undefined
+  aprBps: bigint
   userAddress: string
   onClose: () => void
   onRefresh: () => void
 }
 
-function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogProps) {
+function PoolDialog({ pool, position, live, aprBps, userAddress, onClose, onRefresh }: DialogProps) {
   const [tab, setTab] = useState<'deposit' | 'withdraw' | 'claim'>('deposit')
   const [amount0, setAmount0] = useState('')
   const [amount1, setAmount1] = useState('')
+  const [activeInput, setActiveInput] = useState<'a' | 'b'>('a') // cuál es la fuente del auto-balance
   const [withdrawPct, setWithdrawPct] = useState(100)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
   const [h2oBal, setH2oBal] = useState<bigint>(0n)
-
   const [bal0, setBal0] = useState<bigint>(0n)
   const [bal1, setBal1] = useState<bigint>(0n)
-  const [sqrtPriceX96, setSqrtPriceX96] = useState<bigint>(0n)
-  const [linked, setLinked] = useState(true) // sync amount1 from amount0
 
   const t0 = useMemo(() => tokenMeta(pool.token0), [pool.token0])
   const t1 = useMemo(() => tokenMeta(pool.token1), [pool.token1])
+  const sqrtPriceX96 = live?.sqrtPriceX96 ?? 0n
 
   useEffect(() => {
     fetchFeeInfo(userAddress).then(d => { setFeeAmount(d.fee); setH2oBal(d.userH2O) }).catch(() => {})
@@ -137,7 +280,6 @@ function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogP
       fetchUserBalance(pool.token0, userAddress),
       fetchUserBalance(pool.token1, userAddress),
     ]).then(([a, b]) => { setBal0(a.balance); setBal1(b.balance) }).catch(() => {})
-    if (pool.poolAddress) fetchPoolSpot(pool.poolAddress).then(s => { if (s) setSqrtPriceX96(s.sqrtPriceX96) })
   }, [pool, userAddress])
 
   function requireFee(): boolean {
@@ -147,7 +289,8 @@ function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogP
 
   function onAmt0Change(v: string) {
     setAmount0(v)
-    if (!linked || !sqrtPriceX96 || !v || isNaN(parseFloat(v))) return
+    setActiveInput('a')
+    if (!sqrtPriceX96 || !v || isNaN(parseFloat(v))) { setAmount1(''); return }
     try {
       const a0raw = ethers.parseUnits(v || '0', t0.decimals)
       const a1raw = quoteAmount1FromAmount0(a0raw, sqrtPriceX96)
@@ -156,7 +299,8 @@ function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogP
   }
   function onAmt1Change(v: string) {
     setAmount1(v)
-    if (!linked || !sqrtPriceX96 || !v || isNaN(parseFloat(v))) return
+    setActiveInput('b')
+    if (!sqrtPriceX96 || !v || isNaN(parseFloat(v))) { setAmount0(''); return }
     try {
       const a1raw = ethers.parseUnits(v || '0', t1.decimals)
       const a0raw = quoteAmount0FromAmount1(a1raw, sqrtPriceX96)
@@ -166,7 +310,7 @@ function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogP
 
   async function doDeposit() {
     if (!H2O_V3_ADDRESS) return setMsg('Contrato no desplegado')
-    if (!amount0 || !amount1 || parseFloat(amount0) <= 0 || parseFloat(amount1) <= 0) return setMsg('Ingresa ambos montos')
+    if (!amount0 || !amount1 || parseFloat(amount0) <= 0 || parseFloat(amount1) <= 0) return setMsg('Ingresa un monto')
     if (!requireFee()) return
     setLoading(true); setMsg('')
     try {
@@ -271,67 +415,103 @@ function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogP
     finally { setLoading(false) }
   }
 
+  const aprPct = aprBps > 0n ? bpsToPct(aprBps) : '— %'
+  const tvl = live?.tvlInH2O ?? 0n
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-md" onClick={onClose}>
       <div onClick={e => e.stopPropagation()}
-        className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto bg-surface-1 border border-border rounded-t-3xl sm:rounded-2xl">
+        className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto bg-gradient-to-br from-slate-950 via-cyan-950/30 to-slate-950 border border-cyan-500/30 rounded-t-3xl sm:rounded-3xl shadow-[0_0_64px_-8px_rgba(34,211,238,0.4)]">
         {/* Header */}
-        <div className="sticky top-0 bg-surface-1 border-b border-border p-4 flex items-center justify-between z-10">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="flex -space-x-2 shrink-0">
-              <TokenIcon symbol={t0.symbol} logoUrl={t0.logoUrl} size={32} />
-              <TokenIcon symbol={t1.symbol} logoUrl={t1.logoUrl} size={32} />
+        <div className="sticky top-0 z-10 bg-gradient-to-b from-slate-950/95 to-slate-950/80 backdrop-blur border-b border-cyan-500/15 p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex -space-x-3 shrink-0">
+              <TokenIcon symbol={t0.symbol} logoUrl={t0.logoUrl} size={36} />
+              <TokenIcon symbol={t1.symbol} logoUrl={t1.logoUrl} size={36} />
             </div>
             <div className="min-w-0">
-              <div className="text-base font-bold flex items-center gap-1.5">
+              <div className="text-base font-extrabold text-cyan-50 flex items-center gap-1.5">
                 {t0.symbol} / {t1.symbol}
-                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-surface-3 border border-border text-muted-foreground font-mono">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-mono font-bold">
                   {feeTierLabel(pool.fee)}
                 </span>
               </div>
-              <div className="text-[11px] text-muted-foreground">
+              <div className="text-[10px] text-cyan-400/70">
                 {pool.stable ? 'Stable narrow range' : 'Full-range Uniswap V3'}
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1">✕</button>
+          <button onClick={onClose} className="text-cyan-400/70 hover:text-cyan-300 p-1.5 rounded-lg hover:bg-cyan-500/10">✕</button>
         </div>
 
-        {/* Tabs */}
-        <div className="grid grid-cols-3 gap-1 p-3 bg-surface-2 mx-3 mt-3 rounded-xl">
-          {(['deposit', 'withdraw', 'claim'] as const).map(t => (
-            <button key={t} onClick={() => { setTab(t); setMsg('') }}
-              className={cn(
-                'py-1.5 text-xs font-semibold rounded-lg transition-all',
-                tab === t ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-muted-foreground',
-              )}>
-              {t === 'deposit' ? 'Depositar' : t === 'withdraw' ? 'Retirar' : 'Reclamar'}
-            </button>
-          ))}
-        </div>
-
-        {/* Body */}
         <div className="p-4 space-y-3">
-          {/* Position summary */}
+          {/* Stats summary */}
+          <div className="grid grid-cols-3 gap-2">
+            <StatPill label="APR" value={aprPct} accent />
+            <StatPill label="TVL" value={`${tvl > 0n ? formatToken(tvl, 18, 0) : '0'} H2O`} />
+            <StatPill label="Pool Liq" value={live ? formatToken(live.poolLiquidity, 0, 0) : '—'} />
+          </div>
+
+          {/* Price chart */}
+          {live && <PriceChart data={live.priceHistory} change={live.priceChange24h} t0Sym={t0.symbol} t1Sym={t1.symbol} />}
+
+          {/* User position summary */}
           {position && position.liquidity > 0n && (
-            <div className="rounded-xl border border-border bg-surface-2 p-3 space-y-1">
-              <div className="text-[10px] uppercase text-muted-foreground tracking-wider">Tu posición</div>
-              <div className="text-sm font-mono">{formatToken(position.liquidity, 0, 0)} liquidity</div>
-              {position.netH2O > 0n && (
-                <div className="text-xs text-cyan-400">
-                  Reclamable: <span className="font-semibold">{formatToken(position.netH2O, 18, 4)} H2O</span>
+            <div className="rounded-xl border border-cyan-500/30 bg-gradient-to-br from-cyan-500/5 to-blue-500/5 p-3 space-y-1.5">
+              <div className="text-[10px] uppercase text-cyan-300/80 tracking-wider font-bold flex items-center gap-1">
+                <Waves className="w-3 h-3" /> Tu posición
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <div className="text-cyan-500/60 text-[10px]">Liquidez</div>
+                  <div className="text-cyan-100 font-mono font-bold">{formatToken(position.liquidity, 0, 0)}</div>
                 </div>
-              )}
+                <div>
+                  <div className="text-cyan-500/60 text-[10px]">Reclamable</div>
+                  <div className="text-cyan-300 font-mono font-bold">{formatToken(position.netH2O, 18, 4)} H2O</div>
+                </div>
+              </div>
             </div>
           )}
+
+          {/* Tabs */}
+          <div className="grid grid-cols-3 gap-1 p-1 bg-cyan-950/40 rounded-xl border border-cyan-500/10">
+            {(['deposit', 'withdraw', 'claim'] as const).map(t => (
+              <button key={t} onClick={() => { setTab(t); setMsg('') }}
+                className={cn(
+                  'py-2 text-xs font-bold rounded-lg transition-all',
+                  tab === t
+                    ? 'bg-gradient-to-r from-cyan-500/30 to-blue-500/30 text-cyan-100 border border-cyan-400/40 shadow-[0_0_12px_-4px_rgba(34,211,238,0.6)]'
+                    : 'text-cyan-500/60 hover:text-cyan-300',
+                )}>
+                {t === 'deposit' ? 'Depositar' : t === 'withdraw' ? 'Retirar' : 'Reclamar'}
+              </button>
+            ))}
+          </div>
 
           {/* Tab content */}
           {tab === 'deposit' && (
             <div className="space-y-3">
               {pool.comingSoon ? (
                 <div className="text-center py-6 text-sm text-amber-400">Pool próximamente disponible</div>
+              ) : sqrtPriceX96 === 0n ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-300 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>Esta pool aún no está inicializada en Uniswap. Espera a que tenga precio antes de depositar.</span>
+                </div>
               ) : (
                 <>
+                  {pool.needsInit && (
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-2.5 text-[11px] text-amber-300 flex items-start gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <span>Serás de los primeros LPs en esta pool — precio basado en el spot actual de Uniswap.</span>
+                    </div>
+                  )}
+
+                  <div className="text-[10px] uppercase tracking-wider text-cyan-400/70 font-bold">
+                    Ingresa solo UN monto, calculamos el otro al precio del pool
+                  </div>
+
                   <AmountInput
                     label={t0.symbol}
                     logoUrl={t0.logoUrl}
@@ -341,7 +521,11 @@ function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogP
                     decimals={t0.decimals}
                     onMax={() => onAmt0Change(ethers.formatUnits(bal0, t0.decimals))}
                     disabled={loading}
+                    isAuto={activeInput === 'b' && amount0 !== ''}
                   />
+                  <div className="flex justify-center -my-1">
+                    <div className="w-8 h-8 rounded-full bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-300 text-xs">+</div>
+                  </div>
                   <AmountInput
                     label={t1.symbol}
                     logoUrl={t1.logoUrl}
@@ -351,12 +535,9 @@ function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogP
                     decimals={t1.decimals}
                     onMax={() => onAmt1Change(ethers.formatUnits(bal1, t1.decimals))}
                     disabled={loading}
+                    isAuto={activeInput === 'a' && amount1 !== ''}
                   />
-                  <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <input type="checkbox" checked={linked} onChange={e => setLinked(e.target.checked)} className="rounded border-border" />
-                    Auto-balance al precio actual del pool
-                  </label>
-                  <Button onClick={doDeposit} disabled={loading} className="w-full bg-cyan-500 hover:bg-cyan-600 text-white">
+                  <Button onClick={doDeposit} disabled={loading} className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold shadow-[0_0_24px_-4px_rgba(34,211,238,0.6)]">
                     {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Droplets className="w-4 h-4 mr-2" />}
                     Aportar liquidez
                   </Button>
@@ -368,28 +549,28 @@ function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogP
           {tab === 'withdraw' && (
             <div className="space-y-3">
               {!position || position.liquidity === 0n ? (
-                <div className="text-center py-6 text-sm text-muted-foreground">Sin liquidez para retirar</div>
+                <div className="text-center py-6 text-sm text-cyan-500/60">Sin liquidez para retirar</div>
               ) : (
                 <>
-                  <div className="rounded-xl border border-border bg-surface-2 p-3 space-y-2">
+                  <div className="rounded-xl border border-cyan-500/20 bg-cyan-950/30 p-3 space-y-2">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Porcentaje a retirar</span>
-                      <span className="font-mono font-bold text-foreground">{withdrawPct}%</span>
+                      <span className="text-cyan-400/70">Porcentaje a retirar</span>
+                      <span className="font-mono font-bold text-cyan-100 text-base">{withdrawPct}%</span>
                     </div>
                     <input type="range" min="1" max="100" value={withdrawPct}
                       onChange={e => setWithdrawPct(parseInt(e.target.value))}
-                      className="w-full accent-cyan-500" disabled={loading} />
+                      className="w-full accent-cyan-400" disabled={loading} />
                     <div className="flex gap-1">
                       {[25, 50, 75, 100].map(p => (
                         <button key={p} onClick={() => setWithdrawPct(p)}
                           className={cn(
-                            'flex-1 py-1 text-[11px] rounded-md border transition-all',
-                            withdrawPct === p ? 'border-cyan-500 text-cyan-400 bg-cyan-500/10' : 'border-border text-muted-foreground',
+                            'flex-1 py-1.5 text-[11px] rounded-md border transition-all font-bold',
+                            withdrawPct === p ? 'border-cyan-400 text-cyan-100 bg-cyan-500/15' : 'border-cyan-500/20 text-cyan-500/60',
                           )} disabled={loading}>{p}%</button>
                       ))}
                     </div>
                   </div>
-                  <Button onClick={doWithdraw} disabled={loading} className="w-full bg-orange-500 hover:bg-orange-600 text-white">
+                  <Button onClick={doWithdraw} disabled={loading} className="w-full bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-400 hover:to-rose-400 text-white font-bold">
                     {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Unlock className="w-4 h-4 mr-2" />}
                     Retirar {withdrawPct}%
                   </Button>
@@ -401,17 +582,17 @@ function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogP
           {tab === 'claim' && (
             <div className="space-y-3">
               {!position || position.netH2O === 0n ? (
-                <div className="text-center py-6 text-sm text-muted-foreground">Sin recompensas para reclamar</div>
+                <div className="text-center py-6 text-sm text-cyan-500/60">Sin recompensas para reclamar</div>
               ) : (
                 <>
-                  <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4 text-center">
-                    <div className="text-[10px] uppercase text-cyan-400 tracking-wider">Recompensa</div>
-                    <div className="text-2xl font-bold text-cyan-300 mt-1">
+                  <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-br from-cyan-500/15 to-blue-500/10 p-5 text-center shadow-[0_0_24px_-8px_rgba(34,211,238,0.5)]">
+                    <div className="text-[10px] uppercase text-cyan-300/80 tracking-wider font-bold">Recompensa neta</div>
+                    <div className="text-3xl font-extrabold text-cyan-100 mt-1 font-mono">
                       {formatToken(position.netH2O, 18, 4)}
                     </div>
-                    <div className="text-xs text-muted-foreground mt-1">H2O</div>
+                    <div className="text-xs text-cyan-300/80 mt-1 font-bold">H2O</div>
                   </div>
-                  <Button onClick={doClaim} disabled={loading} className="w-full bg-cyan-500 hover:bg-cyan-600 text-white">
+                  <Button onClick={doClaim} disabled={loading} className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold shadow-[0_0_24px_-4px_rgba(34,211,238,0.6)]">
                     {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Gift className="w-4 h-4 mr-2" />}
                     Reclamar H2O
                   </Button>
@@ -423,18 +604,19 @@ function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogP
           {/* Mensajes */}
           {msg && (
             <div className={cn(
-              'text-xs px-3 py-2 rounded-lg border',
-              msg.startsWith('✓') ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-red-500/10 border-red-500/30 text-red-400',
+              'text-xs px-3 py-2 rounded-lg border flex items-start gap-2',
+              msg.startsWith('✓') ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-300',
             )}>
-              {msg}
+              {msg.startsWith('✓') ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+              <span>{msg}</span>
             </div>
           )}
 
-          {/* Info pequeñita: 2% deposit/withdraw, claim FREE para usuario (esconder 20%) */}
-          <div className="text-[10px] text-muted-foreground flex items-start gap-1.5 pt-2 border-t border-border">
+          {/* Info pequeñita */}
+          <div className="text-[10px] text-cyan-500/60 flex items-start gap-1.5 pt-2 border-t border-cyan-500/10">
             <Info className="w-3 h-3 shrink-0 mt-0.5" />
             <span>
-              Aporte 2% · Retiro 2% · Reclamo en H2O equivalente al precio spot del pool · Posición full-range nunca sale de rango.
+              Aporte 2% · Retiro 2% · Recompensas en H2O equivalente al precio spot · Posición {pool.stable ? 'narrow range' : 'full-range'} {pool.stable ? '' : 'nunca sale de rango'}.
             </span>
           </div>
         </div>
@@ -443,15 +625,36 @@ function PoolDialog({ pool, position, userAddress, onClose, onRefresh }: DialogP
   )
 }
 
-function AmountInput({ label, logoUrl, value, onChange, balance, decimals, onMax, disabled }: {
+function StatPill({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className={cn(
+      'rounded-xl border px-2.5 py-2',
+      accent
+        ? 'bg-gradient-to-br from-cyan-500/15 to-blue-500/10 border-cyan-400/30'
+        : 'bg-cyan-950/40 border-cyan-500/15',
+    )}>
+      <div className="text-[9px] uppercase tracking-wider text-cyan-500/70 font-bold">{label}</div>
+      <div className={cn('font-mono font-bold text-sm', accent ? 'text-cyan-200' : 'text-cyan-100')}>{value}</div>
+    </div>
+  )
+}
+
+function AmountInput({ label, logoUrl, value, onChange, balance, decimals, onMax, disabled, isAuto }: {
   label: string; logoUrl?: string; value: string; onChange: (v: string) => void;
-  balance: bigint; decimals: number; onMax: () => void; disabled?: boolean
+  balance: bigint; decimals: number; onMax: () => void; disabled?: boolean; isAuto?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-surface-2 p-3 space-y-1.5">
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>{label}</span>
-        <button onClick={onMax} className="hover:text-cyan-400 font-mono" disabled={disabled}>
+    <div className={cn(
+      'rounded-xl border p-3 space-y-1.5 transition-all',
+      isAuto
+        ? 'border-cyan-500/15 bg-cyan-950/20'
+        : 'border-cyan-500/30 bg-gradient-to-br from-cyan-950/40 to-blue-950/20',
+    )}>
+      <div className="flex items-center justify-between text-[10px]">
+        <span className="text-cyan-400/70 uppercase tracking-wider font-bold">
+          {label} {isAuto && <span className="ml-1 text-cyan-500/60 normal-case font-normal">· auto</span>}
+        </span>
+        <button onClick={onMax} className="hover:text-cyan-300 text-cyan-500/70 font-mono" disabled={disabled}>
           Bal: {formatToken(balance, decimals, 4)}
         </button>
       </div>
@@ -463,11 +666,11 @@ function AmountInput({ label, logoUrl, value, onChange, balance, decimals, onMax
           value={value}
           onChange={e => onChange(e.target.value)}
           disabled={disabled}
-          className="flex-1 bg-transparent text-lg font-mono outline-none text-foreground placeholder:text-muted-foreground/50"
+          className="flex-1 bg-transparent text-xl font-mono outline-none text-cyan-50 placeholder:text-cyan-500/30"
         />
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-3 border border-border shrink-0">
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-cyan-950/60 border border-cyan-500/20 shrink-0">
           <TokenIcon symbol={label} logoUrl={logoUrl} size={20} />
-          <span className="text-xs font-bold">{label}</span>
+          <span className="text-xs font-bold text-cyan-100">{label}</span>
         </div>
       </div>
     </div>
@@ -479,20 +682,22 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
   const [pools, setPools] = useState<H2OV3Pool[]>([])
   const [positions, setPositions] = useState<Record<number, H2OV3Position | null>>({})
   const [aprs, setAprs] = useState<Record<number, bigint>>({})
+  const [livePool, setLivePool] = useState<Record<number, PoolLiveData>>({})
   const [loading, setLoading] = useState(true)
   const [activePool, setActivePool] = useState<H2OV3Pool | null>(null)
   const [msg, setMsg] = useState('')
+  const [lastUpdate, setLastUpdate] = useState<number>(0)
+  const initialDoneRef = useRef(false)
 
   const refresh = useCallback(async (silent = false) => {
     if (!H2O_V3_ADDRESS) {
       setLoading(false)
-      setMsg('Contrato AcuaH2OV3LP aún no desplegado. Ejecuta scripts/deploy-h2o-v3.js')
+      setMsg('Contrato AcuaH2OV3LP aún no desplegado.')
       return
     }
     if (!silent) { setLoading(true); setMsg('') }
     try {
       const psRaw = await fetchAllPools()
-      // Filtrar pools desactivadas y deduplicar por pool address (mantener el id mas bajo)
       const seen = new Set<string>()
       const ps = psRaw.filter(p => {
         if (!p.active) return false
@@ -501,33 +706,53 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         seen.add(key); return true
       })
       setPools(ps)
-      const posMap: Record<number, H2OV3Position | null> = {}
-      const aprMap: Record<number, bigint> = {}
-      await Promise.all(ps.map(async p => {
-        try {
-          const [pos, apr] = await Promise.all([
-            userAddress ? fetchUserPosition(p.poolId, userAddress) : Promise.resolve(null),
-            fetchAprBps(p.poolId),
-          ])
-          posMap[p.poolId] = pos
-          aprMap[p.poolId] = apr
-        } catch {}
-      }))
-      setPositions(posMap)
-      setAprs(aprMap)
+
+      // Cargar en paralelo: posiciones + APRs + datos vivos
+      const [, , live] = await Promise.all([
+        Promise.all(ps.map(async p => {
+          try {
+            if (userAddress) {
+              const pos = await fetchUserPosition(p.poolId, userAddress)
+              setPositions(prev => ({ ...prev, [p.poolId]: pos }))
+            }
+          } catch {}
+        })),
+        Promise.all(ps.map(async p => {
+          try {
+            const apr = await fetchAprBps(p.poolId)
+            setAprs(prev => ({ ...prev, [p.poolId]: apr }))
+          } catch {}
+        })),
+        fetchAllPoolsLive(ps),
+      ])
+      setLivePool(live)
+      setLastUpdate(Date.now())
     } catch (e: any) {
       if (!silent) setMsg(e.message || 'Error cargando pools')
-    } finally { if (!silent) setLoading(false) }
+    } finally { if (!silent) setLoading(false); initialDoneRef.current = true }
   }, [userAddress])
 
-  // Carga inicial + auto-refresh cada 30s para mantener APR/posiciones al dia
   useEffect(() => {
     refresh()
     const id = setInterval(() => { refresh(true) }, 30_000)
     return () => clearInterval(id)
   }, [refresh])
 
-  // Si el contrato no esta desplegado todavia, mostramos placeholder con la lista del deploy
+  // Totales agregados
+  const totals = useMemo(() => {
+    let totalTVL = 0n
+    let totalPending = 0n
+    let activePools = pools.length
+    for (const p of pools) {
+      const live = livePool[p.poolId]
+      if (live) totalTVL += live.tvlInH2O
+      const pos = positions[p.poolId]
+      if (pos) totalPending += pos.netH2O
+    }
+    return { totalTVL, totalPending, activePools }
+  }, [pools, livePool, positions])
+
+  // Si el contrato no esta desplegado todavia, mostramos placeholder
   if (!H2O_V3_ADDRESS) {
     const fallback: any[] = (H2O_V3_DEPLOY as any).pools || []
     return (
@@ -535,42 +760,36 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         <Header />
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-xs text-amber-400 space-y-1.5">
           <div className="font-semibold flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> Contrato pendiente de despliegue</div>
-          <div className="text-amber-400/70">
-            Para activar este panel ejecuta:
-          </div>
-          <pre className="bg-black/30 text-[10px] text-amber-300 p-2 rounded font-mono overflow-x-auto">cd contracts-hh
-PRIVATE_KEY=0x... npx hardhat run scripts/deploy-h2o-v3.js --network worldchain
-PRIVATE_KEY=0x... npx hardhat run scripts/fund-h2o-v3.js   --network worldchain</pre>
         </div>
-        <div className="text-[11px] uppercase text-muted-foreground tracking-wider px-1 pt-2">Pools planificadas ({fallback.length})</div>
-        {fallback.map(p => (
-          <div key={p.id} className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-border bg-surface-2">
-            <div className="text-sm font-semibold">{p.label}</div>
-            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-surface-3 border border-border text-muted-foreground font-mono">
-              {feeTierLabel(p.fee)}{p.stable ? ' · stable' : ''}
-            </span>
-          </div>
-        ))}
       </div>
     )
   }
 
   return (
     <div className="px-4 pt-3 pb-6 space-y-3">
-      <Header onRefresh={refresh} loading={loading} />
+      <Header onRefresh={() => refresh(false)} loading={loading} lastUpdate={lastUpdate} />
+
+      {/* Panel de totales */}
+      <div className="grid grid-cols-3 gap-2">
+        <BigStat label="TVL Total" value={`${formatToken(totals.totalTVL, 18, 0)} H2O`} icon={<Activity className="w-3.5 h-3.5" />} highlight />
+        <BigStat label="Pools" value={`${totals.activePools}`} icon={<Droplets className="w-3.5 h-3.5" />} />
+        <BigStat label="Pendiente Tuyo" value={`${formatToken(totals.totalPending, 18, 4)} H2O`} icon={<Gift className="w-3.5 h-3.5" />} highlight={totals.totalPending > 0n} />
+      </div>
 
       {msg && (
-        <div className="text-xs px-3 py-2 rounded-lg border bg-red-500/10 border-red-500/30 text-red-400">{msg}</div>
+        <div className="text-xs px-3 py-2 rounded-lg border bg-rose-500/10 border-rose-500/30 text-rose-300 flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {msg}
+        </div>
       )}
 
       {loading && pools.length === 0 ? (
-        <div className="flex items-center justify-center py-10 text-muted-foreground">
+        <div className="flex items-center justify-center py-12 text-cyan-400/70">
           <Loader2 className="w-5 h-5 animate-spin mr-2" /> Cargando pools…
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {pools.length === 0 && (
-            <div className="text-center py-8 text-sm text-muted-foreground">Sin pools configurados</div>
+            <div className="text-center py-8 text-sm text-cyan-500/60">Sin pools activas</div>
           )}
           {pools.map(p => (
             <PoolRow
@@ -578,6 +797,7 @@ PRIVATE_KEY=0x... npx hardhat run scripts/fund-h2o-v3.js   --network worldchain<
               pool={p}
               position={positions[p.poolId] || null}
               aprBps={aprs[p.poolId] || 0n}
+              live={livePool[p.poolId]}
               onOpen={() => setActivePool(p)}
             />
           ))}
@@ -588,6 +808,8 @@ PRIVATE_KEY=0x... npx hardhat run scripts/fund-h2o-v3.js   --network worldchain<
         <PoolDialog
           pool={activePool}
           position={positions[activePool.poolId] || null}
+          live={livePool[activePool.poolId]}
+          aprBps={aprs[activePool.poolId] || 0n}
           userAddress={userAddress}
           onClose={() => setActivePool(null)}
           onRefresh={() => { setActivePool(null); refresh() }}
@@ -597,21 +819,46 @@ PRIVATE_KEY=0x... npx hardhat run scripts/fund-h2o-v3.js   --network worldchain<
   )
 }
 
-function Header({ onRefresh, loading }: { onRefresh?: () => void; loading?: boolean }) {
+function BigStat({ label, value, icon, highlight }: { label: string; value: string; icon: React.ReactNode; highlight?: boolean }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className={cn(
+      'rounded-xl border p-2.5 space-y-1',
+      highlight
+        ? 'bg-gradient-to-br from-cyan-500/15 to-blue-500/10 border-cyan-400/30 shadow-[0_0_16px_-6px_rgba(34,211,238,0.4)]'
+        : 'bg-cyan-950/40 border-cyan-500/15',
+    )}>
+      <div className="text-[9px] uppercase tracking-wider text-cyan-400/70 font-bold flex items-center gap-1">
+        {icon}{label}
+      </div>
+      <div className="text-cyan-100 font-mono font-bold text-sm">{value}</div>
+    </div>
+  )
+}
+
+function Header({ onRefresh, loading, lastUpdate }: { onRefresh?: () => void; loading?: boolean; lastUpdate?: number }) {
+  const [secondsAgo, setSecondsAgo] = useState(0)
+  useEffect(() => {
+    if (!lastUpdate) return
+    const tick = () => setSecondsAgo(Math.floor((Date.now() - lastUpdate) / 1000))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [lastUpdate])
+  return (
+    <div className="flex items-end justify-between">
       <div>
-        <div className="text-base font-bold flex items-center gap-1.5">
-          <Droplets className="w-4 h-4 text-cyan-400" />
-          H2O v3 — Liquidez Concentrada
+        <div className="text-base font-extrabold flex items-center gap-1.5 text-cyan-50">
+          <Waves className="w-4 h-4 text-cyan-400" />
+          H2O <span className="text-cyan-400">v3</span>
         </div>
-        <div className="text-[11px] text-muted-foreground mt-0.5">
-          Aporta a pools Uniswap V3, recompensas se pagan en H2O
+        <div className="text-[10px] text-cyan-400/70">
+          Liquidez concentrada Uniswap V3 · Recompensas en H2O
+          {lastUpdate ? ` · auto-refresh cada 30s (hace ${secondsAgo}s)` : ''}
         </div>
       </div>
       {onRefresh && (
         <button onClick={onRefresh} disabled={loading}
-          className="p-2 rounded-lg border border-border bg-surface-2 hover:border-cyan-500/40 text-muted-foreground hover:text-cyan-400 transition">
+          className="p-2 rounded-lg border border-cyan-500/20 bg-cyan-950/40 hover:border-cyan-400/40 text-cyan-400 hover:text-cyan-300 transition shrink-0">
           <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
         </button>
       )}
