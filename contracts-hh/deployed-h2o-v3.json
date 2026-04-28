@@ -1,32 +1,238 @@
 {
-  "deployedAt": null,
+  "deployedAt": "2026-04-28T00:24:23.882Z",
   "network": "worldchain",
   "chainId": 480,
-  "deployer": null,
-  "contract": null,
+  "deployer": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
+  "contract": "0xC1feC35ea295EE867e41D1b80a23809C39ac6868",
   "npm": "0xec12a9F9a09f50550686363766Cc153D03c27b5e",
   "pricing": {
-    "usdcWldPool": null,
-    "wldH2oPool": null
+    "usdcWldPool": "0xC19BC89ac024426F5A23c5bb8bc91D8017c90684",
+    "wldH2oPool": "0x1b538b52cc4a767280D1E5a3EfaBD91984FE58a8"
   },
   "pools": [
-    { "id": 0,  "label": "WLD/SUSHI",  "fee": 3000, "comingSoon": false },
-    { "id": 1,  "label": "WLD/USDC",   "fee": 3000, "comingSoon": false },
-    { "id": 2,  "label": "WLD/BTCH2O", "fee": 3000, "comingSoon": false },
-    { "id": 3,  "label": "USDC/SUSHI", "fee": 3000, "comingSoon": false },
-    { "id": 4,  "label": "WETH/WLD",   "fee": 3000, "comingSoon": false },
-    { "id": 5,  "label": "WETH/USDC",  "fee": 3000, "comingSoon": false },
-    { "id": 6,  "label": "WBTC/WLD",   "fee": 3000, "comingSoon": false },
-    { "id": 7,  "label": "WETH/SUSHI", "fee": 3000, "comingSoon": false },
-    { "id": 8,  "label": "WLD/VIBE",   "fee": 3000, "comingSoon": false },
-    { "id": 9,  "label": "WLD/ORO",    "fee": 3000, "comingSoon": false },
-    { "id": 10, "label": "WLD/ORB",    "fee": 3000, "comingSoon": false },
-    { "id": 11, "label": "WLD/PUF",    "fee": 3000, "comingSoon": false },
-    { "id": 12, "label": "WLD/wARS",   "fee": 3000, "comingSoon": false },
-    { "id": 13, "label": "WLD/oXAUT",  "fee": 3000, "comingSoon": false },
-    { "id": 14, "label": "WLD/AIR",    "fee": 3000, "comingSoon": false },
-    { "id": 15, "label": "UTH2/USDC",  "fee": 500,  "comingSoon": false, "stable": true }
+    {
+      "id": 0,
+      "label": "WLD/SUSHI",
+      "pool": "0xd30EAD5018d64bA70F29b8eeBfd3156441Fb3B8b",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 1,
+      "label": "WLD/USDC",
+      "pool": "0xC19BC89ac024426F5A23c5bb8bc91D8017c90684",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 2,
+      "label": "WLD/BTCH2O",
+      "pool": "0x292FE727E952d6255942f10Ca99c56Da3e470246",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 3,
+      "label": "USDC/SUSHI",
+      "pool": "0x04fB7446482fB7580C6Aa59e7CA55F2a86c4Ca46",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 4,
+      "label": "WETH/WLD",
+      "pool": "0x494D68e3cAb640fa50F4c1B3E2499698D1a173A0",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 5,
+      "label": "WETH/USDC",
+      "pool": "0x6787DE741Bb42cA7FF7dd1B9aAd6098C850CdC6a",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 6,
+      "label": "WBTC/WLD",
+      "pool": "0x9b03Dd0d04C2953a6A74471C53f24F15f592df1e",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 7,
+      "label": "WETH/SUSHI",
+      "pool": "0x67074170b439cEa5E376C874b8a7e37Cdd2E00c6",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 8,
+      "label": "WLD/VIBE",
+      "pool": "0x8412098b963D803764F0429C0744ea738DF3028a",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 9,
+      "label": "WLD/ORO",
+      "pool": "0x40ee65c69a727Ac17D064c4Ef3eabD8b3F153492",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 10,
+      "label": "WLD/ORB",
+      "pool": "0x5EF83A547Bd4f80fE4557eBF17D8Ec095B2f874C",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 11,
+      "label": "WLD/PUF",
+      "pool": "0x86b90757698EfC3297B83902c40A380Ad9B42Ea8",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 12,
+      "label": "WLD/wARS",
+      "pool": "0x6e23f3cC61386836eEC854D8070D310787DC0100",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 13,
+      "label": "WLD/oXAUT",
+      "pool": "0x1Bba7549Cc09a08A6e815CD8F4AD4AC6687c4dDD",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 14,
+      "label": "WLD/AIR",
+      "pool": "0xcEf6C24030a36602E2F6785415811C3019a82D71",
+      "fee": 3000,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "comingSoon": false
+    },
+    {
+      "id": 15,
+      "label": "UTH2/USDC",
+      "pool": "0x71f9736330e2E682388288263276459c8A567760",
+      "fee": 500,
+      "tickLower": 276270,
+      "tickUpper": 276370,
+      "comingSoon": false,
+      "stable": true
+    }
   ],
-  "fees": { "depositBps": 200, "withdrawBps": 200, "claimBps": 2000 },
-  "_note": "Este archivo se sobreescribe automaticamente al correr scripts/deploy-h2o-v3.js. Hasta entonces 'contract' es null y el panel del frontend muestra mensaje de despliegue pendiente."
+  "routes": [
+    {
+      "token": "0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38",
+      "pool": "0xd30EAD5018d64bA70F29b8eeBfd3156441Fb3B8b",
+      "isToUsdc": false,
+      "sym": "SUSHI"
+    },
+    {
+      "token": "0xEcC4dAe4DC3D359a93046bd944e9ee3421A6A484",
+      "pool": "0x292FE727E952d6255942f10Ca99c56Da3e470246",
+      "isToUsdc": false,
+      "sym": "BTCH2O"
+    },
+    {
+      "token": "0x4200000000000000000000000000000000000006",
+      "pool": "0x494D68e3cAb640fa50F4c1B3E2499698D1a173A0",
+      "isToUsdc": false,
+      "sym": "WETH"
+    },
+    {
+      "token": "0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3",
+      "pool": "0x9b03Dd0d04C2953a6A74471C53f24F15f592df1e",
+      "isToUsdc": false,
+      "sym": "WBTC"
+    },
+    {
+      "token": "0x696aD02f0c7d68915ea39cA6e60934f7a8900FB1",
+      "pool": "0x8412098b963D803764F0429C0744ea738DF3028a",
+      "isToUsdc": false,
+      "sym": "VIBE"
+    },
+    {
+      "token": "0xcd1E32B86953D79a6AC58e813D2EA7a1790cAb63",
+      "pool": "0x40ee65c69a727Ac17D064c4Ef3eabD8b3F153492",
+      "isToUsdc": false,
+      "sym": "ORO"
+    },
+    {
+      "token": "0xF3F92A60e6004f3982F0FdE0d43602fC0a30a0dB",
+      "pool": "0x5EF83A547Bd4f80fE4557eBF17D8Ec095B2f874C",
+      "isToUsdc": false,
+      "sym": "ORB"
+    },
+    {
+      "token": "0x1aE3498f1B417fe31BE544B04B711F27Ba437bd3",
+      "pool": "0x86b90757698EfC3297B83902c40A380Ad9B42Ea8",
+      "isToUsdc": false,
+      "sym": "PUF"
+    },
+    {
+      "token": "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d",
+      "pool": "0x6e23f3cC61386836eEC854D8070D310787DC0100",
+      "isToUsdc": false,
+      "sym": "wARS"
+    },
+    {
+      "token": "0x30974f73A4ac9E606Ed80da928e454977ac486D2",
+      "pool": "0x1Bba7549Cc09a08A6e815CD8F4AD4AC6687c4dDD",
+      "isToUsdc": false,
+      "sym": "oXAUT"
+    },
+    {
+      "token": "0xDBA88118551d5Adf16a7AB943403Aea7ea06762b",
+      "pool": "0xcEf6C24030a36602E2F6785415811C3019a82D71",
+      "isToUsdc": false,
+      "sym": "AIR"
+    },
+    {
+      "token": "0x9eA8653640E22A5b69887985BB75d496dc97022a",
+      "pool": "0x71f9736330e2E682388288263276459c8A567760",
+      "isToUsdc": true,
+      "sym": "UTH2"
+    }
+  ],
+  "fees": {
+    "depositBps": 200,
+    "withdrawBps": 200,
+    "claimBps": 2000
+  }
 }

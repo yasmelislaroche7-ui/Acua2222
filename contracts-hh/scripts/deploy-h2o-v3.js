@@ -96,6 +96,11 @@ function computePoolAddress(tokenA, tokenB, fee) {
   return ethers.utils.getCreate2Address(V3_FACTORY, salt, V3_INIT_CODE_HASH);
 }
 
+// Override de gas para todas las txs (el RPC de World Chain subestima)
+const TX_OPTS_SMALL = { gasLimit: 150000 };  // setters simples
+const TX_OPTS_ADDPOOL = { gasLimit: 350000 }; // addPool con storage push
+const TX_OPTS_BATCH = { gasLimit: 1500000 };  // setPriceRoutesBatch (12 entries)
+
 async function main() {
   const [deployer] = await ethers.getSigners();
   console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -104,12 +109,25 @@ async function main() {
   console.log("  Deployer :", deployer.address);
   console.log("  Balance  :", ethers.utils.formatEther(await deployer.getBalance()), "ETH");
 
-  // 1. Deploy
-  const Factory = await ethers.getContractFactory("AcuaH2OV3LP");
-  console.log("\n[1/4] Desplegando contrato...");
-  const c = await Factory.deploy(NPM_ADDRESS);
-  await c.deployed();
-  console.log("      AcuaH2OV3LP:", c.address);
+  // 1. Deploy (skip si ya hay contrato en deployed-h2o-v3.json)
+  const outFile = path.join(__dirname, "..", "deployed-h2o-v3.json");
+  let existing = {};
+  try { existing = JSON.parse(fs.readFileSync(outFile, "utf8")); } catch {}
+  const reuseAddr = process.env.H2O_V3_ADDRESS || existing.contract;
+
+  let c;
+  if (reuseAddr) {
+    console.log("\n[1/4] Reusando contrato ya desplegado:", reuseAddr);
+    c = await ethers.getContractAt("AcuaH2OV3LP", reuseAddr);
+  } else {
+    const Factory = await ethers.getContractFactory("AcuaH2OV3LP");
+    console.log("\n[1/4] Desplegando contrato...");
+    c = await Factory.deploy(NPM_ADDRESS);
+    await c.deployed();
+    console.log("      AcuaH2OV3LP:", c.address);
+    // Persistir address inmediatamente para recuperar si algo falla luego
+    fs.writeFileSync(outFile, JSON.stringify({ ...existing, contract: c.address, network: "worldchain", chainId: 480 }, null, 2));
+  }
 
   // 2. Configurar pool helpers (USDC/WLD y WLD/H2O para pricing oracle)
   const usdcWldPool = computePoolAddress(T.USDC, T.WLD, FEE_MEDIUM);
@@ -117,11 +135,21 @@ async function main() {
   console.log("\n[2/4] Configurando pools de pricing...");
   console.log("      USDC/WLD pool (3000):", usdcWldPool);
   console.log("      WLD/H2O  pool (3000):", wldH2oPool);
-  await (await c.setUsdcWldPool(usdcWldPool)).wait();
-  await (await c.setWldH2OPool(wldH2oPool)).wait();
+  const curUsdcWld = await c.usdcWldPool();
+  if (curUsdcWld.toLowerCase() !== usdcWldPool.toLowerCase()) {
+    await (await c.setUsdcWldPool(usdcWldPool, TX_OPTS_SMALL)).wait();
+    console.log("      ✓ usdcWldPool set");
+  } else { console.log("      · usdcWldPool ya configurado"); }
+  const curWldH2o = await c.wldH2OPool();
+  if (curWldH2o.toLowerCase() !== wldH2oPool.toLowerCase()) {
+    await (await c.setWldH2OPool(wldH2oPool, TX_OPTS_SMALL)).wait();
+    console.log("      ✓ wldH2OPool set");
+  } else { console.log("      · wldH2OPool ya configurado"); }
 
-  // 3. Agregar pares
+  // 3. Agregar pares (idempotente: salta los ya creados segun poolsCount)
   console.log("\n[3/4] Agregando pares...");
+  const startCount = (await c.poolsCount()).toNumber ? (await c.poolsCount()).toNumber() : Number(await c.poolsCount());
+  console.log(`      poolsCount actual: ${startCount} / ${PAIRS.length}`);
   const addedPools = [];
   for (let i = 0; i < PAIRS.length; i++) {
     const p = PAIRS[i];
@@ -133,9 +161,14 @@ async function main() {
       ({ tickLower, tickUpper } = fullRangeTicks(p.fee));
     }
     const poolAddr = computePoolAddress(p.a, p.b, p.fee);
-    const tx = await c.addPool(p.a, p.b, p.fee, tickLower, tickUpper, poolAddr, p.comingSoon);
+    const meta = { id: i, label: p.label, pool: poolAddr, fee: p.fee, tickLower, tickUpper, comingSoon: p.comingSoon, ...(p.stable ? { stable: true } : {}) };
+    addedPools.push(meta);
+    if (i < startCount) {
+      console.log(`      [${i}] ${p.label.padEnd(12)} ya existe, salto`);
+      continue;
+    }
+    const tx = await c.addPool(p.a, p.b, p.fee, tickLower, tickUpper, poolAddr, p.comingSoon, TX_OPTS_ADDPOOL);
     await tx.wait();
-    addedPools.push({ id: i, label: p.label, pool: poolAddr, fee: p.fee, tickLower, tickUpper, comingSoon: p.comingSoon, ...(p.stable ? { stable: true } : {}) });
     console.log(`      [${i}] ${p.label.padEnd(12)} fee=${p.fee} ticks=[${tickLower}, ${tickUpper}] pool=${poolAddr}`);
   }
 
@@ -160,11 +193,17 @@ async function main() {
   const tokens   = tokensWithRoute.map(x => x.token);
   const pools    = tokensWithRoute.map(x => x.pool);
   const isUsdc   = tokensWithRoute.map(x => x.isToUsdc);
-  await (await c.setPriceRoutesBatch(tokens, pools, isUsdc)).wait();
+  // Verificar si ya esta configurado (chequeando una entry)
+  const sample = await c.priceRoutes(tokens[0]);
+  if (sample.pool && sample.pool.toLowerCase() === pools[0].toLowerCase()) {
+    console.log("      · routes ya configuradas, salto");
+  } else {
+    await (await c.setPriceRoutesBatch(tokens, pools, isUsdc, TX_OPTS_BATCH)).wait();
+    console.log("      ✓ routes configuradas");
+  }
   for (const r of tokensWithRoute) console.log(`      ${r.sym.padEnd(7)} -> ${r.isToUsdc ? "USDC" : "WLD"} pool ${r.pool}`);
 
   // ─── Output ─────────────────────────────────────────────────────────────────
-  const outFile = path.join(__dirname, "..", "deployed-h2o-v3.json");
   const output = {
     deployedAt: new Date().toISOString(),
     network: "worldchain",
