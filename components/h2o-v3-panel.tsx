@@ -15,7 +15,7 @@ import {
   H2O_V3_ADDRESS, H2O_V3_TX_ABI, H2O_V3_DEPLOY,
   fetchAllPools, fetchUserPosition, fetchAprBps, fetchAllPoolsLive,
   fetchUserBalance, quoteAmount1FromAmount0, quoteAmount0FromAmount1,
-  tokenMeta, isKnownToken, isH2O, formatToken, bpsToPct, feeTierLabel, randomNonce,
+  tokenMeta, isKnownToken, isH2O, formatToken, formatCompact, bpsToPct, feeTierLabel, randomNonce,
   fetchH2OUsdcRate, h2oToUsdc, formatUsd,
   type H2OV3Pool, type H2OV3Position, type PoolLiveData,
 } from '@/lib/h2o-v3'
@@ -156,8 +156,8 @@ function PoolRow({ pool, position, aprBps, live, usdcRate, onOpen }: PoolRowProp
           )}
         </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-1 text-[10px]">
+        {/* Stats row — 2 columnas (APR + TVL) para mantener numeros chicos en celular */}
+        <div className="grid grid-cols-2 gap-1 text-[10px]">
           <div className={cn(
             'rounded-md px-2 py-1 border',
             aprBps > 0n
@@ -169,19 +169,15 @@ function PoolRow({ pool, position, aprBps, live, usdcRate, onOpen }: PoolRowProp
               aprBps > 0n ? 'text-emerald-300/80' : 'text-cyan-500/60',
             )}>APR</div>
             <div className={cn(
-              'font-bold font-mono',
+              'font-bold font-mono truncate',
               aprBps > 0n ? 'text-emerald-300' : 'text-cyan-200',
             )}>{aprPct}</div>
           </div>
           <div className="rounded-md bg-cyan-950/40 border border-cyan-500/10 px-2 py-1">
             <div className="text-cyan-500/60 uppercase tracking-wider text-[8px]">TVL</div>
-            <div className="text-cyan-200 font-bold font-mono leading-tight">
-              {tvlUsd > 0n ? formatUsd(tvlUsd) : (tvl > 0n ? `${formatToken(tvl, 18, 0)} H2O` : '—')}
+            <div className="text-cyan-200 font-bold font-mono leading-tight truncate">
+              {tvlUsd > 0n ? formatUsd(tvlUsd) : (tvl > 0n ? `${formatCompact(tvl, 18)} H2O` : '—')}
             </div>
-          </div>
-          <div className="rounded-md bg-cyan-950/40 border border-cyan-500/10 px-2 py-1">
-            <div className="text-cyan-500/60 uppercase tracking-wider text-[8px]">Liq</div>
-            <div className="text-cyan-200 font-bold font-mono">{formatToken(pool.totalLiquidity, 0, 0)}</div>
           </div>
         </div>
 
@@ -191,11 +187,11 @@ function PoolRow({ pool, position, aprBps, live, usdcRate, onOpen }: PoolRowProp
             <Waves className="w-3 h-3 text-cyan-300 shrink-0" />
             <div className="text-[10px] text-cyan-100 flex-1 flex items-center gap-2 min-w-0">
               {hasPosition && (
-                <span className="truncate">Tuyo <span className="text-cyan-300 font-mono font-bold">{formatToken(position!.liquidity, 0, 0)}L</span></span>
+                <span className="truncate">Tu pos <span className="text-cyan-300 font-mono font-bold">{formatCompact(position!.liquidity, 0)}</span></span>
               )}
               {hasPending && (
                 <span className="ml-auto text-cyan-300 font-bold whitespace-nowrap">
-                  +{formatToken(position!.netH2O, 18, 4)} H2O
+                  +{formatCompact(position!.netH2O, 18)} H2O
                   {pendingUsd > 0n && <span className="text-cyan-400/70 font-normal ml-1">({formatUsd(pendingUsd)})</span>}
                 </span>
               )}
@@ -307,13 +303,23 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
     return n // human-readable token1-per-token0
   }, [sqrtPriceX96, manualPrice])
 
+  // Cargar balance del usuario para los 2 tokens. Usamos solo claves primitivas
+  // como deps (no `pool` entero) para evitar que el efecto se re-ejecute en cada
+  // refresh y haga "parpadear" los balances (aparecen y desaparecen).
   useEffect(() => {
-    fetchFeeInfo(userAddress).then(d => { setFeeAmount(d.fee); setH2oBal(d.userH2O) }).catch(() => {})
+    if (!userAddress) return
+    let cancelled = false
+    fetchFeeInfo(userAddress)
+      .then(d => { if (!cancelled) { setFeeAmount(d.fee); setH2oBal(d.userH2O) } })
+      .catch(() => {})
     Promise.all([
       fetchUserBalance(pool.token0, userAddress),
       fetchUserBalance(pool.token1, userAddress),
-    ]).then(([a, b]) => { setBal0(a.balance); setBal1(b.balance) }).catch(() => {})
-  }, [pool, userAddress])
+    ])
+      .then(([a, b]) => { if (!cancelled) { setBal0(a.balance); setBal1(b.balance) } })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [pool.token0, pool.token1, userAddress])
 
   function requireFee(): boolean {
     if (h2oBal < feeAmount) { setMsg(insufficientFeeMsg(feeAmount)); return false }
@@ -503,10 +509,10 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
             <StatPill label="APR" value={aprPct} green={aprBps > 0n} accent={aprBps > 0n} />
             <StatPill
               label="TVL"
-              value={tvlUsd > 0n ? formatUsd(tvlUsd) : (tvl > 0n ? `${formatToken(tvl, 18, 0)} H2O` : '—')}
-              sub={tvlUsd > 0n && tvl > 0n ? `${formatToken(tvl, 18, 0)} H2O` : undefined}
+              value={tvlUsd > 0n ? formatUsd(tvlUsd) : (tvl > 0n ? `${formatCompact(tvl, 18)} H2O` : '—')}
+              sub={tvlUsd > 0n && tvl > 0n ? `${formatCompact(tvl, 18)} H2O` : undefined}
             />
-            <StatPill label="Pool Liq" value={live ? formatToken(live.poolLiquidity, 0, 0) : '—'} />
+            <StatPill label="Pool Liq" value={live ? formatCompact(live.poolLiquidity, 0) : '—'} />
           </div>
 
           {/* USDC equivalent of user H2O balance */}
@@ -530,11 +536,11 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
                   <div className="text-cyan-500/60 text-[10px]">Liquidez</div>
-                  <div className="text-cyan-100 font-mono font-bold">{formatToken(position.liquidity, 0, 0)}</div>
+                  <div className="text-cyan-100 font-mono font-bold">{formatCompact(position.liquidity, 0)}</div>
                 </div>
                 <div>
                   <div className="text-cyan-500/60 text-[10px]">Reclamable</div>
-                  <div className="text-cyan-300 font-mono font-bold">{formatToken(position.netH2O, 18, 4)} H2O</div>
+                  <div className="text-cyan-300 font-mono font-bold">{formatCompact(position.netH2O, 18)} H2O</div>
                   {pendingUsd > 0n && <div className="text-[9px] text-cyan-400/70 font-mono">≈ {formatUsd(pendingUsd)}</div>}
                 </div>
               </div>
@@ -845,15 +851,17 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         if (liqA > liqB) bestByPair.set(key, p)
       }
 
-      // Filtrar pools "fantasma" (uniswap pool sin liquidez Y sin precio inicial).
-      // Mantenemos pools con poca liquidez (ej: wARS/WLD 0.3% / 1%) si tienen precio.
-      // Tambien mantenemos pools sin liquidez pero con precio (primer LP puede entrar).
+      // Filtro estricto: solo pools que se pueden operar HOY.
+      // Requisitos: (a) tenemos datos vivos, (b) la pool de Uniswap esta inicializada
+      // (sqrtPriceX96 > 0) y (c) tiene liquidez activa (poolLiquidity > 0).
+      // Esto descarta pools fantasma (sin liq) y duplicados sin profundidad
+      // (ej: uSOL/WLD 0.3% sin liq pero existe el 1% con liq → mantenemos solo el 1%).
       const dedupArr = Array.from(bestByPair.values())
       const ps = dedupArr.filter(p => {
         const ld = liveAll[p.poolId]
-        if (!ld) return false // sin datos vivos = no se puede operar
-        // Drop solo si pool no inicializado Y sin liquidez (ghost pool)
-        if (ld.sqrtPriceX96 === 0n && ld.poolLiquidity === 0n) return false
+        if (!ld) return false
+        if (ld.sqrtPriceX96 === 0n) return false
+        if (ld.poolLiquidity === 0n) return false
         return true
       })
 
@@ -992,8 +1000,8 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
       <div className="grid grid-cols-3 gap-2">
         <BigStat
           label="TVL"
-          value={totalTvlUsd > 0n ? formatUsd(totalTvlUsd) : `${formatToken(totals.totalTVL, 18, 0)} H2O`}
-          sub={totalTvlUsd > 0n ? `${formatToken(totals.totalTVL, 18, 0)} H2O` : undefined}
+          value={totalTvlUsd > 0n ? formatUsd(totalTvlUsd) : `${formatCompact(totals.totalTVL, 18)} H2O`}
+          sub={totalTvlUsd > 0n ? `${formatCompact(totals.totalTVL, 18)} H2O` : undefined}
           icon={<Activity className="w-3.5 h-3.5" />}
           highlight
         />
@@ -1005,8 +1013,8 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         />
         <BigStat
           label="Pendiente"
-          value={totalPendingUsd > 0n ? formatUsd(totalPendingUsd) : `${formatToken(totals.totalPending, 18, 4)} H2O`}
-          sub={totalPendingUsd > 0n ? `${formatToken(totals.totalPending, 18, 4)} H2O` : undefined}
+          value={totalPendingUsd > 0n ? formatUsd(totalPendingUsd) : `${formatCompact(totals.totalPending, 18)} H2O`}
+          sub={totalPendingUsd > 0n ? `${formatCompact(totals.totalPending, 18)} H2O` : undefined}
           icon={<Gift className="w-3.5 h-3.5" />}
           highlight={totals.totalPending > 0n}
         />

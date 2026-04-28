@@ -13,7 +13,7 @@ Acua Staking is a decentralized application (dApp) for the **World Chain** ecosy
 
 ### Blockchain
 - **Network**: World Chain (Chain ID 480)
-- **RPC**: `https://worldchain-mainnet.g.alchemy.com/public`
+- **RPC**: Alchemy World Chain mainnet (`/v2/<key>`) — H2O v3 panel uses a single shared `JsonRpcProvider` con `staticNetwork: true` y `batchMaxCount: 8` para evitar rate limits y latencia (`lib/h2o-v3.ts → getProvider()`).
 - **Pattern**: All writes go through MiniKit `sendTransaction` + Permit2
 
 ---

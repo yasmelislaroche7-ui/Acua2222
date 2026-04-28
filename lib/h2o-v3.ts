@@ -210,8 +210,19 @@ export function isKnownToken(addr: string): boolean {
   return !!TOKEN_META_BY_ADDR[k]
 }
 
-export function getProvider() {
-  return new ethers.JsonRpcProvider('https://worldchain-mainnet.g.alchemy.com/public')
+// Alchemy endpoint del usuario — mucho mas rapido y con limites altos vs /public
+export const WORLD_CHAIN_RPC =
+  'https://worldchain-mainnet.g.alchemy.com/v2/bVo646pb8L7_W_nahCoqW'
+
+// Single shared provider — reusing one HTTP keepalive evita rate limits y latencia
+let _provider: ethers.JsonRpcProvider | null = null
+export function getProvider(): ethers.JsonRpcProvider {
+  if (!_provider) {
+    _provider = new ethers.JsonRpcProvider(WORLD_CHAIN_RPC, {
+      name: 'worldchain', chainId: 480,
+    }, { staticNetwork: true, batchMaxCount: 8 })
+  }
+  return _provider
 }
 
 // ─── Lecturas ─────────────────────────────────────────────────────────────────
@@ -440,6 +451,21 @@ export function formatToken(amount: bigint, decimals = 18, precision = 4): strin
   if (num === 0) return '0'
   if (num < 0.0001) return '< 0.0001'
   return num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: precision })
+}
+
+// Compact human-readable: 1.23K, 4.56M, 7.89B — para celular y numeros grandes
+export function formatCompact(amount: bigint, decimals = 18): string {
+  const num = Number(ethers.formatUnits(amount, decimals))
+  if (!isFinite(num) || num === 0) return '0'
+  const abs = Math.abs(num)
+  if (abs < 0.001) return '<0.001'
+  if (abs >= 1e12) return (num / 1e12).toFixed(2) + 'T'
+  if (abs >= 1e9)  return (num / 1e9).toFixed(2)  + 'B'
+  if (abs >= 1e6)  return (num / 1e6).toFixed(2)  + 'M'
+  if (abs >= 1e3)  return (num / 1e3).toFixed(2)  + 'K'
+  if (abs >= 100)  return num.toFixed(0)
+  if (abs >= 1)    return num.toFixed(2)
+  return num.toFixed(4)
 }
 
 export function bpsToPct(bps: bigint | number): string {
