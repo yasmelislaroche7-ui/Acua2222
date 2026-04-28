@@ -6,6 +6,7 @@ import { ethers } from 'ethers'
 import {
   Loader2, ChevronRight, Droplets, Gift, RefreshCw, Lock, Unlock, Info, Clock,
   TrendingUp, TrendingDown, Activity, Waves, Sparkles, AlertCircle, CheckCircle2,
+  Search, ArrowUpDown,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -15,6 +16,7 @@ import {
   fetchAllPools, fetchUserPosition, fetchAprBps, fetchAllPoolsLive,
   fetchUserBalance, quoteAmount1FromAmount0, quoteAmount0FromAmount1,
   tokenMeta, formatToken, bpsToPct, feeTierLabel, randomNonce,
+  fetchH2OUsdcRate, h2oToUsdc, formatUsd,
   type H2OV3Pool, type H2OV3Position, type PoolLiveData,
 } from '@/lib/h2o-v3'
 import {
@@ -77,10 +79,11 @@ interface PoolRowProps {
   position: H2OV3Position | null
   aprBps: bigint
   live: PoolLiveData | undefined
+  usdcRate: bigint
   onOpen: () => void
 }
 
-function PoolRow({ pool, position, aprBps, live, onOpen }: PoolRowProps) {
+function PoolRow({ pool, position, aprBps, live, usdcRate, onOpen }: PoolRowProps) {
   const t0 = tokenMeta(pool.token0)
   const t1 = tokenMeta(pool.token1)
   const hasPosition = position && position.liquidity > 0n
@@ -89,6 +92,8 @@ function PoolRow({ pool, position, aprBps, live, onOpen }: PoolRowProps) {
   const change = live?.priceChange24h
   const tvl = live?.tvlInH2O ?? 0n
   const price = live?.priceToken1PerToken0 ?? 0
+  const tvlUsd = h2oToUsdc(tvl, usdcRate)
+  const pendingUsd = position ? h2oToUsdc(position.netH2O, usdcRate) : 0n
 
   return (
     <button
@@ -159,7 +164,9 @@ function PoolRow({ pool, position, aprBps, live, onOpen }: PoolRowProps) {
           </div>
           <div className="rounded-md bg-cyan-950/40 border border-cyan-500/10 px-2 py-1">
             <div className="text-cyan-500/60 uppercase tracking-wider text-[8px]">TVL</div>
-            <div className="text-cyan-200 font-bold font-mono">{tvl > 0n ? formatToken(tvl, 18, 0) : '0'} <span className="text-cyan-500/60 font-normal">H2O</span></div>
+            <div className="text-cyan-200 font-bold font-mono leading-tight">
+              {tvlUsd > 0n ? formatUsd(tvlUsd) : (tvl > 0n ? `${formatToken(tvl, 18, 0)} H2O` : '—')}
+            </div>
           </div>
           <div className="rounded-md bg-cyan-950/40 border border-cyan-500/10 px-2 py-1">
             <div className="text-cyan-500/60 uppercase tracking-wider text-[8px]">Liq</div>
@@ -171,12 +178,15 @@ function PoolRow({ pool, position, aprBps, live, onOpen }: PoolRowProps) {
         {(hasPosition || hasPending) && (
           <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
             <Waves className="w-3 h-3 text-cyan-300 shrink-0" />
-            <div className="text-[10px] text-cyan-100 flex-1 flex items-center gap-2">
+            <div className="text-[10px] text-cyan-100 flex-1 flex items-center gap-2 min-w-0">
               {hasPosition && (
-                <span>Tuyo <span className="text-cyan-300 font-mono font-bold">{formatToken(position!.liquidity, 0, 0)}L</span></span>
+                <span className="truncate">Tuyo <span className="text-cyan-300 font-mono font-bold">{formatToken(position!.liquidity, 0, 0)}L</span></span>
               )}
               {hasPending && (
-                <span className="ml-auto text-cyan-300 font-bold">+{formatToken(position!.netH2O, 18, 4)} H2O</span>
+                <span className="ml-auto text-cyan-300 font-bold whitespace-nowrap">
+                  +{formatToken(position!.netH2O, 18, 4)} H2O
+                  {pendingUsd > 0n && <span className="text-cyan-400/70 font-normal ml-1">({formatUsd(pendingUsd)})</span>}
+                </span>
               )}
             </div>
             <ChevronRight className="w-3 h-3 text-cyan-300/60 shrink-0" />
@@ -252,12 +262,13 @@ interface DialogProps {
   position: H2OV3Position | null
   live: PoolLiveData | undefined
   aprBps: bigint
+  usdcRate: bigint
   userAddress: string
   onClose: () => void
   onRefresh: () => void
 }
 
-function PoolDialog({ pool, position, live, aprBps, userAddress, onClose, onRefresh }: DialogProps) {
+function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClose, onRefresh }: DialogProps) {
   const [tab, setTab] = useState<'deposit' | 'withdraw' | 'claim'>('deposit')
   const [amount0, setAmount0] = useState('')
   const [amount1, setAmount1] = useState('')
@@ -417,6 +428,9 @@ function PoolDialog({ pool, position, live, aprBps, userAddress, onClose, onRefr
 
   const aprPct = aprBps > 0n ? bpsToPct(aprBps) : '— %'
   const tvl = live?.tvlInH2O ?? 0n
+  const tvlUsd = h2oToUsdc(tvl, usdcRate)
+  const pendingUsd = position ? h2oToUsdc(position.netH2O, usdcRate) : 0n
+  const h2oBalUsd = h2oToUsdc(h2oBal, usdcRate)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-md" onClick={onClose}>
@@ -448,8 +462,21 @@ function PoolDialog({ pool, position, live, aprBps, userAddress, onClose, onRefr
           {/* Stats summary */}
           <div className="grid grid-cols-3 gap-2">
             <StatPill label="APR" value={aprPct} accent />
-            <StatPill label="TVL" value={`${tvl > 0n ? formatToken(tvl, 18, 0) : '0'} H2O`} />
+            <StatPill
+              label="TVL"
+              value={tvlUsd > 0n ? formatUsd(tvlUsd) : (tvl > 0n ? `${formatToken(tvl, 18, 0)} H2O` : '—')}
+              sub={tvlUsd > 0n && tvl > 0n ? `${formatToken(tvl, 18, 0)} H2O` : undefined}
+            />
             <StatPill label="Pool Liq" value={live ? formatToken(live.poolLiquidity, 0, 0) : '—'} />
+          </div>
+
+          {/* USDC equivalent of user H2O balance */}
+          <div className="flex items-center justify-between rounded-xl border border-cyan-500/15 bg-cyan-950/30 px-3 py-2 text-xs">
+            <span className="text-cyan-400/70 uppercase tracking-wider text-[10px] font-bold">Tu balance H2O</span>
+            <div className="text-right">
+              <div className="text-cyan-100 font-mono font-bold">{formatToken(h2oBal, 18, 4)} <span className="text-cyan-500/60 font-normal">H2O</span></div>
+              {h2oBalUsd > 0n && <div className="text-[10px] text-cyan-400/70 font-mono">≈ {formatUsd(h2oBalUsd)}</div>}
+            </div>
           </div>
 
           {/* Price chart */}
@@ -469,6 +496,7 @@ function PoolDialog({ pool, position, live, aprBps, userAddress, onClose, onRefr
                 <div>
                   <div className="text-cyan-500/60 text-[10px]">Reclamable</div>
                   <div className="text-cyan-300 font-mono font-bold">{formatToken(position.netH2O, 18, 4)} H2O</div>
+                  {pendingUsd > 0n && <div className="text-[9px] text-cyan-400/70 font-mono">≈ {formatUsd(pendingUsd)}</div>}
                 </div>
               </div>
             </div>
@@ -625,16 +653,17 @@ function PoolDialog({ pool, position, live, aprBps, userAddress, onClose, onRefr
   )
 }
 
-function StatPill({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function StatPill({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
   return (
     <div className={cn(
-      'rounded-xl border px-2.5 py-2',
+      'rounded-xl border px-2.5 py-2 min-w-0',
       accent
         ? 'bg-gradient-to-br from-cyan-500/15 to-blue-500/10 border-cyan-400/30'
         : 'bg-cyan-950/40 border-cyan-500/15',
     )}>
       <div className="text-[9px] uppercase tracking-wider text-cyan-500/70 font-bold">{label}</div>
-      <div className={cn('font-mono font-bold text-sm', accent ? 'text-cyan-200' : 'text-cyan-100')}>{value}</div>
+      <div className={cn('font-mono font-bold text-sm truncate', accent ? 'text-cyan-200' : 'text-cyan-100')}>{value}</div>
+      {sub && <div className="text-[9px] text-cyan-500/60 font-mono truncate">{sub}</div>}
     </div>
   )
 }
@@ -678,15 +707,24 @@ function AmountInput({ label, logoUrl, value, onChange, balance, decimals, onMax
 }
 
 // ─── Main panel ───────────────────────────────────────────────────────────────
+type BaseFilter = 'all' | 'WLD' | 'USDC' | 'WETH' | 'WBTC' | 'mine'
+type FeeFilter = 'all' | '3000' | '10000' | 'stable'
+type SortMode = 'tvl' | 'apr' | 'name'
+
 export function H2OV3Panel({ userAddress }: { userAddress: string }) {
   const [pools, setPools] = useState<H2OV3Pool[]>([])
   const [positions, setPositions] = useState<Record<number, H2OV3Position | null>>({})
   const [aprs, setAprs] = useState<Record<number, bigint>>({})
   const [livePool, setLivePool] = useState<Record<number, PoolLiveData>>({})
+  const [usdcRate, setUsdcRate] = useState<bigint>(0n)
   const [loading, setLoading] = useState(true)
   const [activePool, setActivePool] = useState<H2OV3Pool | null>(null)
   const [msg, setMsg] = useState('')
   const [lastUpdate, setLastUpdate] = useState<number>(0)
+  const [baseFilter, setBaseFilter] = useState<BaseFilter>('all')
+  const [feeFilter, setFeeFilter] = useState<FeeFilter>('all')
+  const [sortMode, setSortMode] = useState<SortMode>('tvl')
+  const [search, setSearch] = useState('')
   const initialDoneRef = useRef(false)
 
   const refresh = useCallback(async (silent = false) => {
@@ -707,8 +745,8 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
       })
       setPools(ps)
 
-      // Cargar en paralelo: posiciones + APRs + datos vivos
-      const [, , live] = await Promise.all([
+      // Cargar en paralelo: posiciones + APRs + datos vivos + tasa USDC
+      const [, , live, rate] = await Promise.all([
         Promise.all(ps.map(async p => {
           try {
             if (userAddress) {
@@ -724,8 +762,10 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
           } catch {}
         })),
         fetchAllPoolsLive(ps),
+        fetchH2OUsdcRate(),
       ])
       setLivePool(live)
+      setUsdcRate(rate)
       setLastUpdate(Date.now())
     } catch (e: any) {
       if (!silent) setMsg(e.message || 'Error cargando pools')
@@ -742,15 +782,68 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
   const totals = useMemo(() => {
     let totalTVL = 0n
     let totalPending = 0n
+    let myStakedPools = 0
     let activePools = pools.length
     for (const p of pools) {
       const live = livePool[p.poolId]
       if (live) totalTVL += live.tvlInH2O
       const pos = positions[p.poolId]
-      if (pos) totalPending += pos.netH2O
+      if (pos) {
+        totalPending += pos.netH2O
+        if (pos.liquidity > 0n) myStakedPools++
+      }
     }
-    return { totalTVL, totalPending, activePools }
+    return { totalTVL, totalPending, activePools, myStakedPools }
   }, [pools, livePool, positions])
+
+  // Pools filtradas y ordenadas
+  const visiblePools = useMemo(() => {
+    const baseAddrs: Record<string, string> = {
+      WLD:  '0x2cFc85d8E48F8EAB294be644d9E25C3030863003',
+      USDC: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1',
+      WETH: '0x4200000000000000000000000000000000000006',
+      WBTC: '0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3',
+    }
+    const q = search.trim().toLowerCase()
+    let arr = pools.filter(p => {
+      // base filter
+      if (baseFilter === 'mine') {
+        const pos = positions[p.poolId]
+        if (!pos || pos.liquidity === 0n) return false
+      } else if (baseFilter !== 'all') {
+        const target = baseAddrs[baseFilter].toLowerCase()
+        if (p.token0.toLowerCase() !== target && p.token1.toLowerCase() !== target) return false
+      }
+      // fee filter
+      if (feeFilter === 'stable') { if (!p.stable) return false }
+      else if (feeFilter !== 'all') { if (Number(p.fee) !== parseInt(feeFilter)) return false }
+      // search
+      if (q) {
+        const t0 = tokenMeta(p.token0).symbol.toLowerCase()
+        const t1 = tokenMeta(p.token1).symbol.toLowerCase()
+        if (!t0.includes(q) && !t1.includes(q)) return false
+      }
+      return true
+    })
+    // sort
+    arr = [...arr].sort((a, b) => {
+      if (sortMode === 'tvl') {
+        const ta = livePool[a.poolId]?.tvlInH2O ?? 0n
+        const tb = livePool[b.poolId]?.tvlInH2O ?? 0n
+        return ta < tb ? 1 : ta > tb ? -1 : 0
+      }
+      if (sortMode === 'apr') {
+        const aa = aprs[a.poolId] ?? 0n
+        const ab = aprs[b.poolId] ?? 0n
+        return aa < ab ? 1 : aa > ab ? -1 : 0
+      }
+      // name
+      const na = tokenMeta(a.token0).symbol + tokenMeta(a.token1).symbol
+      const nb = tokenMeta(b.token0).symbol + tokenMeta(b.token1).symbol
+      return na.localeCompare(nb)
+    })
+    return arr
+  }, [pools, positions, livePool, aprs, baseFilter, feeFilter, sortMode, search])
 
   // Si el contrato no esta desplegado todavia, mostramos placeholder
   if (!H2O_V3_ADDRESS) {
@@ -765,15 +858,91 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
     )
   }
 
+  const totalTvlUsd = h2oToUsdc(totals.totalTVL, usdcRate)
+  const totalPendingUsd = h2oToUsdc(totals.totalPending, usdcRate)
+
   return (
     <div className="px-4 pt-3 pb-6 space-y-3">
       <Header onRefresh={() => refresh(false)} loading={loading} lastUpdate={lastUpdate} />
 
-      {/* Panel de totales */}
+      {/* Panel de totales — TVL y Pendiente con USDC */}
       <div className="grid grid-cols-3 gap-2">
-        <BigStat label="TVL Total" value={`${formatToken(totals.totalTVL, 18, 0)} H2O`} icon={<Activity className="w-3.5 h-3.5" />} highlight />
-        <BigStat label="Pools" value={`${totals.activePools}`} icon={<Droplets className="w-3.5 h-3.5" />} />
-        <BigStat label="Pendiente Tuyo" value={`${formatToken(totals.totalPending, 18, 4)} H2O`} icon={<Gift className="w-3.5 h-3.5" />} highlight={totals.totalPending > 0n} />
+        <BigStat
+          label="TVL"
+          value={totalTvlUsd > 0n ? formatUsd(totalTvlUsd) : `${formatToken(totals.totalTVL, 18, 0)} H2O`}
+          sub={totalTvlUsd > 0n ? `${formatToken(totals.totalTVL, 18, 0)} H2O` : undefined}
+          icon={<Activity className="w-3.5 h-3.5" />}
+          highlight
+        />
+        <BigStat
+          label="Pools"
+          value={`${totals.activePools}`}
+          sub={totals.myStakedPools > 0 ? `tuyas: ${totals.myStakedPools}` : undefined}
+          icon={<Droplets className="w-3.5 h-3.5" />}
+        />
+        <BigStat
+          label="Pendiente"
+          value={totalPendingUsd > 0n ? formatUsd(totalPendingUsd) : `${formatToken(totals.totalPending, 18, 4)} H2O`}
+          sub={totalPendingUsd > 0n ? `${formatToken(totals.totalPending, 18, 4)} H2O` : undefined}
+          icon={<Gift className="w-3.5 h-3.5" />}
+          highlight={totals.totalPending > 0n}
+        />
+      </div>
+
+      {/* Filtros */}
+      <div className="space-y-2 rounded-2xl border border-cyan-500/15 bg-gradient-to-br from-cyan-950/30 via-slate-950/40 to-blue-950/20 p-2.5">
+        {/* Buscador */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-cyan-500/60" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar token (ej: WLD, ORO, uDOGE)…"
+            className="w-full pl-8 pr-3 py-1.5 text-xs bg-cyan-950/50 border border-cyan-500/15 rounded-lg outline-none focus:border-cyan-400/40 text-cyan-100 placeholder:text-cyan-500/40 font-mono"
+          />
+        </div>
+        {/* Base filter */}
+        <div className="flex flex-wrap gap-1">
+          {(['all', 'mine', 'WLD', 'USDC', 'WETH', 'WBTC'] as BaseFilter[]).map(b => (
+            <button key={b} onClick={() => setBaseFilter(b)}
+              className={cn(
+                'px-2 py-1 text-[10px] font-bold rounded-md border transition-all uppercase tracking-wider',
+                baseFilter === b
+                  ? 'bg-gradient-to-r from-cyan-500/30 to-blue-500/30 text-cyan-100 border-cyan-400/50 shadow-[0_0_8px_-2px_rgba(34,211,238,0.5)]'
+                  : 'bg-cyan-950/40 text-cyan-400/70 border-cyan-500/15 hover:text-cyan-200',
+              )}>
+              {b === 'all' ? 'Todos' : b === 'mine' ? '⭐ Mías' : b}
+            </button>
+          ))}
+        </div>
+        {/* Fee + Sort */}
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[9px] uppercase text-cyan-500/60 font-bold mr-1">Fee:</span>
+          {([['all','Todos'],['stable','Stable'],['3000','0.3%'],['10000','1%']] as Array<[FeeFilter,string]>).map(([v, l]) => (
+            <button key={v} onClick={() => setFeeFilter(v)}
+              className={cn(
+                'px-2 py-0.5 text-[10px] font-mono font-bold rounded-md border transition-all',
+                feeFilter === v
+                  ? 'bg-cyan-500/20 text-cyan-100 border-cyan-400/50'
+                  : 'bg-cyan-950/40 text-cyan-400/70 border-cyan-500/15',
+              )}>{l}</button>
+          ))}
+          <span className="text-[9px] uppercase text-cyan-500/60 font-bold ml-2 mr-1 flex items-center gap-0.5">
+            <ArrowUpDown className="w-2.5 h-2.5" />
+          </span>
+          {([['tvl','TVL'],['apr','APR'],['name','A-Z']] as Array<[SortMode,string]>).map(([v, l]) => (
+            <button key={v} onClick={() => setSortMode(v)}
+              className={cn(
+                'px-2 py-0.5 text-[10px] font-mono font-bold rounded-md border transition-all',
+                sortMode === v
+                  ? 'bg-cyan-500/20 text-cyan-100 border-cyan-400/50'
+                  : 'bg-cyan-950/40 text-cyan-400/70 border-cyan-500/15',
+              )}>{l}</button>
+          ))}
+        </div>
+        <div className="text-[10px] text-cyan-500/60 font-mono px-1">
+          {visiblePools.length} de {pools.length} pools
+        </div>
       </div>
 
       {msg && (
@@ -788,16 +957,17 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         </div>
       ) : (
         <div className="space-y-2.5">
-          {pools.length === 0 && (
-            <div className="text-center py-8 text-sm text-cyan-500/60">Sin pools activas</div>
+          {visiblePools.length === 0 && (
+            <div className="text-center py-8 text-sm text-cyan-500/60">Sin pools que coincidan con el filtro</div>
           )}
-          {pools.map(p => (
+          {visiblePools.map(p => (
             <PoolRow
               key={p.poolId}
               pool={p}
               position={positions[p.poolId] || null}
               aprBps={aprs[p.poolId] || 0n}
               live={livePool[p.poolId]}
+              usdcRate={usdcRate}
               onOpen={() => setActivePool(p)}
             />
           ))}
@@ -810,6 +980,7 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
           position={positions[activePool.poolId] || null}
           live={livePool[activePool.poolId]}
           aprBps={aprs[activePool.poolId] || 0n}
+          usdcRate={usdcRate}
           userAddress={userAddress}
           onClose={() => setActivePool(null)}
           onRefresh={() => { setActivePool(null); refresh() }}
@@ -819,10 +990,10 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
   )
 }
 
-function BigStat({ label, value, icon, highlight }: { label: string; value: string; icon: React.ReactNode; highlight?: boolean }) {
+function BigStat({ label, value, sub, icon, highlight }: { label: string; value: string; sub?: string; icon: React.ReactNode; highlight?: boolean }) {
   return (
     <div className={cn(
-      'rounded-xl border p-2.5 space-y-1',
+      'rounded-xl border p-2.5 min-w-0',
       highlight
         ? 'bg-gradient-to-br from-cyan-500/15 to-blue-500/10 border-cyan-400/30 shadow-[0_0_16px_-6px_rgba(34,211,238,0.4)]'
         : 'bg-cyan-950/40 border-cyan-500/15',
@@ -830,7 +1001,8 @@ function BigStat({ label, value, icon, highlight }: { label: string; value: stri
       <div className="text-[9px] uppercase tracking-wider text-cyan-400/70 font-bold flex items-center gap-1">
         {icon}{label}
       </div>
-      <div className="text-cyan-100 font-mono font-bold text-sm">{value}</div>
+      <div className="text-cyan-100 font-mono font-bold text-sm truncate">{value}</div>
+      {sub && <div className="text-[9px] text-cyan-500/60 font-mono truncate">{sub}</div>}
     </div>
   )
 }

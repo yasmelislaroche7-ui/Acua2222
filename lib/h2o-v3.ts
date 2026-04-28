@@ -360,6 +360,47 @@ export async function fetchUserBalance(token: string, user: string): Promise<{ b
   return { balance, decimals, symbol }
 }
 
+// ─── USDC conversion helper ──────────────────────────────────────────────────
+// Returns how many USDC (in 6 decimals) equals 1 H2O (in 18 decimals).
+// Internally: queries tokenValueInH2O(USDC, 1e6) to get H2O wei per 1 USDC,
+// then inverts: USDC_per_H2O = 1e6 * 1e18 / h2oWeiPerUsdc.
+const USDC_ADDR = '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1'
+let H2O_USDC_CACHE: { rate: bigint; ts: number } | null = null
+
+export async function fetchH2OUsdcRate(): Promise<bigint> {
+  if (!H2O_V3_ADDRESS) return 0n
+  // 60-second cache
+  if (H2O_USDC_CACHE && Date.now() - H2O_USDC_CACHE.ts < 60000) return H2O_USDC_CACHE.rate
+  try {
+    const provider = getProvider()
+    const c = new ethers.Contract(H2O_V3_ADDRESS, H2O_V3_VIEW_ABI, provider)
+    const oneUsdcRaw = 1_000_000n // 1 USDC in 6 decimals
+    const h2oForOneUsdc = BigInt(await c.tokenValueInH2O(USDC_ADDR, oneUsdcRaw))
+    if (h2oForOneUsdc === 0n) return 0n
+    // usdcPerH2O (in 6 decimals) = 1e18 * 1e6 / h2oForOneUsdc
+    const rate = (10n ** 24n) / h2oForOneUsdc
+    H2O_USDC_CACHE = { rate, ts: Date.now() }
+    return rate
+  } catch { return 0n }
+}
+
+// Convert H2O amount (wei) to USDC value (6 decimals)
+export function h2oToUsdc(h2oWei: bigint, rate: bigint): bigint {
+  if (rate === 0n || h2oWei === 0n) return 0n
+  // (h2oWei * rate) / 1e18
+  return (h2oWei * rate) / (10n ** 18n)
+}
+
+export function formatUsd(usdcRaw: bigint): string {
+  if (usdcRaw === 0n) return '$0'
+  const num = Number(ethers.formatUnits(usdcRaw, 6))
+  if (num < 0.01) return '< $0.01'
+  if (num >= 1_000_000) return '$' + (num / 1_000_000).toFixed(2) + 'M'
+  if (num >= 1_000) return '$' + (num / 1_000).toFixed(2) + 'K'
+  if (num >= 1) return '$' + num.toFixed(2)
+  return '$' + num.toFixed(4)
+}
+
 // ─── Helpers UI ───────────────────────────────────────────────────────────────
 export function formatToken(amount: bigint, decimals = 18, precision = 4): string {
   const formatted = ethers.formatUnits(amount, decimals)
