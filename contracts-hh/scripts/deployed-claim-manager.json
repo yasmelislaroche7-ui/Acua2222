@@ -1,0 +1,14 @@
+{
+  "acuaClaimManager": "0x3BbA82736226104B53A58C02C759A9438ab8A42C",
+  "owner": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
+  "deployedAt": "2026-04-29T18:09:49.582Z",
+  "claims": [
+    {
+      "id": 0,
+      "name": "WDD",
+      "claimContract": "0x52DFEe61180A0BCEBe007E5a9Cfd466948aCCA46",
+      "rewardToken": "0xEdE54d9c024ee80C85ec0a75eD2d8774c7Fbac9B",
+      "feeBps": 3000
+    }
+  ]
+}

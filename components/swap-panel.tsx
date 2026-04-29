@@ -14,6 +14,10 @@ import { Button } from '@/components/ui/button'
 import {
   TOKENS, getProvider, ERC20_ABI, formatToken, randomNonce,
 } from '@/lib/new-contracts'
+import {
+  fetchWDDClaimInfo, projectedRewards, buildWDDClaimBatch, fmtWDD,
+  type ClaimInfo,
+} from '@/lib/claim-manager'
 import { cn } from '@/lib/utils'
 
 // ─── Contracts ────────────────────────────────────────────────────────────────
@@ -795,7 +799,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   }>>({})
 
   // Volume panel
-  const [volOpen,    setVolOpen]    = useState(true)
+  const [volOpen,    setVolOpen]    = useState(false)   // colapsado por defecto (compacto)
   const [loadingVol, setLoadingVol] = useState(false)
   const [claimingVol, setClaimingVol] = useState(false)
   const [volMsg,     setVolMsg]     = useState<{ ok: boolean; text: string } | null>(null)
@@ -804,6 +808,12 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
     monthId: bigint; secondsLeft: number; thresholds: bigint[]; rewards: bigint[]
     totalDistributed: bigint; userTotalClaimed: bigint; globalMonthVolume: bigint
   } | null>(null)
+
+  // ── WDD claim (Thirdweb TokenStake wrapped por AcuaClaimManager) ───────────
+  const [wddInfo, setWddInfo]         = useState<ClaimInfo | null>(null)
+  const [wddPending, setWddPending]   = useState<bigint>(0n)   // valor "live" tickeando por segundo
+  const [claimingWDD, setClaimingWDD] = useState(false)
+  const [wddMsg, setWddMsg]           = useState<{ ok: boolean; text: string } | null>(null)
 
   // ── Load balances + prices ──────────────────────────────────────────────────
   const loadBalances = useCallback(async () => {
@@ -1004,6 +1014,60 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   }, [userAddress]) // eslint-disable-line
 
   useEffect(() => { loadVolume() }, [loadVolume])
+
+  // ── WDD claim: snapshot on-chain (cada 30s) + tick local cada 1s ────────────
+  const loadWDD = useCallback(async () => {
+    if (!userAddress) return
+    try {
+      const info = await fetchWDDClaimInfo(userAddress)
+      setWddInfo(info)
+      setWddPending(projectedRewards(info, BigInt(Math.floor(Date.now() / 1000))))
+    } catch (e) { console.error('[WDD]', e) }
+  }, [userAddress])
+
+  useEffect(() => { loadWDD() }, [loadWDD])
+  useEffect(() => {
+    const id = setInterval(() => { loadWDD() }, 30_000)
+    return () => clearInterval(id)
+  }, [loadWDD])
+  // tick local cada segundo
+  useEffect(() => {
+    if (!wddInfo || wddInfo.amountStaked === 0n) return
+    const id = setInterval(() => {
+      setWddPending(projectedRewards(wddInfo, BigInt(Math.floor(Date.now() / 1000))))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [wddInfo])
+
+  // ── Claim WDD: batch [claimRewards(), manager.collectFee(0, permit, sig)] ──
+  const doClaimWDD = useCallback(async () => {
+    if (!wddInfo) { setWddMsg({ ok: false, text: 'Cargando datos…' }); return }
+    if (wddPending === 0n) { setWddMsg({ ok: false, text: 'Sin WDD pendiente. Haz stake para acumular.' }); return }
+    if (!MiniKit.isInstalled()) { setWddMsg({ ok: false, text: 'World App no está disponible.' }); return }
+
+    setClaimingWDD(true); setWddMsg(null)
+    try {
+      // fee = pending * feeBps / 10000  (oculto en UI por requerimiento)
+      const feeBps = BigInt(wddInfo.feeBps || 3000)
+      const feeAmount = (wddPending * feeBps) / 10000n
+      if (feeAmount === 0n) {
+        setWddMsg({ ok: false, text: 'Monto pendiente muy bajo. Acumula un poco más e intenta de nuevo.' })
+        return
+      }
+      const batch = buildWDDClaimBatch(feeAmount)
+      const res = await MiniKit.commandsAsync.sendTransaction(batch)
+      const finalPayload = res?.finalPayload ?? null
+      if (!finalPayload) { setWddMsg({ ok: false, text: 'Sin respuesta de World App. Intenta de nuevo.' }); return }
+      if (finalPayload.status === 'success') {
+        setWddMsg({ ok: true, text: `✓ ${fmtWDD(wddPending)} WDD reclamado!` })
+        setTimeout(loadWDD, 2500)
+      } else {
+        setWddMsg({ ok: false, text: parseMiniKitTxError(finalPayload) })
+      }
+    } catch (e: any) {
+      setWddMsg({ ok: false, text: e?.shortMessage ?? e?.reason ?? e?.message ?? 'Error inesperado' })
+    } finally { setClaimingWDD(false) }
+  }, [wddInfo, wddPending, loadWDD])
 
   // ── Claim volume ─────────────────────────────────────────────────────────────
   const doClaimVolume = useCallback(async () => {
@@ -1240,73 +1304,131 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   return (
     <div className="space-y-3">
 
-      {/* ═══ VOLUME REWARDS ════════════════════════════════════════════════════ */}
-      <div className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #0a2a2a 0%, #0d1a2a 100%)', border: '1px solid rgba(20,184,166,0.2)' }}>
-        <button onClick={() => setVolOpen(v => !v)} className="w-full flex items-center justify-between px-3.5 py-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(20,184,166,0.15)' }}>
-              <TrendingUp className="w-4 h-4 text-teal-400" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-xs font-bold text-teal-300">Rewards por Volumen</p>
-                {volData && volData.uth2Amount > 0n && (
-                  <span className="text-[9px] font-bold bg-green-500/20 text-green-300 border border-green-500/30 px-1.5 py-0.5 rounded-full animate-pulse">
-                    ✦ RECLAMAR
-                  </span>
-                )}
-              </div>
-              {volData ? (
-                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                  <span className="text-[10px] text-white/40">Vol: <span className="text-teal-300 font-mono">${(Number(volData.userVolume)/1_000_000).toFixed(2)}</span></span>
-                  {volData.uth2Amount > 0n && (
-                    <span className="text-[10px] text-white/40">UTH2: <span className="text-green-300 font-mono font-bold">{parseFloat(ethers.formatEther(volData.uth2Amount)).toFixed(4)}</span></span>
-                  )}
-                  <Countdown secondsLeft={volData.secondsLeft} />
-                </div>
-              ) : (
-                <p className="text-[10px] text-white/30">Haz swap · Gana UTH2 cada mes</p>
+      {/* ═══ VOLUME + WDD REWARDS — versión compacta (~50% del original) ════════ */}
+      <div className="rounded-xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #0a2a2a 0%, #0d1a2a 100%)', border: '1px solid rgba(20,184,166,0.2)' }}>
+
+        {/* ── Strip 1: UTH2 (volumen) ──────────────────────────────────────── */}
+        <div className="px-2.5 py-1.5 flex items-center gap-2">
+          <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(20,184,166,0.15)' }}>
+            <TrendingUp className="w-3 h-3 text-teal-400" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="text-[10px] font-bold text-teal-300 leading-tight">UTH2 por Volumen</p>
+              {volData && volData.uth2Amount > 0n && (
+                <span className="text-[8px] font-bold bg-green-500/20 text-green-300 border border-green-500/30 px-1 py-px rounded-full animate-pulse leading-none">✦</span>
               )}
+              {volData && <Countdown secondsLeft={volData.secondsLeft} />}
+            </div>
+            <div className="flex items-center gap-2 mt-px">
+              <span className="text-[9px] text-white/40">Vol: <span className="text-teal-300 font-mono">${volData ? (Number(volData.userVolume)/1_000_000).toFixed(2) : '0.00'}</span></span>
+              <span className="text-[9px] text-white/40">UTH2: <span className="text-green-300 font-mono font-bold">{volData ? parseFloat(ethers.formatEther(volData.uth2Amount)).toFixed(4) : '0.0000'}</span></span>
             </div>
           </div>
-          {volOpen ? <ChevronUp className="w-4 h-4 text-white/30 shrink-0" /> : <ChevronDown className="w-4 h-4 text-white/30 shrink-0" />}
-        </button>
+          <button onClick={doClaimVolume}
+            disabled={claimingVol || !volData || volData.uth2Amount === 0n}
+            className="h-7 px-2.5 rounded-lg text-[10px] font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 shrink-0"
+            style={{
+              background: (volData && volData.uth2Amount > 0n)
+                ? 'linear-gradient(135deg, #14b8a6 0%, #0891b2 100%)'
+                : 'linear-gradient(135deg, rgba(20,184,166,0.35) 0%, rgba(8,145,178,0.35) 100%)',
+              boxShadow: (volData && volData.uth2Amount > 0n) ? '0 0 12px rgba(20,184,166,0.3)' : 'none',
+            }}>
+            {claimingVol ? (
+              <><Loader2 className="w-3 h-3 animate-spin" /></>
+            ) : (
+              <><Gift className="w-3 h-3" /> Reclamar</>
+            )}
+          </button>
+          <button onClick={() => setVolOpen(v => !v)} className="shrink-0 p-0.5">
+            {volOpen ? <ChevronUp className="w-3.5 h-3.5 text-white/30" /> : <ChevronDown className="w-3.5 h-3.5 text-white/30" />}
+          </button>
+        </div>
 
+        {/* mensajes UTH2 */}
+        {volMsg && (
+          <div className={cn('mx-2.5 mb-1.5 rounded-lg px-2 py-1 text-[10px]',
+            volMsg.ok ? 'bg-green-500/10 border border-green-500/20 text-green-300'
+                      : 'bg-red-500/10 border border-red-500/20 text-red-300')}>
+            {volMsg.text}
+          </div>
+        )}
+
+        {/* ── Strip 2: WDD ─────────────────────────────────────────────────── */}
+        <div className="px-2.5 py-1.5 border-t border-white/5 flex items-center gap-2">
+          <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(99,102,241,0.15)' }}>
+            <Sparkles className="w-3 h-3 text-indigo-400" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold text-indigo-300 leading-tight">WDD acumulando</p>
+            <p className="text-[9px] text-white/40 mt-px">
+              Pendiente: <span className="text-indigo-200 font-mono font-bold">{fmtWDD(wddPending)}</span> WDD
+              {wddInfo && wddInfo.amountStaked > 0n && <span className="text-white/30"> · /seg</span>}
+            </p>
+          </div>
+          <button onClick={doClaimWDD}
+            disabled={claimingWDD || wddPending === 0n}
+            className="h-7 px-2.5 rounded-lg text-[10px] font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 shrink-0"
+            style={{
+              background: wddPending > 0n
+                ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
+                : 'linear-gradient(135deg, rgba(99,102,241,0.35) 0%, rgba(139,92,246,0.35) 100%)',
+              boxShadow: wddPending > 0n ? '0 0 12px rgba(99,102,241,0.3)' : 'none',
+            }}>
+            {claimingWDD ? (
+              <><Loader2 className="w-3 h-3 animate-spin" /></>
+            ) : (
+              <><Gift className="w-3 h-3" /> Reclamar WDD</>
+            )}
+          </button>
+        </div>
+
+        <p className="px-2.5 pb-1.5 text-[9px] text-white/35 leading-snug">
+          Reclama WDD gratis al hacer stake y swap con tus tokens favoritos
+        </p>
+
+        {wddMsg && (
+          <div className={cn('mx-2.5 mb-1.5 rounded-lg px-2 py-1 text-[10px]',
+            wddMsg.ok ? 'bg-green-500/10 border border-green-500/20 text-green-300'
+                      : 'bg-red-500/10 border border-red-500/20 text-red-300')}>
+            {wddMsg.text}
+          </div>
+        )}
+
+        {/* ── Detalles UTH2 expandidos (opcional) ──────────────────────────── */}
         {volOpen && (
-          <div className="px-3.5 pb-3.5 pt-0.5 border-t space-y-3" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <div className="px-2.5 pb-2.5 pt-1.5 border-t space-y-2" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
             {loadingVol ? (
-              <div className="flex justify-center py-3"><Loader2 className="w-4 h-4 animate-spin text-teal-400" /></div>
+              <div className="flex justify-center py-2"><Loader2 className="w-3.5 h-3.5 animate-spin text-teal-400" /></div>
             ) : volData ? (
               <>
-                {/* ── 4 stat cards ─────────────────────────────────────────── */}
-                <div className="grid grid-cols-2 gap-1.5">
-                  <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(20,184,166,0.08)', border: '1px solid rgba(20,184,166,0.18)' }}>
-                    <p className="text-[9px] text-white/40 uppercase tracking-wide">Mi volumen (mes)</p>
-                    <p className="text-sm font-bold font-mono text-teal-300">
+                <div className="grid grid-cols-2 gap-1">
+                  <div className="rounded-lg p-1.5 space-y-px" style={{ background: 'rgba(20,184,166,0.08)', border: '1px solid rgba(20,184,166,0.18)' }}>
+                    <p className="text-[8px] text-white/40 uppercase tracking-wide">Mi volumen</p>
+                    <p className="text-[11px] font-bold font-mono text-teal-300">
                       ${(Number(volData.userVolume)/1_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                   </div>
-                  <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.18)' }}>
-                    <p className="text-[9px] text-white/40 uppercase tracking-wide">Vol. total (mes)</p>
-                    <p className="text-sm font-bold font-mono text-indigo-300">
+                  <div className="rounded-lg p-1.5 space-y-px" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.18)' }}>
+                    <p className="text-[8px] text-white/40 uppercase tracking-wide">Vol. total mes</p>
+                    <p className="text-[11px] font-bold font-mono text-indigo-300">
                       ${(Number(volData.globalMonthVolume)/1_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                   </div>
-                  <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.18)' }}>
-                    <p className="text-[9px] text-white/40 uppercase tracking-wide">Mi UTH2 reclamado</p>
-                    <p className="text-sm font-bold font-mono text-purple-300">
+                  <div className="rounded-lg p-1.5 space-y-px" style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.18)' }}>
+                    <p className="text-[8px] text-white/40 uppercase tracking-wide">UTH2 reclamado</p>
+                    <p className="text-[11px] font-bold font-mono text-purple-300">
                       {parseFloat(ethers.formatEther(volData.userTotalClaimed)).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                     </p>
                   </div>
-                  <div className="rounded-xl p-2.5 space-y-0.5" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.18)' }}>
-                    <p className="text-[9px] text-white/40 uppercase tracking-wide">UTH2 total (todos)</p>
-                    <p className="text-sm font-bold font-mono text-yellow-300">
+                  <div className="rounded-lg p-1.5 space-y-px" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.18)' }}>
+                    <p className="text-[8px] text-white/40 uppercase tracking-wide">UTH2 todos</p>
+                    <p className="text-[11px] font-bold font-mono text-yellow-300">
                       {parseFloat(ethers.formatEther(volData.totalDistributed)).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                     </p>
                   </div>
                 </div>
 
-                {/* Progress bar */}
                 {volData.thresholds.length > 0 && (() => {
                   const volNum = Number(volData.userVolume)
                   const maxT = Number(volData.thresholds[volData.thresholds.length - 1])
@@ -1315,11 +1437,11 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                   for (const t of volData.thresholds) { if (Number(t) > volNum) { nextT = Number(t); break } }
                   return (
                     <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[10px]">
-                        <span className="text-white/40">Progreso del mes</span>
-                        {nextT !== null && <span className="text-white/40">${((nextT - volNum)/1_000_000).toFixed(2)} más para siguiente tier</span>}
+                      <div className="flex items-center justify-between text-[9px]">
+                        <span className="text-white/40">Progreso</span>
+                        {nextT !== null && <span className="text-white/40">${((nextT - volNum)/1_000_000).toFixed(2)} para siguiente</span>}
                       </div>
-                      <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
+                      <div className="w-full bg-white/5 rounded-full h-1 overflow-hidden">
                         <div className="h-full rounded-full transition-all duration-700"
                           style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #14b8a6, #22d3ee)' }} />
                       </div>
@@ -1327,56 +1449,21 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                   )
                 })()}
 
-                {/* Tiers compact */}
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-2 gap-1">
                   {volData.thresholds.map((th, i) => (
                     <TierRow key={i} threshold={th} reward={volData.rewards[i] ?? 0n}
                       status={volData.tierStatus[i] ?? 0} index={i} />
                   ))}
                 </div>
 
-                {/* Claim button — always visible. Disabled if nothing to claim. */}
-                {(() => {
-                  const hasClaim = volData.uth2Amount > 0n
-                  return (
-                    <button onClick={doClaimVolume} disabled={claimingVol || !hasClaim}
-                      className="w-full h-10 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2"
-                      style={{
-                        background: hasClaim
-                          ? 'linear-gradient(135deg, #14b8a6 0%, #0891b2 100%)'
-                          : 'linear-gradient(135deg, rgba(20,184,166,0.35) 0%, rgba(8,145,178,0.35) 100%)',
-                        boxShadow: hasClaim ? '0 0 18px rgba(20,184,166,0.3)' : 'none',
-                      }}>
-                      {claimingVol ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /> Reclamando...</>
-                      ) : hasClaim ? (
-                        <><Gift className="w-4 h-4" /> Reclamar {parseFloat(ethers.formatEther(volData.uth2Amount)).toFixed(4)} UTH2</>
-                      ) : (
-                        <><Gift className="w-4 h-4" /> Reclamar UTH2 (haz swap para acumular)</>
-                      )}
-                    </button>
-                  )
-                })()}
-
-                {volMsg && (
-                  <div className={cn('rounded-xl px-3 py-2 text-xs',
-                    volMsg.ok ? 'bg-green-500/10 border border-green-500/20 text-green-300'
-                              : 'bg-red-500/10 border border-red-500/20 text-red-300')}>
-                    {volMsg.text}
-                  </div>
-                )}
-
-                {/* Refresh button */}
                 <button onClick={loadVolume} disabled={loadingVol}
-                  className="w-full flex items-center justify-center gap-1.5 text-[10px] text-white/25 hover:text-white/50 transition-colors py-1">
-                  <RefreshCw className={cn('w-2.5 h-2.5', loadingVol && 'animate-spin')} />
-                  Actualizar estadísticas
+                  className="w-full flex items-center justify-center gap-1 text-[9px] text-white/25 hover:text-white/50 transition-colors py-0.5">
+                  <RefreshCw className={cn('w-2.5 h-2.5', loadingVol && 'animate-spin')} /> Actualizar
                 </button>
               </>
             ) : (
-              <div className="flex flex-col items-center gap-2 py-4">
-                <p className="text-xs text-white/30">Haz swap para empezar a acumular volumen y ganar UTH2</p>
-                <button onClick={loadVolume} className="text-[10px] text-teal-400 hover:text-teal-300 transition-colors flex items-center gap-1">
+              <div className="flex justify-center py-2">
+                <button onClick={loadVolume} className="text-[10px] text-teal-400 hover:text-teal-300 flex items-center gap-1">
                   <RefreshCw className="w-2.5 h-2.5" /> Cargar datos
                 </button>
               </div>

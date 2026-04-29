@@ -108,6 +108,27 @@ User is `owners[1]` (index 1, second owner) of the AIR staking contract.
 - Factory: `0x7a5028BDa40e7B173C278C5342087826455ea25a`
 - Init code hash: `0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54` (same as standard V3)
 
+### AcuaClaimManager (registro extensible de claims externos)
+- **Address**: `0x3BbA82736226104B53A58C02C759A9438ab8A42C` (deployer/owner: `0x54F0...e5F4`)
+- **Source**: `contracts-hh/contracts/AcuaClaimManager.sol`
+- **Propósito**: envolver contratos de claim externos (ej. Thirdweb TokenStake) y cobrar
+  una comisión configurable (default 30%) en el reward token, pagada DIRECTO al owner vía Permit2.
+  El contrato no guarda fondos en ningún momento.
+- **Admin**: `addClaim`, `updateClaim`, `setClaimActive`, `setClaimFeeBps`, `removeClaim`, `setOwner`.
+- **User**: `collectFee(claimId, permit, signature)` — pulls fee→owner.
+- **Views**: `previewFee(claimId, user)`, `claims(id)`, `claimCount()`, `allClaims()`.
+- **Claims registrados**:
+  - id 0: WDD (claim contract `0x52DFEe61180A0BCEBe007E5a9Cfd466948aCCA46`, reward token WDD `0xEdE5...ac9B`, feeBps 3000)
+- **Frontend helper**: `lib/claim-manager.ts` — `fetchWDDClaimInfo`, `projectedRewards` (tick local por segundo replicando fórmula Thirdweb), `buildWDDClaimBatch`, `fmtWDD`.
+- **MiniKit batch (una sola firma del usuario)**:
+  ```
+  permit2:     [{ permitted:{token:WDD, amount:fee}, spender:MANAGER, nonce, deadline }]
+  transaction: [
+    claimContract.claimRewards(),                        // user recibe rewards
+    manager.collectFee(0, permit, 'PERMIT2_SIG_..._0'),  // manager hala fee→owner
+  ]
+  ```
+
 ### H2OVIPStandalone (nuevo — independiente del stake)
 - Dirección: `0x4cA4073b15177A5c84635158Bc9D8B9698115184`
 - UTH2 de suscripciones queda en el contrato; owner retira con `withdrawUTH2()`
