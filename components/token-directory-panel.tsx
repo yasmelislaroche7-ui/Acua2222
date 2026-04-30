@@ -17,18 +17,30 @@ interface TokenEntry {
 }
 
 const TOKENS: TokenEntry[] = [
-  // ─── Tokens ─────────────────────────────────────────────────────────────
+  // ─── Tokens nativos / propios ──────────────────────────────────────────
   { name: 'Acua H2O', symbol: 'H2O', type: 'token', address: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', color: 'cyan', emoji: '💧', description: 'Token nativo del ecosistema Acua' },
-  { name: 'Worldcoin', symbol: 'WLD', type: 'token', address: '0x2cFc85d8E48F8EAB294be644d9E25C3030863003', color: 'blue', emoji: '🌐', description: 'Token nativo de World Chain' },
-  { name: 'Fire Token', symbol: 'FIRE', type: 'token', address: '0x22c40632c13a7f3cae9c343480607d886832c686', color: 'orange', emoji: '🔥', description: 'Token de fuego del ecosistema' },
-  { name: 'Sushi Token', symbol: 'SUSHI', type: 'token', address: '0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38', color: 'pink', emoji: '🍣', description: 'DeFi reward token' },
-  { name: 'USD Coin', symbol: 'USDC', type: 'token', address: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1', color: 'green', emoji: '💵', description: 'Stablecoin 1:1 con USD' },
-  { name: 'wrapped COP', symbol: 'wCOP', type: 'token', address: '0x8a1d45e102e886510e891d2ec656a708991e2d76', color: 'yellow', emoji: '🇨🇴', description: 'Peso colombiano envuelto' },
-  { name: 'wrapped ARS', symbol: 'wARS', type: 'token', address: '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d', color: 'sky', emoji: '🇦🇷', description: 'Peso argentino envuelto' },
   { name: 'BTC H2O', symbol: 'BTCH2O', type: 'token', address: '0xEcC4dAe4DC3D359a93046bd944e9ee3421A6A484', color: 'amber', emoji: '₿', description: 'Bitcoin del ecosistema Acua' },
   { name: 'Air Token', symbol: 'AIR', type: 'token', address: '0xDBA88118551d5Adf16a7AB943403Aea7ea06762b', color: 'violet', emoji: '🌬️', description: 'Token del aire' },
-  { name: 'UTH2 Token', symbol: 'UTH2', type: 'token', address: '0x9eA8653640E22A5b69887985BB75d496dc97022a', color: 'teal', emoji: '⚗️', description: 'Uranio para minería H2O' },
+  { name: 'UTH2 Token', symbol: 'UTH2', type: 'token', address: '0x9eA8653640E22A5b69887985BB75d496dc97022a', color: 'teal', emoji: '⚗️', description: 'Uranio para minería H2O y VIP' },
   { name: 'Time Token', symbol: 'TIME', type: 'token', address: '0x212d7448720852D8Ad282a5d4A895B3461F9076E', color: 'purple', emoji: '⏱️', description: 'Token del tiempo' },
+  // ─── Tokens base / mercado ──────────────────────────────────────────────
+  { name: 'Worldcoin', symbol: 'WLD', type: 'token', address: '0x2cFc85d8E48F8EAB294be644d9E25C3030863003', color: 'blue', emoji: '🌐', description: 'Token nativo de World Chain' },
+  { name: 'USD Coin', symbol: 'USDC', type: 'token', address: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1', color: 'green', emoji: '💵', description: 'Stablecoin 1:1 con USD' },
+  { name: 'Wrapped Ether', symbol: 'WETH', type: 'token', address: '0x4200000000000000000000000000000000000006', color: 'indigo', emoji: 'Ξ', description: 'ETH envuelto en World Chain' },
+  { name: 'Wrapped BTC', symbol: 'WBTC', type: 'token', address: '0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3', color: 'amber', emoji: '₿', description: 'Bitcoin envuelto' },
+  { name: 'Euro Coin', symbol: 'EURC', type: 'token', address: '0x1C60ba0A0eD1019e8Eb035E6daF4155A5cE2380B', color: 'blue', emoji: '🇪🇺', description: 'Stablecoin 1:1 con EUR (Circle)' },
+  { name: 'Tether Gold', symbol: 'oXAUT', type: 'token', address: '0x30974f73A4ac9E606Ed80da928e454977ac486D2', color: 'amber', emoji: '🥇', description: 'Onza de oro tokenizada' },
+  { name: 'Fire Token', symbol: 'FIRE', type: 'token', address: '0x22c40632c13a7f3cae9c343480607d886832c686', color: 'orange', emoji: '🔥', description: 'Token de fuego del ecosistema' },
+  { name: 'Sushi Token', symbol: 'SUSHI', type: 'token', address: '0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38', color: 'pink', emoji: '🍣', description: 'DeFi reward token' },
+  { name: 'wrapped COP', symbol: 'wCOP', type: 'token', address: '0x8a1d45e102e886510e891d2ec656a708991e2d76', color: 'yellow', emoji: '🇨🇴', description: 'Peso colombiano envuelto' },
+  { name: 'wrapped ARS', symbol: 'wARS', type: 'token', address: '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d', color: 'sky', emoji: '🇦🇷', description: 'Peso argentino envuelto' },
+  { name: 'wrapped BRL', symbol: 'wBRL', type: 'token', address: '0xD76f5Faf6888e24D9F04Bf92a0c8B921FE4390e0', color: 'green', emoji: '🇧🇷', description: 'Real brasileño envuelto' },
+  { name: 'ORO Token', symbol: 'ORO', type: 'token', address: '0xcd1E32B86953D79a6AC58e813D2EA7a1790cAb63', color: 'yellow', emoji: '🟡', description: 'ORO meme · World Chain' },
+  { name: 'ORB Token', symbol: 'ORB', type: 'token', address: '0xF3F92A60e6004f3982F0FdE0d43602fC0a30a0dB', color: 'purple', emoji: '🔮', description: 'ORB · World Chain' },
+  { name: 'PUF Token', symbol: 'PUF', type: 'token', address: '0x1aE3498f1B417fe31BE544B04B711F27Ba437bd3', color: 'pink', emoji: '🐡', description: 'Puffer / PUF meme' },
+  { name: 'VIBE Token', symbol: 'VIBE', type: 'token', address: '0x696aD02f0c7d68915ea39cA6e60934f7a8900FB1', color: 'pink', emoji: '✨', description: 'VIBE · World Chain' },
+  { name: 'Uni DOGE', symbol: 'uDOGE', type: 'token', address: '0x12E96C2BFEA6E835CF8Dd38a5834fa61Cf723736', color: 'yellow', emoji: '🐕', description: 'DOGE wrapped via Uniswap' },
+  { name: 'Uni SOL', symbol: 'uSOL', type: 'token', address: '0x9B8Df6E244526ab5F6e6400d331DB28C8fdDdb55', color: 'purple', emoji: '◎', description: 'SOL wrapped via Uniswap' },
   // ─── Staking contracts V2 ────────────────────────────────────────────────
   { name: 'H2O Stake V2', symbol: 'H2O Stake V2', type: 'staking', address: '0x7730583E492D520CcBb3C06325A77EccAbAFa98e', color: 'cyan', emoji: '💧', description: 'Staking H2O V2 · Permit2 · Referidos · 90% APY (activo)' },
   // ─── VIP contracts ───────────────────────────────────────────────────────
@@ -47,10 +59,14 @@ const TOKENS: TokenEntry[] = [
   // ─── Mining contracts ────────────────────────────────────────────────────
   { name: 'Minería UTH2 → H2O', symbol: 'UTH2 Mine', type: 'mining', address: '0xbCF03E16F9114396A849053cb1555aAE744522e6', color: 'teal', emoji: '⛏️', description: 'Paga UTH2 y mina H2O permanente' },
   { name: 'Minería WLD → Multi', symbol: 'WLD Mine', type: 'mining', address: '0xD2E227D30bC94D6FfD4eCf6b56141429C801E228', color: 'blue', emoji: '💎', description: 'Paga WLD y mina 7 tokens' },
-  // ─── Swap / infraestructura ───────────────────────────────────────────────
-  { name: 'Uniswap V3 SwapRouter02', symbol: 'Router', type: 'swap', address: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45', color: 'indigo', emoji: '🔄', description: 'Router oficial Uniswap V3 · World Chain · verificado ✓' },
+  // ─── Acua Swap / H2O v3 / infraestructura ────────────────────────────────
+  { name: 'AcuaH2OV3LP (LP wrapper)', symbol: 'H2O v3 LP', type: 'swap', address: '0xC1feC35ea295EE867e41D1b80a23809C39ac6868', color: 'cyan', emoji: '🌊', description: 'Wrapper Uniswap V3 · LP H2O · 2% deposit/withdraw · claim H2O' },
+  { name: 'AcuaSwap Router', symbol: 'AcuaSwap', type: 'swap', address: '0xA2FD6cd36a661E270FC7AdaA82D0d22f4660706d', color: 'indigo', emoji: '🔄', description: 'Router de swap propio · 2.1% fee · graba volumen' },
+  { name: 'Volume Rewards', symbol: 'VolReward', type: 'swap', address: '0xc74D6B65f8E30E040CE744117228118d107f77f1', color: 'teal', emoji: '🏆', description: 'Recompensas mensuales por volumen swap (UTH2)' },
+  { name: 'H2O Fee Collector', symbol: 'FeeColl', type: 'swap', address: '0xB58B80EF6db1B508A0241ac4565fe7c29F299d60', color: 'cyan', emoji: '💸', description: 'Cobra 1 H2O por tx en stake/claim/sub/mining' },
+  { name: 'Uniswap V3 SwapRouter02', symbol: 'UniRouter', type: 'swap', address: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45', color: 'indigo', emoji: '🦄', description: 'Router oficial Uniswap V3 · World Chain · verificado ✓' },
   { name: 'Uniswap V3 QuoterV2', symbol: 'Quoter', type: 'swap', address: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e', color: 'indigo', emoji: '📊', description: 'Cotizador on-chain V3 · World Chain · verificado ✓' },
-  { name: 'Permit2', symbol: 'Permit2', type: 'swap', address: '0x000000000022D473030F116dDEE9F6B43aC78BA3', color: 'indigo', emoji: '🔑', description: 'Aprobaciones con firma · usado en H2O Stake V2 y VIP' },
+  { name: 'Permit2', symbol: 'Permit2', type: 'swap', address: '0x000000000022D473030F116dDEE9F6B43aC78BA3', color: 'indigo', emoji: '🔑', description: 'Aprobaciones por firma · Permit2 (Uniswap)' },
 ]
 
 const colorMap: Record<string, string> = {

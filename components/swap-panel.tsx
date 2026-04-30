@@ -502,58 +502,64 @@ const MIN_SWAP_POOL_LIQ = 10_000_000_000n // 1e10
 async function tryQuoteSingle(
   router: ethers.Contract,
   provider: ethers.JsonRpcProvider,
-  tokenIn: string, tokenOut: string, fee: number, amtIn: bigint
-): Promise<{ amountOut: bigint; poolAddr: string } | null> {
+  tokenIn: string, tokenOut: string, fee: number, amtIn: bigint,
+  minLiq: bigint = MIN_SWAP_POOL_LIQ,
+): Promise<{ amountOut: bigint; poolAddr: string; liq: bigint } | null> {
   try {
     const [out, poolAddr] = await router.quoteSingle(tokenIn, tokenOut, fee, amtIn)
     const amountOut = BigInt(out.toString())
     if (amountOut === 0n) return null
 
+    let liq = 0n
     try {
       const pool = new ethers.Contract(poolAddr, POOL_LIQUIDITY_ABI, provider)
-      const liq = BigInt((await pool.liquidity()).toString())
-      // Reject ghost pools (liq = 0) and dust pools (liq < 1e10)
-      if (liq < MIN_SWAP_POOL_LIQ) return null
+      liq = BigInt((await pool.liquidity()).toString())
+      if (liq < minLiq) return null
     } catch { return null }
 
-    return { amountOut, poolAddr }
+    return { amountOut, poolAddr, liq }
   } catch { return null }
 }
 
 // ─── Smart multi-hop router ───────────────────────────────────────────────────
-async function getBestRouteQuote(
-  tokenIn: string, tokenOut: string, netAmountIn: bigint
-): Promise<QuoteResult | null> {
-  const p      = getProvider()
-  const router = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, p)
-  const results: { amountOut: bigint; fee: number; fee2?: number; hopToken?: string; label: string }[] = []
+// Hops candidatos: WLD/USDC/WETH son los hubs naturales; añadimos UTH2/BTCH2O
+// para que el swap encuentre rutas a través de las pools H2O v3 propias
+// (ej: USDC ↔ UTH2 ↔ WLD si hay liquidez en las del wrapper).
+const HOP_TOKENS = [
+  { addr: TOKENS.WLD,                                   sym: 'WLD'    },
+  { addr: TOKENS.USDC,                                  sym: 'USDC'   },
+  { addr: WETH_ADDR,                                    sym: 'WETH'   },
+  { addr: TOKENS.UTH2,                                  sym: 'UTH2'   },
+  { addr: TOKENS.BTCH2O,                                sym: 'BTCH2O' },
+]
 
+async function quoteRoutesAtLiq(
+  router: ethers.Contract,
+  provider: ethers.JsonRpcProvider,
+  tokenIn: string, tokenOut: string, netAmountIn: bigint, minLiq: bigint,
+): Promise<{ amountOut: bigint; fee: number; fee2?: number; hopToken?: string; label: string }[]> {
+  const results: { amountOut: bigint; fee: number; fee2?: number; hopToken?: string; label: string }[] = []
   const inL  = tokenIn.toLowerCase()
   const outL = tokenOut.toLowerCase()
 
+  // Directo
   await Promise.all(FEE_TIERS.map(async fee => {
-    const r = await tryQuoteSingle(router, p, tokenIn, tokenOut, fee, netAmountIn)
+    const r = await tryQuoteSingle(router, provider, tokenIn, tokenOut, fee, netAmountIn, minLiq)
     if (r) {
       const pct = fee >= 10000 ? '1%' : fee >= 3000 ? '0.3%' : fee >= 500 ? '0.05%' : '0.01%'
       results.push({ amountOut: r.amountOut, fee, label: `Directo ${pct}` })
     }
   }))
 
-  const HOP_CANDIDATES = [
-    { addr: TOKENS.WLD,  sym: 'WLD'  },
-    { addr: TOKENS.USDC, sym: 'USDC' },
-    { addr: WETH_ADDR,   sym: 'WETH' },
-  ].filter(h => h.addr.toLowerCase() !== inL && h.addr.toLowerCase() !== outL)
-
-  await Promise.all(HOP_CANDIDATES.flatMap(({ addr: hop, sym: hopSym }) =>
+  // Multi-hop
+  const HOPS = HOP_TOKENS.filter(h => h.addr.toLowerCase() !== inL && h.addr.toLowerCase() !== outL)
+  await Promise.all(HOPS.flatMap(({ addr: hop, sym: hopSym }) =>
     FEE_TIERS.flatMap(f1 =>
       FEE_TIERS.map(async f2 => {
-        const r1 = await tryQuoteSingle(router, p, tokenIn, hop, f1, netAmountIn)
+        const r1 = await tryQuoteSingle(router, provider, tokenIn, hop, f1, netAmountIn, minLiq)
         if (!r1 || r1.amountOut === 0n) return
-
-        const r2 = await tryQuoteSingle(router, p, hop, tokenOut, f2, r1.amountOut)
+        const r2 = await tryQuoteSingle(router, provider, hop, tokenOut, f2, r1.amountOut, minLiq)
         if (!r2 || r2.amountOut === 0n) return
-
         const pct1 = f1 >= 10000 ? '1%' : f1 >= 3000 ? '0.3%' : f1 >= 500 ? '0.05%' : '0.01%'
         const pct2 = f2 >= 10000 ? '1%' : f2 >= 3000 ? '0.3%' : f2 >= 500 ? '0.05%' : '0.01%'
         results.push({
@@ -563,6 +569,24 @@ async function getBestRouteQuote(
       })
     )
   ))
+
+  return results
+}
+
+async function getBestRouteQuote(
+  tokenIn: string, tokenOut: string, netAmountIn: bigint
+): Promise<QuoteResult | null> {
+  const p      = getProvider()
+  const router = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, p)
+
+  // 1ª pasada: filtro normal de liquidez (descarta pools fantasma)
+  let results = await quoteRoutesAtLiq(router, p, tokenIn, tokenOut, netAmountIn, MIN_SWAP_POOL_LIQ)
+
+  // 2ª pasada (fallback): aceptar pools con cualquier liquidez > 0 si no hay
+  // ninguna ruta. Mejor ofrecer un quote con price impact alto que rechazar.
+  if (results.length === 0) {
+    results = await quoteRoutesAtLiq(router, p, tokenIn, tokenOut, netAmountIn, 1n)
+  }
 
   if (results.length === 0) return null
 

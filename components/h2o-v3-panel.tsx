@@ -804,8 +804,18 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
   const [feeFilter, setFeeFilter] = useState<FeeFilter>('all')
   const [sortMode, setSortMode] = useState<SortMode>('tvl')
   const [search, setSearch] = useState('')
+  const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
+  const [h2oBal, setH2oBal] = useState<bigint>(0n)
+  const [claimingAll, setClaimingAll] = useState(false)
   const initialDoneRef = useRef(false)
   const mountedRef = useRef(true)
+  // Refs para evitar parpadeo: mantenemos un set "estable" de pools visibles,
+  // de modo que un fetch fallido transitorio no las haga desaparecer.
+  const stableVisibleRef = useRef<Set<number>>(new Set())
+  const livePoolRef = useRef<Record<number, PoolLiveData>>({})
+  const poolsRef = useRef<H2OV3Pool[]>([])
+  useEffect(() => { livePoolRef.current = livePool }, [livePool])
+  useEffect(() => { poolsRef.current = pools }, [pools])
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
@@ -823,77 +833,89 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
     try {
       const psRaw = await fetchAllPools()
 
-      // Cargamos datos vivos de TODAS las pools activas para poder elegir la
-      // mejor cuando hay duplicados por par (misma pareja, distinto pool addr).
       const activeRaw = psRaw.filter(p => {
         if (!p.active) return false
-        // Filtrar pools con tokens desconocidos (no estan en el Swap)
         if (!isKnownToken(p.token0) || !isKnownToken(p.token1)) return false
-        // Ocultar pools H2O/* — pertenecen a otro panel
         if (isH2O(p.token0) || isH2O(p.token1)) return false
         return true
       })
 
-      const liveAll = await fetchAllPoolsLive(activeRaw)
+      // Lectura on-chain en vivo (puede fallar individualmente; preservamos stale).
+      const newLive = await fetchAllPoolsLive(activeRaw)
 
-      // Dedupe por par de tokens (sin importar orden) + fee.
-      // Cuando hay duplicados, ganamos la pool con mayor liquidez Uniswap.
+      // MERGE: conservamos datos previos para pools que fallaron este refresh.
+      const merged: Record<number, PoolLiveData> = { ...livePoolRef.current }
+      for (const id of Object.keys(newLive)) merged[Number(id)] = newLive[Number(id)]
+
+      // Dedupe por par (sin importar orden) + fee. Mejor pool por liquidez.
       const bestByPair = new Map<string, H2OV3Pool>()
       for (const p of activeRaw) {
-        const a = p.token0.toLowerCase()
-        const b = p.token1.toLowerCase()
+        const a = p.token0.toLowerCase(), b = p.token1.toLowerCase()
         const pair = a < b ? `${a}-${b}` : `${b}-${a}`
         const key = `${pair}:${p.fee}`
         const existing = bestByPair.get(key)
         if (!existing) { bestByPair.set(key, p); continue }
-        const liqA = liveAll[p.poolId]?.poolLiquidity ?? 0n
-        const liqB = liveAll[existing.poolId]?.poolLiquidity ?? 0n
+        const liqA = merged[p.poolId]?.poolLiquidity ?? 0n
+        const liqB = merged[existing.poolId]?.poolLiquidity ?? 0n
         if (liqA > liqB) bestByPair.set(key, p)
       }
 
-      // Filtro estricto: solo pools que se pueden operar HOY.
-      // Requisitos: (a) tenemos datos vivos, (b) la pool de Uniswap esta inicializada
-      // (sqrtPriceX96 > 0) y (c) tiene liquidez activa (poolLiquidity > 0).
-      // Esto descarta pools fantasma (sin liq) y duplicados sin profundidad
-      // (ej: uSOL/WLD 0.3% sin liq pero existe el 1% con liq → mantenemos solo el 1%).
-      const dedupArr = Array.from(bestByPair.values())
-      const ps = dedupArr.filter(p => {
-        const ld = liveAll[p.poolId]
-        if (!ld) return false
-        if (ld.sqrtPriceX96 === 0n) return false
-        if (ld.poolLiquidity === 0n) return false
-        return true
-      })
+      // Pool visible si: (a) pasa el filtro estricto AHORA, o
+      // (b) ya pasó antes (stable set) — evita el parpadeo en RPC blips.
+      const stable = stableVisibleRef.current
+      const newPs: H2OV3Pool[] = []
+      for (const p of bestByPair.values()) {
+        const ld = merged[p.poolId]
+        const passesStrict = !!ld && ld.sqrtPriceX96 > 0n && ld.poolLiquidity > 0n
+        if (passesStrict) {
+          stable.add(p.poolId)
+          newPs.push(p)
+        } else if (stable.has(p.poolId)) {
+          newPs.push(p)
+        }
+      }
 
-      // Reducir liveAll a las pools finalmente visibles
-      const live: Record<number, PoolLiveData> = {}
-      for (const p of ps) if (liveAll[p.poolId]) live[p.poolId] = liveAll[p.poolId]
+      // Reducir a solo pools visibles
+      const finalLive: Record<number, PoolLiveData> = {}
+      for (const p of newPs) if (merged[p.poolId]) finalLive[p.poolId] = merged[p.poolId]
 
       if (!mountedRef.current) return
-      setPools(ps)
 
-      // Cargar en paralelo: posiciones + APRs + tasa USDC
-      const [, , rate] = await Promise.all([
-        Promise.all(ps.map(async p => {
+      // Solo actualizar pools si los IDs cambian (evita re-render innecesario).
+      const prevIds = poolsRef.current.map(p => p.poolId).slice().sort((a, b) => a - b)
+      const newIds = newPs.map(p => p.poolId).slice().sort((a, b) => a - b)
+      const sameIds = prevIds.length === newIds.length && prevIds.every((id, i) => id === newIds[i])
+      if (!sameIds) setPools(newPs)
+      setLivePool(finalLive)
+
+      // Posiciones + APRs + USDC rate en paralelo. Solo actualizamos cuando
+      // hay respuesta válida (no sobreescribir con null en error transitorio).
+      await Promise.all([
+        Promise.all(newPs.map(async p => {
           try {
             if (userAddress) {
               const pos = await fetchUserPosition(p.poolId, userAddress)
-              if (mountedRef.current) setPositions(prev => ({ ...prev, [p.poolId]: pos }))
+              if (mountedRef.current && pos) setPositions(prev => ({ ...prev, [p.poolId]: pos }))
             }
           } catch {}
         })),
-        Promise.all(ps.map(async p => {
+        Promise.all(newPs.map(async p => {
           try {
             const apr = await fetchAprBps(p.poolId)
             if (mountedRef.current) setAprs(prev => ({ ...prev, [p.poolId]: apr }))
           } catch {}
         })),
-        fetchH2OUsdcRate(),
+        fetchH2OUsdcRate().then(rate => {
+          if (mountedRef.current && rate > 0n) setUsdcRate(rate)
+        }).catch(() => {}),
+        userAddress
+          ? fetchFeeInfo(userAddress).then(d => {
+              if (!mountedRef.current) return
+              setFeeAmount(d.fee); setH2oBal(d.userH2O)
+            }).catch(() => {})
+          : Promise.resolve(),
       ])
 
-      if (!mountedRef.current) return
-      setLivePool(live)
-      setUsdcRate(rate)
       setLastUpdate(Date.now())
     } catch (e: any) {
       if (!silent && mountedRef.current) setMsg(e?.message || 'Error cargando pools')
@@ -902,6 +924,51 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
       initialDoneRef.current = true
     }
   }, [userAddress])
+
+  // ─── Claim All ──────────────────────────────────────────────────────────────
+  const TWO_H2O = 2_000_000_000_000_000_000n
+  const claimablePools = useMemo(
+    () => pools.filter(p => {
+      const pos = positions[p.poolId]
+      return pos && pos.netH2O >= TWO_H2O
+    }),
+    [pools, positions],
+  )
+  const totalClaimable = useMemo(
+    () => claimablePools.reduce((acc, p) => acc + (positions[p.poolId]?.netH2O ?? 0n), 0n),
+    [claimablePools, positions],
+  )
+  const claimAllFee = feeAmount * BigInt(claimablePools.length)
+
+  async function doClaimAll() {
+    if (!H2O_V3_ADDRESS || claimablePools.length === 0) return
+    if (h2oBal < claimAllFee) {
+      setMsg(`Necesitas ${ethers.formatUnits(claimAllFee, 18)} H2O para pagar las ${claimablePools.length} comisiones.`)
+      return
+    }
+    setClaimingAll(true); setMsg('')
+    try {
+      const fee = buildFeePayment(claimAllFee)
+      const transactions: any[] = [
+        fee.tx,
+        ...claimablePools.map(p => ({
+          address: H2O_V3_ADDRESS,
+          abi: H2O_V3_TX_ABI,
+          functionName: 'claim',
+          args: [p.poolId.toString()],
+        })),
+      ]
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: transactions,
+        permit2: [fee.permit2],
+      })
+      if (finalPayload.status === 'success') {
+        setMsg(`✓ ¡Reclamaste ${claimablePools.length} posiciones! Refrescando…`)
+        setTimeout(() => refresh(false), 2500)
+      } else { setMsg('Transacción rechazada') }
+    } catch (e: any) { setMsg(e?.message || 'Error en Claim All') }
+    finally { setClaimingAll(false) }
+  }
 
   useEffect(() => {
     refresh()
@@ -994,7 +1061,16 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
 
   return (
     <div className="px-4 pt-3 pb-6 space-y-3">
-      <Header onRefresh={() => refresh(false)} loading={loading} lastUpdate={lastUpdate} />
+      <Header
+        onRefresh={() => refresh(false)}
+        loading={loading}
+        lastUpdate={lastUpdate}
+        claimablePools={claimablePools.length}
+        totalClaimable={totalClaimable}
+        claimAllFee={claimAllFee}
+        onClaimAll={doClaimAll}
+        claimingAll={claimingAll}
+      />
 
       {/* Panel de totales — TVL y Pendiente con USDC */}
       <div className="grid grid-cols-3 gap-2">
@@ -1138,7 +1214,11 @@ function BigStat({ label, value, sub, icon, highlight }: { label: string; value:
   )
 }
 
-function Header({ onRefresh, loading, lastUpdate }: { onRefresh?: () => void; loading?: boolean; lastUpdate?: number }) {
+function Header({ onRefresh, loading, lastUpdate, claimablePools, totalClaimable, claimAllFee, onClaimAll, claimingAll }: {
+  onRefresh?: () => void; loading?: boolean; lastUpdate?: number;
+  claimablePools?: number; totalClaimable?: bigint; claimAllFee?: bigint;
+  onClaimAll?: () => void; claimingAll?: boolean;
+}) {
   const [secondsAgo, setSecondsAgo] = useState(0)
   useEffect(() => {
     if (!lastUpdate) return
@@ -1148,23 +1228,41 @@ function Header({ onRefresh, loading, lastUpdate }: { onRefresh?: () => void; lo
     return () => clearInterval(id)
   }, [lastUpdate])
   return (
-    <div className="flex items-end justify-between">
-      <div>
+    <div className="flex items-start justify-between gap-2">
+      <div className="min-w-0">
         <div className="text-base font-extrabold flex items-center gap-1.5 text-cyan-50">
           <Waves className="w-4 h-4 text-cyan-400" />
           H2O <span className="text-cyan-400">v3</span>
         </div>
         <div className="text-[10px] text-cyan-400/70">
-          Liquidez concentrada Uniswap V3 · Recompensas en H2O
-          {lastUpdate ? ` · auto-refresh cada 30s (hace ${secondsAgo}s)` : ''}
+          Liquidez concentrada · Recompensas en H2O
+          {lastUpdate ? ` · auto-refresh 30s (hace ${secondsAgo}s)` : ''}
         </div>
       </div>
-      {onRefresh && (
-        <button onClick={onRefresh} disabled={loading}
-          className="p-2 rounded-lg border border-cyan-500/20 bg-cyan-950/40 hover:border-cyan-400/40 text-cyan-400 hover:text-cyan-300 transition shrink-0">
-          <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
-        </button>
-      )}
+      <div className="flex items-center gap-1.5 shrink-0">
+        {claimablePools !== undefined && claimablePools > 0 && onClaimAll && (
+          <button
+            onClick={onClaimAll}
+            disabled={!!claimingAll}
+            title={`Reclama ${claimablePools} pos. (${ethers.formatUnits(totalClaimable ?? 0n, 18)} H2O · fee ${ethers.formatUnits(claimAllFee ?? 0n, 18)} H2O)`}
+            className={cn(
+              'flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold transition-all',
+              'bg-gradient-to-r from-cyan-500 to-blue-600 border-cyan-400/50 text-white',
+              'shadow-[0_0_16px_-4px_rgba(34,211,238,0.6)] hover:from-cyan-400 hover:to-blue-500',
+              'disabled:opacity-60',
+            )}
+          >
+            {claimingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Gift className="w-3 h-3" />}
+            <span>Reclamar {claimablePools}</span>
+          </button>
+        )}
+        {onRefresh && (
+          <button onClick={onRefresh} disabled={loading}
+            className="p-2 rounded-lg border border-cyan-500/20 bg-cyan-950/40 hover:border-cyan-400/40 text-cyan-400 hover:text-cyan-300 transition shrink-0">
+            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+          </button>
+        )}
+      </div>
     </div>
   )
 }

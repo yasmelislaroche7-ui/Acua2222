@@ -43,22 +43,48 @@ async function sendTx(transactions: any[], onMsg: (m: string) => void) {
 }
 
 // ─── Global Summary ───────────────────────────────────────────────────────────
+const ERC20_BAL_ABI = ['function balanceOf(address) view returns (uint256)']
+const H2O_TOKEN  = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'
+const UTH2_TOKEN = '0x9eA8653640E22A5b69887985BB75d496dc97022a'
+
+// Contratos extra (H2O v3 + VIP + Volume Rewards + Fee Collector)
+// que NO usan contractTokenBalance() — leemos su balance ERC20 directo.
+const EXTRA_BALANCES: Array<{ label: string; address: string; token: string; decimals: number; color: string }> = [
+  { label: 'H2O v3 LP',     address: '0xC1feC35ea295EE867e41D1b80a23809C39ac6868', token: H2O_TOKEN,  decimals: 18, color: '#06b6d4' },
+  { label: 'VIP',           address: '0x4cA4073b15177A5c84635158Bc9D8B9698115184', token: H2O_TOKEN,  decimals: 18, color: '#f59e0b' },
+  { label: 'Vol.Rewards',   address: '0xc74D6B65f8E30E040CE744117228118d107f77f1', token: UTH2_TOKEN, decimals: 18, color: '#a78bfa' },
+  { label: 'Fee Collector', address: '0xB58B80EF6db1B508A0241ac4565fe7c29F299d60', token: H2O_TOKEN,  decimals: 18, color: '#06b6d4' },
+  { label: 'Mining UTH2',   address: '0xbCF03E16F9114396A849053cb1555aAE744522e6', token: H2O_TOKEN,  decimals: 18, color: '#06b6d4' },
+  { label: 'Mining WLD',    address: '0xD2E227D30bC94D6FfD4eCf6b56141429C801E228', token: H2O_TOKEN,  decimals: 18, color: '#06b6d4' },
+]
+
 function GlobalSummary() {
   const [balances, setBalances] = useState<{ symbol: string; balance: bigint; decimals: number; color: string }[]>([])
+  const [extras, setExtras] = useState<{ label: string; balance: bigint; decimals: number; color: string }[]>([])
   const [loading, setLoading] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const p = getProvider()
-      const results = await Promise.allSettled(
-        STAKING_TOKENS.map(async t => {
-          const c = new ethers.Contract(t.stakingContract, UNIVERSAL_STAKING_ABI, p)
-          const bal = await c.contractTokenBalance()
-          return { symbol: t.symbol, balance: bal, decimals: t.decimals, color: t.color }
-        })
-      )
-      setBalances(results.filter(r => r.status === 'fulfilled').map(r => (r as any).value))
+      const [stake, extra] = await Promise.all([
+        Promise.allSettled(
+          STAKING_TOKENS.map(async t => {
+            const c = new ethers.Contract(t.stakingContract, UNIVERSAL_STAKING_ABI, p)
+            const bal = await c.contractTokenBalance()
+            return { symbol: t.symbol, balance: bal, decimals: t.decimals, color: t.color }
+          })
+        ),
+        Promise.allSettled(
+          EXTRA_BALANCES.map(async e => {
+            const c = new ethers.Contract(e.token, ERC20_BAL_ABI, p)
+            const bal: bigint = await c.balanceOf(e.address)
+            return { label: e.label, balance: bal, decimals: e.decimals, color: e.color }
+          })
+        ),
+      ])
+      setBalances(stake.filter(r => r.status === 'fulfilled').map(r => (r as any).value))
+      setExtras(extra.filter(r => r.status === 'fulfilled').map(r => (r as any).value))
     } catch { }
     finally { setLoading(false) }
   }, [])
@@ -76,6 +102,7 @@ function GlobalSummary() {
           <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
         </button>
       </div>
+
       <div className="grid grid-cols-2 gap-1.5">
         {balances.map(b => (
           <div key={b.symbol} className="flex items-center justify-between bg-background/50 rounded-lg px-2 py-1.5">
@@ -89,6 +116,22 @@ function GlobalSummary() {
           </div>
         )}
       </div>
+
+      {extras.length > 0 && (
+        <>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mt-2 pt-2 border-t border-border">
+            Otros contratos (H2O v3 · VIP · Mining · Fee · Vol)
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {extras.map(e => (
+              <div key={e.label} className="flex items-center justify-between bg-background/50 rounded-lg px-2 py-1.5">
+                <span className="text-xs font-semibold" style={{ color: e.color }}>{e.label}</span>
+                <span className="text-xs font-mono text-foreground">{formatToken(e.balance, e.decimals, 2)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
