@@ -3,56 +3,61 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* AcuaStaking dark theme — always dark */
+/* ─── ACUA MINIEXCHANGE — Electric Blue Exchange Theme ───────────────────── */
 :root {
-  /* Deep navy/charcoal dark background */
-  --background: oklch(0.11 0.012 240);
-  --foreground: oklch(0.96 0.005 220);
+  /* Deep space background with electric blue tint */
+  --background: oklch(0.085 0.018 245);
+  --foreground: oklch(0.95 0.008 220);
 
-  /* Card: slightly lighter surface */
-  --card: oklch(0.15 0.015 240);
-  --card-foreground: oklch(0.96 0.005 220);
+  /* Card: dark surface with slight blue */
+  --card: oklch(0.12 0.02 245);
+  --card-foreground: oklch(0.95 0.008 220);
 
-  --popover: oklch(0.15 0.015 240);
-  --popover-foreground: oklch(0.96 0.005 220);
+  --popover: oklch(0.12 0.02 245);
+  --popover-foreground: oklch(0.95 0.008 220);
 
-  /* Primary: cyan-teal (H2O brand) */
-  --primary: oklch(0.75 0.18 192);
-  --primary-foreground: oklch(0.1 0.01 240);
+  /* Primary: electric blue (exchange accent) */
+  --primary: oklch(0.65 0.22 255);
+  --primary-foreground: oklch(0.98 0.005 255);
 
-  /* Secondary: subtle surface */
-  --secondary: oklch(0.19 0.015 240);
+  /* Secondary: subtle dark surface */
+  --secondary: oklch(0.16 0.022 245);
   --secondary-foreground: oklch(0.82 0.01 220);
 
-  --muted: oklch(0.18 0.012 240);
-  --muted-foreground: oklch(0.55 0.01 220);
+  --muted: oklch(0.15 0.018 245);
+  --muted-foreground: oklch(0.50 0.012 230);
 
-  /* Accent: brighter cyan highlight */
-  --accent: oklch(0.72 0.2 192);
-  --accent-foreground: oklch(0.1 0.01 240);
+  /* Accent: bright electric blue */
+  --accent: oklch(0.68 0.24 255);
+  --accent-foreground: oklch(0.98 0.005 255);
 
-  --destructive: oklch(0.55 0.22 25);
+  --destructive: oklch(0.58 0.24 25);
   --destructive-foreground: oklch(0.96 0.005 220);
 
-  --border: oklch(0.25 0.015 240);
-  --input: oklch(0.2 0.015 240);
-  --ring: oklch(0.72 0.2 192);
+  --border: oklch(0.22 0.025 245);
+  --input: oklch(0.17 0.022 245);
+  --ring: oklch(0.65 0.22 255);
 
-  --radius: 0.75rem;
+  --radius: 0.5rem;
 
-  /* Chart colors */
-  --chart-1: oklch(0.75 0.18 192);
-  --chart-2: oklch(0.65 0.15 165);
-  --chart-3: oklch(0.55 0.12 220);
-  --chart-4: oklch(0.6 0.18 140);
-  --chart-5: oklch(0.7 0.16 210);
+  /* Chart colors — exchange palette */
+  --chart-1: oklch(0.65 0.22 255);   /* electric blue */
+  --chart-2: oklch(0.68 0.20 165);   /* gain green */
+  --chart-3: oklch(0.58 0.24 25);    /* loss red */
+  --chart-4: oklch(0.72 0.18 65);    /* amber */
+  --chart-5: oklch(0.60 0.18 300);   /* violet */
 
   /* Custom tokens */
-  --cyan: oklch(0.75 0.18 192);
-  --cyan-dim: oklch(0.55 0.14 192);
-  --surface-1: oklch(0.15 0.015 240);
-  --surface-2: oklch(0.19 0.018 240);
-  --surface-3: oklch(0.22 0.02 240);
+  --cyan: oklch(0.72 0.2 195);
+  --cyan-dim: oklch(0.52 0.15 195);
+  --electric-blue: oklch(0.65 0.22 255);
+  --gain: oklch(0.68 0.20 158);   /* #00C076 Binance green */
+  --loss: oklch(0.60 0.26 20);    /* #F6465D Binance red */
+  --surface-1: oklch(0.12 0.02 245);
+  --surface-2: oklch(0.155 0.022 245);
+  --surface-3: oklch(0.19 0.025 245);
+  --surface-4: oklch(0.21 0.025 245);
+  --blue-glow: oklch(0.65 0.22 255);
 }
 
 @theme inline {
@@ -60,9 +65,13 @@
   --font-mono: 'Geist Mono', 'Geist Mono Fallback';
   --color-cyan: var(--cyan);
   --color-cyan-dim: var(--cyan-dim);
+  --color-electric-blue: var(--electric-blue);
+  --color-gain: var(--gain);
+  --color-loss: var(--loss);
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
+  --color-surface-4: var(--surface-4);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -87,10 +96,10 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 8px);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -107,5 +116,51 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, oklch(0.35 0.18 255 / 0.12) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 30% at 80% 90%, oklch(0.45 0.16 200 / 0.07) 0%, transparent 60%);
+    background-attachment: fixed;
   }
+  /* Scrollbar exchange style */
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: oklch(0.35 0.10 255); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: oklch(0.55 0.18 255); }
+}
+
+/* ── Animations ─────────────────────────────────────────────────────────── */
+@keyframes ticker-slide {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-scroll { animation: ticker-slide 28s linear infinite; }
+.ticker-scroll:hover { animation-play-state: paused; }
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 8px oklch(0.65 0.22 255 / 0.3); }
+  50%       { box-shadow: 0 0 20px oklch(0.65 0.22 255 / 0.6), 0 0 40px oklch(0.65 0.22 255 / 0.2); }
+}
+.glow-blue { animation: glow-pulse 3s ease-in-out infinite; }
+
+@keyframes float-in-left {
+  from { opacity: 0; transform: translateX(-100%); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.slide-in-left { animation: float-in-left 0.25s ease-out; }
+
+@keyframes candle-draw {
+  from { opacity: 0; transform: scaleY(0); }
+  to   { opacity: 1; transform: scaleY(1); }
+}
+
+/* Exchange card style */
+.ex-card {
+  background: oklch(0.12 0.02 245);
+  border: 1px solid oklch(0.22 0.025 245);
+  border-radius: 8px;
+}
+.ex-card-highlight {
+  background: oklch(0.14 0.025 255);
+  border: 1px solid oklch(0.30 0.08 255);
+  border-radius: 8px;
 }

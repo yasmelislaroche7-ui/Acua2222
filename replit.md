@@ -1,7 +1,13 @@
-# Acua Staking — World Chain Mini App
+# ACUA MINIEXCHANGE — World Chain DeFi Mini App
 
 ## Overview
-Acua Staking is a decentralized application (dApp) for the **World Chain** ecosystem. It runs as a Mini App inside **World App** and uses **MiniKit + Permit2** for gasless-feeling transactions. Users can stake tokens, mine tokens, and earn rewards across multiple contracts.
+**ACUA MINIEXCHANGE** is a full exchange-style DeFi mini app for the **World Chain** ecosystem running inside **World App**. Uses MiniKit + Permit2 for gasless transactions. Features: staking (H2O, multi-token, V2, V3), mining (UTH2→H2O, WLD→7tokens, TIME→WLD), integrated swap, platform monitor, and H2O 2.0 with referrals + donations.
+
+### New UI (May 2026)
+- **Exchange shell** (`components/acua-app.tsx`): Binance-style dark theme, electric blue (`oklch(0.65 0.22 255)`), floating flame-logo menu button triggering side NavDrawer, scrolling stats ticker, H2O candlestick chart header, bottom quick-nav tabs.
+- **Market Ticker** (`components/market-ticker.tsx`): `CandlestickChart` SVG (deterministic candles by hour), `StatsTicker` horizontal scroll, `MarketMiniCard` price + chart header.
+- **Platform Monitor** (`components/platform-monitor.tsx`): Live on-chain stats — user wallet/staked/pending, platform totals, active contracts table.
+- **H2O 2.0 Donation Card** (`components/new-h2o-panel.tsx`): Amber donation card with address `0xc2ef127734f296952de75c1b58a6cec605cc2e59`, copy-to-clipboard, WLD/World Chain metadata.
 
 ## Architecture
 

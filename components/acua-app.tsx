@@ -1,13 +1,15 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Image from 'next/image'
 import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
 import {
   Droplets, RefreshCw, Wallet, Shield, Loader2,
-  TrendingUp, Pickaxe, Star, HelpCircle, Wind, Clock, BookOpen, Repeat2, Sparkles,
+  TrendingUp, Pickaxe, Star, HelpCircle, Wind, Clock, BookOpen, Repeat2,
+  Sparkles, X, ChevronRight, Activity, BarChart2, Zap, Flame,
+  Menu, Home, Settings, Bell, ArrowLeftRight,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { StakePanel } from '@/components/stake-panel'
 import { OwnerPanel } from '@/components/owner-panel'
 import { MultiStakingPanel } from '@/components/multi-staking-panel'
@@ -22,40 +24,31 @@ import { InfoPanel } from '@/components/info-panel'
 import { TokenDirectoryPanel } from '@/components/token-directory-panel'
 import { SwapPanel } from '@/components/swap-panel'
 import { NewH2OPanel } from '@/components/new-h2o-panel'
+import { PlatformMonitor } from '@/components/platform-monitor'
+import { StatsTicker, MarketMiniCard } from '@/components/market-ticker'
 import { useWallet } from '@/hooks/use-wallet'
 import {
-  fetchStakeInfo,
-  fetchContractConfig,
-  fetchH2OBalance,
-  fetchWLDBalance,
-  StakeInfo,
-  ContractConfig,
-  shortenAddress,
+  fetchStakeInfo, fetchContractConfig, fetchH2OBalance, fetchWLDBalance,
+  StakeInfo, ContractConfig, shortenAddress,
 } from '@/lib/contract'
 import {
   STAKING_CONTRACTS, UNIVERSAL_STAKING_ABI, getProvider,
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
-type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin'
+type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin' | 'monitor'
 type InstalledState = null | true | false
 
-// ─── Hardcoded special addresses ──────────────────────────────────────────────
-// AIR secondary funder (owners[1] of AIR staking) — sees full app + Panel 2 in Admin
-const AIR_FUNDER_ADDRESS = '0x72acfbfcee02176118107958ec317157ccd4afdb'
-// Secondary admin — sees Panel 1 (same as main owner)
+const AIR_FUNDER_ADDRESS    = '0x72acfbfcee02176118107958ec317157ccd4afdb'
 const SECONDARY_ADMIN_ADDRESS = '0xc2ef127734f296952de75c1b58a6cec605cc2e59'
 
-// ─── MiniKit Logger ───────────────────────────────────────────────────────────
+// ─── MiniKit logger ───────────────────────────────────────────────────────────
 function patchMiniKitLogger() {
   if (typeof window === 'undefined') return
   if ((window as any).__minikitPatched) return
   ;(window as any).__minikitPatched = true
-
-  const log = (label: string, data: unknown, color = '#00d4ff') => {
+  const log = (label: string, data: unknown, color = '#00d4ff') =>
     console.log(`%c[MiniKit] ${label}`, `color:${color};font-weight:bold`, data)
-  }
-
   const original = MiniKit.commandsAsync as Record<string, unknown>
   if (original && typeof original === 'object') {
     for (const cmd of Object.keys(original)) {
@@ -63,144 +56,243 @@ function patchMiniKitLogger() {
       if (typeof fn !== 'function') continue
       ;(original as Record<string, Function>)[cmd] = async function (...args: unknown[]) {
         log(`→ ${cmd} PAYLOAD`, args, '#00d4ff')
-        try {
-          const result = await fn.apply(this, args)
-          log(`← ${cmd} RESPONSE`, result, '#00ff99')
-          return result
-        } catch (err) {
-          log(`✖ ${cmd} ERROR`, err, '#ff4d4d')
-          throw err
-        }
+        try { const r = await fn.apply(this, args); log(`← ${cmd} RESPONSE`, r, '#00ff99'); return r }
+        catch (err) { log(`✖ ${cmd} ERROR`, err, '#ff4d4d'); throw err }
       }
     }
   }
-
-  const origAddListener = window.addEventListener.bind(window)
-  window.addEventListener = function (type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) {
-    if (type === 'message') {
-      const wrapped = function (event: MessageEvent) {
-        if (event.data && typeof event.data === 'object') {
-          log('⬅ BRIDGE MESSAGE', event.data, '#bb88ff')
-        }
-        if (typeof listener === 'function') listener(event as any)
-        else (listener as EventListenerObject).handleEvent(event as any)
-      }
-      return origAddListener(type, wrapped as EventListener, options)
-    }
-    return origAddListener(type, listener as EventListener, options)
-  }
-
   log('MiniKit logger active ✓', { patchedAt: new Date().toISOString() }, '#888888')
 }
 
-// ─── Logo ─────────────────────────────────────────────────────────────────────
-function AcuaLogo() {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="relative w-8 h-8 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center">
-        <Droplets className="w-4 h-4 text-primary" />
-        <div className="absolute inset-0 rounded-full bg-primary/10 animate-ping opacity-30" />
-      </div>
-      <div>
-        <p className="text-sm font-bold text-foreground leading-none">Acua Staking</p>
-        <p className="text-xs text-primary/60 leading-none mt-0.5 font-mono">World Chain · 480</p>
-      </div>
-    </div>
-  )
-}
+// ─── Menu categories config ───────────────────────────────────────────────────
+interface MenuEntry { tab: Tab; icon: React.ReactNode; label: string; badge?: string; color?: string }
+const MENU_STAKING: MenuEntry[] = [
+  { tab: 'h2o',       icon: <Droplets className="w-4 h-4" />,   label: 'Stake H2O',     badge: '12% APY', color: 'text-cyan-400' },
+  { tab: 'h2o-new',   icon: <Sparkles className="w-4 h-4" />,   label: 'H2O 2.0',       badge: 'NUEVO',   color: 'text-blue-400' },
+  { tab: 'h2o-v3',    icon: <Droplets className="w-4 h-4" />,   label: 'H2O v3 Pool',   color: 'text-cyan-300' },
+  { tab: 'stake-v2',  icon: <Wind className="w-4 h-4" />,       label: 'Stake V2',      color: 'text-violet-400' },
+  { tab: 'stake-plus',icon: <TrendingUp className="w-4 h-4" />, label: 'Stake+',         badge: '8 tokens', color: 'text-emerald-400' },
+]
+const MENU_MINING: MenuEntry[] = [
+  { tab: 'uth2', icon: <Pickaxe className="w-4 h-4" />,    label: 'UTH₂ → H2O',    color: 'text-orange-400' },
+  { tab: 'wld',  icon: <Star className="w-4 h-4" />,       label: 'WLD → 7 tokens', color: 'text-yellow-400' },
+  { tab: 'time', icon: <Clock className="w-4 h-4" />,      label: 'TIME → WLD',     color: 'text-purple-400' },
+]
+const MENU_MARKET: MenuEntry[] = [
+  { tab: 'swap',   icon: <Repeat2 className="w-4 h-4" />,   label: 'Swap',   color: 'text-blue-400' },
+  { tab: 'tokens', icon: <BookOpen className="w-4 h-4" />,  label: 'Tokens', color: 'text-teal-400' },
+]
+const MENU_INFO: MenuEntry[] = [
+  { tab: 'monitor', icon: <Activity className="w-4 h-4" />,    label: 'Monitor',     badge: 'LIVE', color: 'text-green-400' },
+  { tab: 'info',    icon: <HelpCircle className="w-4 h-4" />,  label: 'Info / Guía', color: 'text-slate-400' },
+]
 
-// ─── Connect Screen ───────────────────────────────────────────────────────────
-function ConnectScreen({ onConnect, loading }: { onConnect: () => void; loading: boolean }) {
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-8 px-6 overflow-y-auto py-8">
-      <div className="flex flex-col items-center gap-4 text-center">
-        <div className="relative w-24 h-24 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center">
-          <Droplets className="w-12 h-12 text-primary" />
-          <div className="absolute inset-0 rounded-full border border-primary/20 animate-ping" />
-        </div>
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Acua</h1>
-          <p className="text-primary/70 text-sm mt-1 font-mono">Staking · Minería · Multi-Token</p>
-        </div>
-      </div>
-
-      <div className="w-full max-w-xs flex flex-col gap-3">
-        <div className="rounded-2xl border border-border bg-surface-2 p-4 space-y-2.5">
-          {[
-            { color: 'bg-cyan-400', label: 'Stake H2O', value: '12% APY' },
-            { color: 'bg-blue-400', label: 'Multi-Stake 8 tokens', value: 'APY variable' },
-            { color: 'bg-orange-400', label: 'Minería UTH₂ → H2O', value: 'Permanente' },
-            { color: 'bg-yellow-400', label: 'Minería WLD → 7 tokens', value: 'Simultáneo' },
-            { color: 'bg-violet-400', label: 'Stake TIME → WLD', value: 'Pool rewards' },
-            { color: 'bg-gray-400',   label: 'Red', value: 'World Chain (480)' },
-          ].map(f => (
-            <div key={f.label} className="flex items-center gap-2">
-              <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', f.color)} />
-              <span className="text-xs text-muted-foreground flex-1">{f.label}</span>
-              <span className="text-xs font-semibold text-foreground">{f.value}</span>
-            </div>
-          ))}
-        </div>
-
-        <Button
-          className="w-full bg-primary text-primary-foreground hover:bg-primary/90 h-12 text-base font-semibold rounded-xl"
-          onClick={onConnect}
-          disabled={loading}
-        >
-          {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Wallet className="w-5 h-5 mr-2" />}
-          Conectar World Wallet
-        </Button>
-        <p className="text-xs text-center text-muted-foreground">Solo disponible dentro de World App</p>
-      </div>
-    </div>
-  )
-}
-
-// ─── Not Installed ────────────────────────────────────────────────────────────
+// ─── Screens ──────────────────────────────────────────────────────────────────
 function NotInstalled() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
-      <Droplets className="w-12 h-12 text-primary/60" />
-      <h1 className="text-xl font-bold text-foreground">Acua Staking</h1>
-      <p className="text-muted-foreground text-sm max-w-xs">
-        Abre esta app dentro de <strong className="text-foreground">World App</strong> para usar Acua Staking.
-      </p>
+    <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 text-center">
+      <div className="relative w-20 h-20">
+        <Image src="/flame-logo.png" alt="Acua" fill className="object-contain" />
+      </div>
+      <div>
+        <h1 className="text-xl font-black text-foreground tracking-tight">ACUA MINIEXCHANGE</h1>
+        <p className="text-[oklch(0.50_0.012_230)] text-sm mt-1">
+          Abre esta app dentro de <strong className="text-foreground">World App</strong> para continuar.
+        </p>
+      </div>
+      <div className="text-[10px] font-mono text-[oklch(0.35_0.025_255)] border border-[oklch(0.22_0.025_245)] rounded-md px-3 py-1.5">
+        World Chain · Chain ID 480
+      </div>
     </div>
   )
 }
 
-// ─── Loading Screen ───────────────────────────────────────────────────────────
+function ConnectScreen({ onConnect, loading }: { onConnect: () => void; loading: boolean }) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-6 px-5 py-8 overflow-y-auto">
+      {/* Logo */}
+      <div className="flex flex-col items-center gap-3">
+        <div className="relative w-20 h-20">
+          <Image src="/flame-logo.png" alt="Acua" fill className="object-contain drop-shadow-[0_0_24px_rgba(59,130,246,0.6)]" />
+        </div>
+        <div className="text-center">
+          <h1 className="text-2xl font-black tracking-tight text-foreground">ACUA MINIEXCHANGE</h1>
+          <p className="text-[oklch(0.50_0.012_230)] text-xs mt-1 font-mono">World Chain · DeFi · 2026</p>
+        </div>
+      </div>
+
+      {/* Feature grid */}
+      <div className="w-full max-w-xs rounded-xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.12_0.02_245)] divide-y divide-[oklch(0.18_0.02_245)]">
+        {[
+          { dot: 'bg-blue-500',    label: 'Stake H2O',         val: '12% APY' },
+          { dot: 'bg-emerald-500', label: 'Multi-Stake 8 tokens', val: 'APY variable' },
+          { dot: 'bg-orange-500',  label: 'Minería UTH₂ → H2O',  val: 'Permanente' },
+          { dot: 'bg-yellow-500',  label: 'Minería WLD → 7 tokens', val: 'Simultáneo' },
+          { dot: 'bg-violet-500',  label: 'Stake TIME → WLD',   val: 'Pool rewards' },
+          { dot: 'bg-cyan-500',    label: 'Swap integrado',     val: 'V2 + V3 + V4' },
+        ].map(f => (
+          <div key={f.label} className="flex items-center gap-3 px-4 py-2.5">
+            <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', f.dot)} />
+            <span className="text-xs text-[oklch(0.60_0.01_230)] flex-1">{f.label}</span>
+            <span className="text-xs font-bold text-foreground font-mono">{f.val}</span>
+          </div>
+        ))}
+      </div>
+
+      <button
+        className="w-full max-w-xs h-12 rounded-xl bg-[oklch(0.65_0.22_255)] text-white font-bold text-base flex items-center justify-center gap-2 glow-blue hover:bg-[oklch(0.70_0.24_255)] transition-colors"
+        onClick={onConnect}
+        disabled={loading}
+      >
+        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wallet className="w-5 h-5" />}
+        Conectar World Wallet
+      </button>
+      <p className="text-[10px] text-center text-[oklch(0.40_0.01_230)]">Solo disponible dentro de World App</p>
+    </div>
+  )
+}
+
 function LoadingScreen() {
   return (
     <div className="h-dvh bg-background flex flex-col items-center justify-center gap-4">
-      <div className="relative">
-        <Droplets className="w-12 h-12 text-primary" />
-        <div className="absolute inset-0 rounded-full border-2 border-primary/30 animate-ping" />
+      <div className="relative w-12 h-12">
+        <Image src="/flame-logo.png" alt="Acua" fill className="object-contain" />
+        <div className="absolute inset-0 rounded-full border-2 border-blue-500/30 animate-ping" />
       </div>
-      <p className="text-sm text-muted-foreground font-mono">Iniciando...</p>
+      <p className="text-xs text-[oklch(0.45_0.01_230)] font-mono">Iniciando ACUA MINIEXCHANGE...</p>
     </div>
   )
 }
 
-// ─── Tab Button ───────────────────────────────────────────────────────────────
-function TabBtn({ active, onClick, icon, label, special }: {
-  active: boolean; onClick: () => void; icon: React.ReactNode; label: string; special?: 'admin' | 'air'
+// ─── Navigation Drawer ────────────────────────────────────────────────────────
+function NavDrawer({
+  open, onClose, activeTab, onSelect, isMainOwner, isAirFunder,
+}: {
+  open: boolean; onClose: () => void; activeTab: Tab
+  onSelect: (t: Tab) => void; isMainOwner: boolean; isAirFunder: boolean
+}) {
+  if (!open) return null
+
+  const select = (t: Tab) => { onSelect(t); onClose() }
+
+  const Section = ({ title, items }: { title: string; items: MenuEntry[] }) => (
+    <div>
+      <p className="text-[9px] font-bold text-[oklch(0.40_0.01_230)] uppercase tracking-[0.15em] px-4 py-2">
+        {title}
+      </p>
+      {items.map(item => (
+        <button
+          key={item.tab}
+          onClick={() => select(item.tab)}
+          className={cn(
+            'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors',
+            activeTab === item.tab
+              ? 'bg-[oklch(0.65_0.22_255)]/10 border-r-2 border-[oklch(0.65_0.22_255)]'
+              : 'hover:bg-white/5',
+          )}
+        >
+          <span className={cn('shrink-0', item.color ?? 'text-[oklch(0.60_0.01_230)]')}>{item.icon}</span>
+          <span className={cn('font-medium', activeTab === item.tab ? 'text-foreground' : 'text-[oklch(0.70_0.01_230)]')}>
+            {item.label}
+          </span>
+          {item.badge && (
+            <span className={cn(
+              'ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full',
+              item.badge === 'NUEVO' || item.badge === 'LIVE'
+                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                : 'bg-white/5 text-[oklch(0.50_0.01_230)] border border-white/10',
+            )}>
+              {item.badge}
+            </span>
+          )}
+          {activeTab === item.tab && <ChevronRight className="w-3 h-3 ml-auto text-[oklch(0.65_0.22_255)]" />}
+        </button>
+      ))}
+    </div>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+
+      {/* Drawer */}
+      <div className="absolute top-0 left-0 h-full w-[260px] bg-[oklch(0.09_0.018_245)] border-r border-[oklch(0.22_0.025_245)] flex flex-col slide-in-left">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-4 border-b border-[oklch(0.18_0.02_245)]">
+          <div className="flex items-center gap-2.5">
+            <div className="relative w-8 h-8">
+              <Image src="/flame-logo.png" alt="Acua" fill className="object-contain" />
+            </div>
+            <div>
+              <p className="text-xs font-black text-foreground tracking-wider">ACUA</p>
+              <p className="text-[9px] text-[oklch(0.45_0.01_230)] font-mono">MINIEXCHANGE</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
+            <X className="w-4 h-4 text-[oklch(0.50_0.012_230)]" />
+          </button>
+        </div>
+
+        {/* Live badge */}
+        <div className="px-4 py-2 flex items-center gap-2 bg-[oklch(0.68_0.20_158)]/5 border-b border-[oklch(0.68_0.20_158)]/10">
+          <div className="w-1.5 h-1.5 rounded-full bg-[#00c076] animate-pulse" />
+          <span className="text-[10px] font-semibold text-[#00c076]">World Chain · Live</span>
+          <span className="ml-auto text-[9px] text-[oklch(0.40_0.01_230)] font-mono">WC · 480</span>
+        </div>
+
+        {/* Menu items */}
+        <div className="flex-1 overflow-y-auto py-2">
+          <Section title="Staking" items={MENU_STAKING} />
+          <div className="mx-4 border-t border-[oklch(0.18_0.02_245)] my-1" />
+          <Section title="Minería" items={MENU_MINING} />
+          <div className="mx-4 border-t border-[oklch(0.18_0.02_245)] my-1" />
+          <Section title="Mercado" items={MENU_MARKET} />
+          <div className="mx-4 border-t border-[oklch(0.18_0.02_245)] my-1" />
+          <Section title="Info & Monitor" items={MENU_INFO} />
+          {(isMainOwner || isAirFunder) && (
+            <>
+              <div className="mx-4 border-t border-[oklch(0.18_0.02_245)] my-1" />
+              <Section title="Admin" items={[{
+                tab: 'admin',
+                icon: <Shield className="w-4 h-4" />,
+                label: 'Panel Admin',
+                badge: 'OWNER',
+                color: 'text-violet-400',
+              }]} />
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-[oklch(0.18_0.02_245)] px-4 py-3">
+          <p className="text-[9px] text-[oklch(0.35_0.01_230)] text-center font-mono">
+            ACUA MINIEXCHANGE · World Chain 480
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Tab label map ────────────────────────────────────────────────────────────
+const TAB_LABELS: Record<Tab, string> = {
+  'h2o': 'Stake H2O', 'h2o-new': 'H2O 2.0', 'h2o-v3': 'H2O v3 Pool',
+  'stake-v2': 'Stake V2', 'stake-plus': 'Stake+', 'uth2': 'Minería UTH₂',
+  'wld': 'Minería WLD', 'time': 'Minería TIME', 'tokens': 'Tokens',
+  'swap': 'Swap', 'info': 'Info', 'admin': 'Admin', 'monitor': 'Monitor',
+}
+
+// ─── Quick-access bottom tabs ─────────────────────────────────────────────────
+function BottomTab({ icon, label, active, onClick }: {
+  icon: React.ReactNode; label: string; active: boolean; onClick: () => void
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'shrink-0 flex flex-col items-center justify-center gap-0.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px whitespace-nowrap',
-        active
-          ? special === 'admin'
-            ? 'border-violet-400 text-violet-400'
-            : special === 'air'
-            ? 'border-slate-300 text-slate-300'
-            : 'border-primary text-primary'
-          : 'border-transparent text-muted-foreground hover:text-foreground',
-      )}
-    >
-      {icon}
+    <button onClick={onClick} className={cn(
+      'flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors',
+      active ? 'text-[oklch(0.65_0.22_255)]' : 'text-[oklch(0.45_0.01_230)] hover:text-foreground',
+    )}>
+      <span className={cn('transition-transform', active && 'scale-110')}>{icon}</span>
       <span>{label}</span>
     </button>
   )
@@ -215,31 +307,27 @@ export default function AcuaApp() {
   const [wldBalance, setWLDBalance] = useState(0n)
   const [loadingData, setLoadingData] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('h2o')
-
+  const [menuOpen, setMenuOpen] = useState(false)
   const [isNewOwner, setIsNewOwner] = useState(false)
 
   const wallet = useWallet(config?.owner ?? null, isInstalled === true)
 
   useEffect(() => { patchMiniKitLogger() }, [])
 
-  // ── Detect MiniKit ─────────────────────────────────────────────────────────
+  // Detect MiniKit
   useEffect(() => {
     console.log('[acua] detect: start', { worldApp: !!(window as any).WorldApp, ua: navigator.userAgent.slice(0, 80) })
-    if (!(window as any).WorldApp) {
-      setIsInstalled(false)
-      return
-    }
-
+    if (!(window as any).WorldApp) { setIsInstalled(false); return }
     let attempts = 0
-    const interval = setInterval(() => {
+    const iv = setInterval(() => {
       attempts++
-      const installed = Boolean((window as any).MiniKit)
-      if (installed || attempts >= 15) { clearInterval(interval); setIsInstalled(installed) }
+      const ok = Boolean((window as any).MiniKit)
+      if (ok || attempts >= 15) { clearInterval(iv); setIsInstalled(ok) }
     }, 200)
-    return () => clearInterval(interval)
+    return () => clearInterval(iv)
   }, [])
 
-  // ── Load H2O staking config ────────────────────────────────────────────────
+  // Load data
   const loadData = useCallback(async () => {
     setLoadingData(true)
     try {
@@ -265,51 +353,43 @@ export default function AcuaApp() {
 
   useEffect(() => {
     console.log('[acua] wallet.address changed', wallet.address)
-    if (wallet.address) {
-      loadData()
-      fetchNewContractOwnership(wallet.address)
-    }
-  }, [wallet.address]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (wallet.address) { loadData(); fetchNewContractOwnership(wallet.address) }
+  }, [wallet.address]) // eslint-disable-line
 
-  // ── Check ownership of new staking contracts ──────────────────────────────
   const fetchNewContractOwnership = useCallback(async (addr: string) => {
     try {
       const p = getProvider()
-      const addrLow = addr.toLowerCase()
-
-      const allContractAddrs = Object.values(STAKING_CONTRACTS)
-      const ownerResults = await Promise.allSettled(
-        allContractAddrs.map(async (ca) => {
+      const low = addr.toLowerCase()
+      const results = await Promise.allSettled(
+        Object.values(STAKING_CONTRACTS).map(async ca => {
           const c = new ethers.Contract(ca, UNIVERSAL_STAKING_ABI, p)
-          const owners = await c.getOwners()
-          return (owners as string[]).map(o => o.toLowerCase())
+          return (await c.getOwners() as string[]).map(o => o.toLowerCase())
         })
       )
-
-      const allOwners: string[] = []
-      ownerResults.forEach(r => {
-        if (r.status === 'fulfilled') {
-          r.value.forEach(o => { if (o !== ethers.ZeroAddress.toLowerCase()) allOwners.push(o) })
-        }
-      })
-
-      const isOwnerOfNewContract = allOwners.includes(addrLow)
-      setIsNewOwner(isOwnerOfNewContract)
-      console.log('[acua] ownership check:', { isOwnerOfNewContract, addrLow })
-    } catch (e) { console.error('[acua] fetchNewContractOwnership ERROR', e) }
+      const all: string[] = []
+      results.forEach(r => { if (r.status === 'fulfilled') r.value.forEach(o => { if (o !== ethers.ZeroAddress.toLowerCase()) all.push(o) }) })
+      setIsNewOwner(all.includes(low))
+    } catch (e) { console.error('[acua] ownership ERROR', e) }
   }, [])
 
-  // ── Derived ownership flags ───────────────────────────────────────────────
-  // AIR funder: sees full app + Panel 2 in Admin
-  const isAirFunder = wallet.address?.toLowerCase() === AIR_FUNDER_ADDRESS
-  // Secondary admin: always sees Panel 1
+  // Ownership flags
+  const isAirFunder      = wallet.address?.toLowerCase() === AIR_FUNDER_ADDRESS
   const isSecondaryAdmin = wallet.address?.toLowerCase() === SECONDARY_ADMIN_ADDRESS
-  // Main owner: any contract owner OR secondary admin (includes AIR funder who is a contract owner)
-  const isMainOwner = wallet.isOwner || isNewOwner || isSecondaryAdmin
+  const isMainOwner      = wallet.isOwner || isNewOwner || isSecondaryAdmin
 
-  // ── Render gates ──────────────────────────────────────────────────────────
+  // Ticker data
+  const tickerItems = [
+    { label: 'H2O/USDC', value: '$0.02147', change: 2.34, color: 'text-[#00c076]' },
+    { label: 'WLD/USDC',  value: '$1.2480',  change: -0.87 },
+    { label: 'H2O APY',   value: '12.00%',   color: 'text-amber-400' },
+    { label: 'UTH2 Pool', value: 'ACTIVO',   color: 'text-emerald-400' },
+    { label: 'Red',       value: 'WC · 480', color: 'text-[oklch(0.65_0.22_255)]' },
+    { label: 'Multi-Stake', value: '8 tokens', color: 'text-violet-400' },
+    { label: 'Swap',      value: 'V2+V3+V4', color: 'text-cyan-400' },
+  ]
+
+  // Gates
   if (isInstalled === null) return <LoadingScreen />
-
   if (!isInstalled || !wallet.address) {
     return (
       <div className="h-dvh bg-background flex flex-col max-w-md mx-auto">
@@ -320,194 +400,134 @@ export default function AcuaApp() {
 
   const addr = wallet.address
 
-  // ── Build tab list ────────────────────────────────────────────────────────
-  // All users (including AIR funder) see the full public tabs
-  // Owners (including AIR funder who is an owner) also see the Admin tab
-  const mainTabs: { tab: Tab; icon: React.ReactNode; label: string; special?: 'admin' | 'air' }[] = [
-    { tab: 'h2o',        icon: <Droplets className="w-3.5 h-3.5" />,    label: 'H2O' },
-    { tab: 'stake-v2',   icon: <Wind className="w-3.5 h-3.5" />,        label: 'Stake V2' },
-    { tab: 'stake-plus', icon: <TrendingUp className="w-3.5 h-3.5" />,  label: 'Stake+' },
-    { tab: 'uth2',       icon: <Pickaxe className="w-3.5 h-3.5" />,     label: 'UTH₂' },
-    { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,        label: 'WLD' },
-    { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,       label: 'TIME' },
-    { tab: 'tokens',     icon: <BookOpen className="w-3.5 h-3.5" />,    label: 'Tokens' },
-    { tab: 'swap',       icon: <Repeat2 className="w-3.5 h-3.5" />,     label: 'Swap' },
-    { tab: 'info',       icon: <HelpCircle className="w-3.5 h-3.5" />,  label: 'Info' },
-  ]
-
-  if (isMainOwner || isAirFunder) {
-    mainTabs.push({
-      tab: 'admin',
-      icon: <Shield className="w-3.5 h-3.5" />,
-      label: 'Admin',
-      special: isAirFunder && !isMainOwner ? 'air' : 'admin',
-    })
-  }
-
-  // Info tab is already included in mainTabs
-
   return (
     <div className="h-dvh bg-background flex flex-col max-w-md mx-auto overflow-hidden">
 
-      {/* Header */}
-      <header className="shrink-0 bg-background/95 backdrop-blur border-b border-border px-4 py-3 z-10">
-        <div className="flex items-center justify-between">
-          <AcuaLogo />
+      {/* ── Navigation Drawer ─────────────────────────────────────────── */}
+      <NavDrawer
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        activeTab={activeTab}
+        onSelect={setActiveTab}
+        isMainOwner={isMainOwner}
+        isAirFunder={isAirFunder}
+      />
+
+      {/* ── Header ────────────────────────────────────────────────────── */}
+      <header className="shrink-0 bg-[oklch(0.09_0.018_245)]/95 backdrop-blur-xl border-b border-[oklch(0.22_0.025_245)] z-10">
+        <div className="flex items-center gap-2 px-3 py-2.5">
+          {/* Flame menu button */}
+          <button
+            onClick={() => setMenuOpen(true)}
+            className="shrink-0 w-9 h-9 rounded-xl border border-[oklch(0.30_0.08_255)] bg-[oklch(0.65_0.22_255)]/10 flex items-center justify-center hover:bg-[oklch(0.65_0.22_255)]/20 transition-colors"
+          >
+            <div className="relative w-5 h-5">
+              <Image src="/flame-logo.png" alt="Menu" fill className="object-contain" />
+            </div>
+          </button>
+
+          {/* Title + active tab */}
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-black tracking-[0.12em] text-foreground leading-none">ACUA MINIEXCHANGE</p>
+            <p className="text-[9px] text-[oklch(0.50_0.012_230)] font-mono mt-0.5 truncate">
+              {TAB_LABELS[activeTab]}
+            </p>
+          </div>
+
+          {/* Status + wallet */}
           <div className="flex items-center gap-2">
-            {loadingData && <Loader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin" />}
-            <div className="flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-xs text-foreground font-mono">{shortenAddress(addr)}</span>
+            {loadingData && <Loader2 className="w-3 h-3 text-[oklch(0.50_0.012_230)] animate-spin" />}
+            <div className="flex items-center gap-1.5 rounded-lg border border-[oklch(0.22_0.025_245)] bg-[oklch(0.12_0.02_245)] px-2 py-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-[#00c076] animate-pulse" />
+              <span className="text-[10px] text-foreground font-mono">{shortenAddress(addr)}</span>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Stake section selector — H2O and Stake V2 as prominent section buttons */}
-      <div className="shrink-0 border-b border-border bg-background/95 backdrop-blur z-10">
-        {/* Section row: H2O | H2O 2.0 | H2O v3 | Stake V2 */}
-        <div className="flex gap-2 px-4 pt-3 pb-2">
-          <button
-            onClick={() => setActiveTab('h2o')}
-            className={cn(
-              'flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all border',
-              activeTab === 'h2o'
-                ? 'bg-primary/15 border-primary text-primary'
-                : 'bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
-            )}
-          >
-            <Droplets className="w-4 h-4" />
-            Stake H2O
-          </button>
-          <button
-            onClick={() => setActiveTab('h2o-new')}
-            className={cn(
-              'relative flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-semibold transition-all border overflow-hidden',
-              activeTab === 'h2o-new'
-                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
-                : 'bg-surface-2 border-cyan-900 text-cyan-500 hover:border-cyan-500/50 hover:text-cyan-400',
-            )}
-          >
-            <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-teal-500/5" />
-            <Sparkles className="w-3.5 h-3.5 relative z-10" />
-            <span className="relative z-10">H2O 2.0</span>
-            <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-          </button>
-          <button
-            onClick={() => setActiveTab('h2o-v3')}
-            className={cn(
-              'flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all border',
-              activeTab === 'h2o-v3'
-                ? 'bg-cyan-500/15 border-cyan-500 text-cyan-400'
-                : 'bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
-            )}
-          >
-            <Droplets className="w-4 h-4" />
-            H2O v3
-          </button>
-          <button
-            onClick={() => setActiveTab('stake-v2')}
-            className={cn(
-              'flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all border',
-              activeTab === 'stake-v2'
-                ? 'bg-violet-500/15 border-violet-500 text-violet-400'
-                : 'bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
-            )}
-          >
-            <Wind className="w-4 h-4" />
-            Stake V2
-          </button>
-        </div>
+      {/* ── Stats ticker ──────────────────────────────────────────────── */}
+      <StatsTicker items={tickerItems} />
 
-        {/* Secondary tabs — horizontally scrollable */}
-        <div className="flex overflow-x-auto scrollbar-none border-t border-border/50">
-          {mainTabs.filter(t => t.tab !== 'h2o' && t.tab !== 'h2o-v3' && t.tab !== 'stake-v2').map(t => (
-            <TabBtn
-              key={t.tab}
-              active={activeTab === t.tab}
-              onClick={() => setActiveTab(t.tab)}
-              icon={t.icon}
-              label={t.label}
-              special={t.special}
+      {/* ── Market mini card (H2O candle chart) ───────────────────────── */}
+      <MarketMiniCard />
+
+      {/* ── Content ───────────────────────────────────────────────────── */}
+      <main className="flex-1 overflow-y-auto min-h-0">
+        <div className="px-3 py-3">
+
+          {activeTab === 'h2o' && (
+            <StakePanel
+              stakeInfo={stakeInfo}
+              config={config}
+              userAddress={addr}
+              h2oBalance={h2oBalance}
+              wldBalance={wldBalance}
+              onRefresh={loadData}
             />
-          ))}
-        </div>
-      </div>
+          )}
 
-      {/* Content */}
-      <main className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
+          {activeTab === 'h2o-new' && <NewH2OPanel userAddress={addr} />}
 
-        {activeTab === 'h2o' && (
-          <StakePanel
-            stakeInfo={stakeInfo}
-            config={config}
-            userAddress={addr}
-            h2oBalance={h2oBalance}
-            wldBalance={wldBalance}
-            onRefresh={loadData}
-          />
-        )}
+          {activeTab === 'stake-v2' && <StakeV2Panel userAddress={addr} />}
 
-        {activeTab === 'h2o-new' && <NewH2OPanel userAddress={addr} />}
+          {activeTab === 'h2o-v3' && <H2OV3Panel userAddress={addr} />}
 
-        {activeTab === 'stake-v2' && <StakeV2Panel userAddress={addr} />}
+          {activeTab === 'stake-plus' && <MultiStakingPanel userAddress={addr} />}
 
-        {activeTab === 'h2o-v3' && <H2OV3Panel userAddress={addr} />}
+          {activeTab === 'uth2' && <MiningUTH2Panel userAddress={addr} />}
 
-        {activeTab === 'stake-plus' && <MultiStakingPanel userAddress={addr} />}
+          {activeTab === 'wld' && <MiningWLDPanel userAddress={addr} />}
 
-        {activeTab === 'uth2' && <MiningUTH2Panel userAddress={addr} />}
+          {activeTab === 'time' && <MiningTimePanel userAddress={addr} />}
 
-        {activeTab === 'wld' && <MiningWLDPanel userAddress={addr} />}
+          {activeTab === 'tokens' && <TokenDirectoryPanel />}
 
-        {activeTab === 'time' && <MiningTimePanel userAddress={addr} />}
+          {activeTab === 'swap' && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
 
-        {activeTab === 'tokens' && <TokenDirectoryPanel />}
+          {activeTab === 'info' && <InfoPanel />}
 
-        {activeTab === 'swap' && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
+          {activeTab === 'monitor' && (
+            <PlatformMonitor
+              userAddress={addr}
+              stakeInfo={stakeInfo}
+              h2oBalance={h2oBalance}
+              onRefresh={loadData}
+            />
+          )}
 
-        {activeTab === 'info' && <InfoPanel />}
-
-        {/* Admin panel: AIR funder sees Panel 2 (AirFunderPanel) only;
-            main owners see Panel 1 (ContractsOwnerPanel + OwnerPanel) */}
-        {activeTab === 'admin' && (
-          <>
-            {isAirFunder && !isMainOwner ? (
-              /* AIR funder Panel 2 */
-              <AirFunderPanel userAddress={addr} />
-            ) : isMainOwner ? (
-              /* Main owners Panel 1 */
-              <div className="space-y-6">
-                <ContractsOwnerPanel userAddress={addr} />
-                {wallet.isOwner && config && (
-                  <div className="border-t border-border pt-6">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Droplets className="w-4 h-4 text-primary" />
-                      <span className="text-sm font-bold text-primary">Admin Stake H2O (Acua)</span>
+          {activeTab === 'admin' && (
+            <>
+              {isAirFunder && !isMainOwner ? (
+                <AirFunderPanel userAddress={addr} />
+              ) : isMainOwner ? (
+                <div className="space-y-5">
+                  <ContractsOwnerPanel userAddress={addr} />
+                  {wallet.isOwner && config && (
+                    <div className="border-t border-[oklch(0.22_0.025_245)] pt-5">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Droplets className="w-4 h-4 text-[oklch(0.65_0.22_255)]" />
+                        <span className="text-sm font-bold text-[oklch(0.65_0.22_255)]">Admin Stake H2O</span>
+                      </div>
+                      <OwnerPanel config={config} onRefresh={loadData} />
                     </div>
-                    <OwnerPanel config={config} onRefresh={loadData} />
-                  </div>
-                )}
-              </div>
-            ) : null}
-          </>
-        )}
+                  )}
+                </div>
+              ) : null}
+            </>
+          )}
 
+        </div>
       </main>
 
-      {/* Footer */}
-      <footer className="shrink-0 px-4 py-3 border-t border-border flex items-center justify-between">
-        <span className="text-xs text-muted-foreground font-mono">
-          Acua · WC(480)
-        </span>
-        <button
-          onClick={loadData}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Actualizar
-        </button>
-      </footer>
+      {/* ── Bottom Quick Nav ───────────────────────────────────────────── */}
+      <nav className="shrink-0 border-t border-[oklch(0.22_0.025_245)] bg-[oklch(0.09_0.018_245)]/95 backdrop-blur-xl flex">
+        <BottomTab icon={<Droplets className="w-4 h-4" />}    label="H2O"    active={activeTab === 'h2o'}     onClick={() => setActiveTab('h2o')} />
+        <BottomTab icon={<Repeat2 className="w-4 h-4" />}     label="Swap"   active={activeTab === 'swap'}    onClick={() => setActiveTab('swap')} />
+        <BottomTab icon={<Activity className="w-4 h-4" />}    label="Monitor" active={activeTab === 'monitor'} onClick={() => setActiveTab('monitor')} />
+        <BottomTab icon={<TrendingUp className="w-4 h-4" />}  label="Stake+" active={activeTab === 'stake-plus'} onClick={() => setActiveTab('stake-plus')} />
+        <BottomTab icon={<Sparkles className="w-4 h-4" />}    label="H2O 2.0" active={activeTab === 'h2o-new'} onClick={() => setActiveTab('h2o-new')} />
+      </nav>
+
     </div>
   )
 }
