@@ -673,7 +673,7 @@ function TokenPicker({ tokens, onSelect, onClose, exclude, usdPrices, wldPrices 
   )
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end justify-center p-4">
-      <div className="w-full max-w-sm bg-[#0d1117] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-sm bg-[oklch(0.09_0.018_245)] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-white/10">
           <span className="text-sm font-bold text-white">Seleccionar token</span>
           <button onClick={onClose} className="text-white/40 hover:text-white"><X className="w-4 h-4" /></button>

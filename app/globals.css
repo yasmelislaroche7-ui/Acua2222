@@ -164,3 +164,28 @@
   border: 1px solid oklch(0.30 0.08 255);
   border-radius: 8px;
 }
+
+/* ── Flame logo heartbeat ────────────────────────────────────────────────── */
+@keyframes heartbeat {
+  0%   { transform: scale(1);    box-shadow: 0 0 12px rgba(59,130,246,0.50); }
+  14%  { transform: scale(1.18); box-shadow: 0 0 22px rgba(59,130,246,0.70); }
+  28%  { transform: scale(1.02); box-shadow: 0 0 10px rgba(59,130,246,0.40); }
+  42%  { transform: scale(1.12); box-shadow: 0 0 28px rgba(59,130,246,0.65); }
+  70%  { transform: scale(1);    box-shadow: 0 0 12px rgba(59,130,246,0.50); }
+  100% { transform: scale(1);    box-shadow: 0 0 12px rgba(59,130,246,0.50); }
+}
+@keyframes heartbeat-ring {
+  0%   { opacity: 0.6; transform: scale(1);    }
+  14%  { opacity: 1;   transform: scale(1.22); }
+  28%  { opacity: 0.4; transform: scale(1.02); }
+  42%  { opacity: 0.9; transform: scale(1.18); }
+  70%  { opacity: 0.6; transform: scale(1);    }
+  100% { opacity: 0.6; transform: scale(1);    }
+}
+.heartbeat-logo { animation: heartbeat      1.4s ease-in-out infinite; }
+.heartbeat-ring { animation: heartbeat-ring 1.4s ease-in-out infinite; pointer-events: none; }
+
+/* ── Exchange swap panel overrides ───────────────────────────────────────── */
+.swap-ex-bg    { background: oklch(0.12 0.02 245); border-color: oklch(0.22 0.025 245); }
+.swap-ex-input { background: oklch(0.10 0.018 245); border-color: oklch(0.22 0.025 245); }
+

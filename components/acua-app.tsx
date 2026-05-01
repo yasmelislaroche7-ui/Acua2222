@@ -90,17 +90,22 @@ const MENU_INFO: MenuEntry[] = [
 // ─── Screens ──────────────────────────────────────────────────────────────────
 function NotInstalled() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 text-center">
-      <div className="relative w-20 h-20">
-        <Image src="/flame-logo.png" alt="Acua" fill className="object-contain" />
+    <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6 text-center">
+      <div className="relative flex items-center justify-center" style={{ width: 96, height: 96 }}>
+        <span className="absolute inset-0 rounded-3xl border-2 border-blue-500/60 heartbeat-ring" />
+        <span className="relative w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-600 to-blue-500 flex items-center justify-center shadow-[0_0_32px_rgba(59,130,246,0.55)] heartbeat-logo">
+          <div className="relative w-12 h-12 mt-1.5">
+            <Image src="/flame-logo.png" alt="Acua" fill loading="eager" className="object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.4)]" />
+          </div>
+        </span>
       </div>
       <div>
-        <h1 className="text-xl font-black text-foreground tracking-tight">ACUA MINIEXCHANGE</h1>
-        <p className="text-[oklch(0.50_0.012_230)] text-sm mt-1">
+        <h1 className="text-2xl font-black text-foreground tracking-tight">ACUA MINIEXCHANGE</h1>
+        <p className="text-[oklch(0.50_0.012_230)] text-sm mt-1.5">
           Abre esta app dentro de <strong className="text-foreground">World App</strong> para continuar.
         </p>
       </div>
-      <div className="text-[10px] font-mono text-[oklch(0.35_0.025_255)] border border-[oklch(0.22_0.025_245)] rounded-md px-3 py-1.5">
+      <div className="text-[10px] font-mono text-[oklch(0.50_0.025_255)] border border-[oklch(0.22_0.025_245)] rounded-md px-3 py-1.5 bg-[oklch(0.12_0.02_245)]">
         World Chain · Chain ID 480
       </div>
     </div>
@@ -112,8 +117,13 @@ function ConnectScreen({ onConnect, loading }: { onConnect: () => void; loading:
     <div className="flex-1 flex flex-col items-center justify-center gap-6 px-5 py-8 overflow-y-auto">
       {/* Logo */}
       <div className="flex flex-col items-center gap-3">
-        <div className="relative w-20 h-20">
-          <Image src="/flame-logo.png" alt="Acua" fill className="object-contain drop-shadow-[0_0_24px_rgba(59,130,246,0.6)]" />
+        <div className="relative flex items-center justify-center" style={{ width: 96, height: 96 }}>
+          <span className="absolute inset-0 rounded-3xl border-2 border-blue-500/60 heartbeat-ring" />
+          <span className="relative w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-600 to-blue-500 flex items-center justify-center shadow-[0_0_32px_rgba(59,130,246,0.55)] heartbeat-logo">
+            <div className="relative w-12 h-12 mt-1.5">
+              <Image src="/flame-logo.png" alt="Acua" fill loading="eager" className="object-contain" />
+            </div>
+          </span>
         </div>
         <div className="text-center">
           <h1 className="text-2xl font-black tracking-tight text-foreground">ACUA MINIEXCHANGE</h1>
@@ -377,17 +387,6 @@ export default function AcuaApp() {
   const isSecondaryAdmin = wallet.address?.toLowerCase() === SECONDARY_ADMIN_ADDRESS
   const isMainOwner      = wallet.isOwner || isNewOwner || isSecondaryAdmin
 
-  // Ticker data
-  const tickerItems = [
-    { label: 'H2O/USDC', value: '$0.02147', change: 2.34, color: 'text-[#00c076]' },
-    { label: 'WLD/USDC',  value: '$1.2480',  change: -0.87 },
-    { label: 'H2O APY',   value: '12.00%',   color: 'text-amber-400' },
-    { label: 'UTH2 Pool', value: 'ACTIVO',   color: 'text-emerald-400' },
-    { label: 'Red',       value: 'WC · 480', color: 'text-[oklch(0.65_0.22_255)]' },
-    { label: 'Multi-Stake', value: '8 tokens', color: 'text-violet-400' },
-    { label: 'Swap',      value: 'V2+V3+V4', color: 'text-cyan-400' },
-  ]
-
   // Gates
   if (isInstalled === null) return <LoadingScreen />
   if (!isInstalled || !wallet.address) {
@@ -415,15 +414,22 @@ export default function AcuaApp() {
 
       {/* ── Header ────────────────────────────────────────────────────── */}
       <header className="shrink-0 bg-[oklch(0.09_0.018_245)]/95 backdrop-blur-xl border-b border-[oklch(0.22_0.025_245)] z-10">
-        <div className="flex items-center gap-2 px-3 py-2.5">
-          {/* Flame menu button */}
+        <div className="flex items-center gap-2 px-2 pt-1 pb-2.5">
+          {/* Flame menu button — pulsing heartbeat */}
           <button
             onClick={() => setMenuOpen(true)}
-            className="shrink-0 w-9 h-9 rounded-xl border border-[oklch(0.30_0.08_255)] bg-[oklch(0.65_0.22_255)]/10 flex items-center justify-center hover:bg-[oklch(0.65_0.22_255)]/20 transition-colors"
+            className="shrink-0 relative flex items-center justify-center"
+            style={{ width: 48, height: 52 }}
+            aria-label="Menú principal"
           >
-            <div className="relative w-5 h-5">
-              <Image src="/flame-logo.png" alt="Menu" fill className="object-contain" />
-            </div>
+            {/* Outer glow ring — heartbeat */}
+            <span className="absolute inset-0 rounded-2xl border-2 border-blue-500/60 heartbeat-ring" />
+            {/* Button body */}
+            <span className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-500 flex items-center justify-center shadow-[0_0_16px_rgba(59,130,246,0.55)] heartbeat-logo">
+              <div className="relative w-7 h-7 mt-1">
+                <Image src="/flame-logo.png" alt="Menu" fill className="object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]" />
+              </div>
+            </span>
           </button>
 
           {/* Title + active tab */}
@@ -446,7 +452,7 @@ export default function AcuaApp() {
       </header>
 
       {/* ── Stats ticker ──────────────────────────────────────────────── */}
-      <StatsTicker items={tickerItems} />
+      <StatsTicker />
 
       {/* ── Market mini card (H2O candle chart) ───────────────────────── */}
       <MarketMiniCard />
