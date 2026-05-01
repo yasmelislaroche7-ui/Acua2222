@@ -3,18 +3,18 @@
 import { useState, useEffect, useMemo } from 'react'
 import { getPrices, getCachedPrices, type PriceFeedSnapshot } from '@/lib/price-feed'
 
-// ─── APY data for all stake pools ────────────────────────────────────────────
+// ─── APR/Pool data for all stake pools ───────────────────────────────────────
 const POOL_APYS = [
-  { label: 'H2O APY',      value: '12.00%',  color: 'text-amber-400'  },
-  { label: 'StakeV2 APY',  value: '8.50%',   color: 'text-violet-400' },
-  { label: 'H2O v3 APY',   value: '14.20%',  color: 'text-cyan-400'   },
-  { label: 'Stake+ H2O',   value: '10.00%',  color: 'text-emerald-400'},
-  { label: 'Stake+ WLD',   value: '6.00%',   color: 'text-yellow-400' },
-  { label: 'Stake+ UTH2',  value: '18.00%',  color: 'text-orange-400' },
-  { label: 'Stake+ FIRE',  value: '22.00%',  color: 'text-red-400'    },
-  { label: 'Mine UTH2→H2O', value: 'PERMA',  color: 'text-emerald-400'},
-  { label: 'Mine WLD→7x',  value: 'MULTI',   color: 'text-yellow-400' },
-  { label: 'Mine TIME→WLD',value: 'POOL',    color: 'text-purple-400' },
+  { label: 'H2O APR',        value: '12.00%',  color: 'text-amber-400'  },
+  { label: 'StakeV2 APR',    value: '8.50%',   color: 'text-violet-400' },
+  { label: 'H2O v3 APR',     value: '14.20%',  color: 'text-cyan-400'   },
+  { label: 'Stake+ H2O APR', value: '10.00%',  color: 'text-emerald-400'},
+  { label: 'Stake+ WLD APR', value: '6.00%',   color: 'text-yellow-400' },
+  { label: 'Stake+ UTH2 APR',value: '18.00%',  color: 'text-orange-400' },
+  { label: 'Stake+ FIRE APR',value: '22.00%',  color: 'text-red-400'    },
+  { label: 'Pool UTH2→H2O',  value: 'PERMA',   color: 'text-emerald-400'},
+  { label: 'Pool WLD→7x',    value: 'MULTI',   color: 'text-yellow-400' },
+  { label: 'Pool TIME→WLD',  value: 'POOL%',   color: 'text-purple-400' },
 ]
 
 // ─── Candle data generator (deterministic seed by hour) ───────────────────────

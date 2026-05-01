@@ -19,6 +19,7 @@ import { MiningUTH2Panel } from '@/components/mining-uth2-panel'
 import { MiningWLDPanel } from '@/components/mining-wld-panel'
 import { MiningTimePanel } from '@/components/mining-time-panel'
 import { ContractsOwnerPanel } from '@/components/contracts-owner-panel'
+import { ContractAdminPanel } from '@/components/contracts-admin-panel'
 import { AirFunderPanel } from '@/components/air-funder-panel'
 import { InfoPanel } from '@/components/info-panel'
 import { TokenDirectoryPanel } from '@/components/token-directory-panel'
@@ -36,7 +37,7 @@ import {
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
-type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin' | 'monitor'
+type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin' | 'monitor' | 'contracts-admin'
 type InstalledState = null | true | false
 
 const AIR_FUNDER_ADDRESS    = '0x72acfbfcee02176118107958ec317157ccd4afdb'
@@ -115,7 +116,6 @@ function NotInstalled() {
 function ConnectScreen({ onConnect, loading }: { onConnect: () => void; loading: boolean }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-6 px-5 py-8 overflow-y-auto">
-      {/* Logo */}
       <div className="flex flex-col items-center gap-3">
         <div className="relative flex items-center justify-center" style={{ width: 96, height: 96 }}>
           <span className="absolute inset-0 rounded-3xl border-2 border-blue-500/60 heartbeat-ring" />
@@ -130,8 +130,6 @@ function ConnectScreen({ onConnect, loading }: { onConnect: () => void; loading:
           <p className="text-[oklch(0.50_0.012_230)] text-xs mt-1 font-mono">World Chain · DeFi · 2026</p>
         </div>
       </div>
-
-      {/* Feature grid */}
       <div className="w-full max-w-xs rounded-xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.12_0.02_245)] divide-y divide-[oklch(0.18_0.02_245)]">
         {[
           { dot: 'bg-blue-500',    label: 'Stake H2O',         val: '12% APY' },
@@ -148,7 +146,6 @@ function ConnectScreen({ onConnect, loading }: { onConnect: () => void; loading:
           </div>
         ))}
       </div>
-
       <button
         className="w-full max-w-xs h-12 rounded-xl bg-[oklch(0.65_0.22_255)] text-white font-bold text-base flex items-center justify-center gap-2 glow-blue hover:bg-[oklch(0.70_0.24_255)] transition-colors"
         onClick={onConnect}
@@ -223,12 +220,8 @@ function NavDrawer({
 
   return (
     <div className="fixed inset-0 z-50">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-
-      {/* Drawer */}
       <div className="absolute top-0 left-0 h-full w-[260px] bg-[oklch(0.09_0.018_245)] border-r border-[oklch(0.22_0.025_245)] flex flex-col slide-in-left">
-        {/* Header */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-[oklch(0.18_0.02_245)]">
           <div className="flex items-center gap-2.5">
             <div className="relative w-8 h-8">
@@ -243,15 +236,11 @@ function NavDrawer({
             <X className="w-4 h-4 text-[oklch(0.50_0.012_230)]" />
           </button>
         </div>
-
-        {/* Live badge */}
         <div className="px-4 py-2 flex items-center gap-2 bg-[oklch(0.68_0.20_158)]/5 border-b border-[oklch(0.68_0.20_158)]/10">
           <div className="w-1.5 h-1.5 rounded-full bg-[#00c076] animate-pulse" />
           <span className="text-[10px] font-semibold text-[#00c076]">World Chain · Live</span>
           <span className="ml-auto text-[9px] text-[oklch(0.40_0.01_230)] font-mono">WC · 480</span>
         </div>
-
-        {/* Menu items */}
         <div className="flex-1 overflow-y-auto py-2">
           <Section title="Staking" items={MENU_STAKING} />
           <div className="mx-4 border-t border-[oklch(0.18_0.02_245)] my-1" />
@@ -263,18 +252,13 @@ function NavDrawer({
           {(isMainOwner || isAirFunder) && (
             <>
               <div className="mx-4 border-t border-[oklch(0.18_0.02_245)] my-1" />
-              <Section title="Admin" items={[{
-                tab: 'admin',
-                icon: <Shield className="w-4 h-4" />,
-                label: 'Panel Admin',
-                badge: 'OWNER',
-                color: 'text-violet-400',
-              }]} />
+              <Section title="Admin" items={[
+                { tab: 'admin', icon: <Shield className="w-4 h-4" />, label: 'Panel Admin', badge: 'OWNER', color: 'text-violet-400' },
+                { tab: 'contracts-admin', icon: <Settings className="w-4 h-4" />, label: 'Admin Contratos', badge: 'OWNER', color: 'text-blue-400' },
+              ]} />
             </>
           )}
         </div>
-
-        {/* Footer */}
         <div className="border-t border-[oklch(0.18_0.02_245)] px-4 py-3">
           <p className="text-[9px] text-[oklch(0.35_0.01_230)] text-center font-mono">
             ACUA MINIEXCHANGE · World Chain 480
@@ -291,20 +275,119 @@ const TAB_LABELS: Record<Tab, string> = {
   'stake-v2': 'Stake V2', 'stake-plus': 'Stake+', 'uth2': 'Minería UTH₂',
   'wld': 'Minería WLD', 'time': 'Minería TIME', 'tokens': 'Tokens',
   'swap': 'Swap', 'info': 'Info', 'admin': 'Admin', 'monitor': 'Monitor',
+  'contracts-admin': 'Admin Contratos',
 }
 
-// ─── Quick-access bottom tabs ─────────────────────────────────────────────────
-function BottomTab({ icon, label, active, onClick }: {
-  icon: React.ReactNode; label: string; active: boolean; onClick: () => void
-}) {
+// ─── Floating Fan Button ──────────────────────────────────────────────────────
+interface FabItem { tab: Tab; icon: React.ReactNode; label: string; color: string }
+
+const FAB_ITEMS: FabItem[] = [
+  { tab: 'h2o',        icon: <Droplets className="w-3.5 h-3.5" />,   label: 'H2O',     color: '#06b6d4' },
+  { tab: 'swap',       icon: <Repeat2 className="w-3.5 h-3.5" />,    label: 'Swap',    color: '#3b82f6' },
+  { tab: 'h2o-new',    icon: <Sparkles className="w-3.5 h-3.5" />,   label: 'H2O 2.0', color: '#60a5fa' },
+  { tab: 'h2o-v3',     icon: <Droplets className="w-3.5 h-3.5" />,   label: 'H2O v3',  color: '#22d3ee' },
+  { tab: 'stake-v2',   icon: <Wind className="w-3.5 h-3.5" />,       label: 'Stake V2',color: '#a78bfa' },
+  { tab: 'stake-plus', icon: <TrendingUp className="w-3.5 h-3.5" />, label: 'Stake+',  color: '#10b981' },
+  { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,       label: 'WLD',     color: '#fbbf24' },
+  { tab: 'uth2',       icon: <Pickaxe className="w-3.5 h-3.5" />,    label: 'UTH2',    color: '#f97316' },
+  { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,      label: 'TIME',    color: '#c084fc' },
+]
+
+// Double-arc fan positions (dx, dy) relative to FAB center
+// Inner arc (R=80px): items 0-4, θ from 90° to 175°
+// Outer arc (R=148px): items 5-8, θ from 90° to 165°
+const FAB_POSITIONS = [
+  { dx: 0,    dy: -80  },  // H2O       — inner, 90°
+  { dx: -29,  dy: -75  },  // Swap      — inner, 111°
+  { dx: -54,  dy: -59  },  // H2O 2.0   — inner, 132°
+  { dx: -72,  dy: -36  },  // H2O v3    — inner, 154°
+  { dx: -80,  dy: -7   },  // Stake V2  — inner, 175°
+  { dx: 0,    dy: -148 },  // Stake+    — outer, 90°
+  { dx: -62,  dy: -134 },  // WLD       — outer, 115°
+  { dx: -113, dy: -95  },  // UTH2      — outer, 140°
+  { dx: -143, dy: -38  },  // TIME      — outer, 165°
+]
+
+function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; activeTab: Tab }) {
+  const [open, setOpen] = useState(false)
+
   return (
-    <button onClick={onClick} className={cn(
-      'flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors',
-      active ? 'text-[oklch(0.65_0.22_255)]' : 'text-[oklch(0.45_0.01_230)] hover:text-foreground',
-    )}>
-      <span className={cn('transition-transform', active && 'scale-110')}>{icon}</span>
-      <span>{label}</span>
-    </button>
+    <>
+      {open && (
+        <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+      )}
+
+      <div className="fixed z-40" style={{ bottom: 20, right: 20 }}>
+        {FAB_ITEMS.map((item, i) => {
+          const pos = FAB_POSITIONS[i]
+          const isActive = activeTab === item.tab
+          return (
+            <button
+              key={item.tab}
+              onClick={() => { onSelect(item.tab); setOpen(false) }}
+              style={{
+                position: 'absolute',
+                width: 44,
+                height: 48,
+                bottom: 6,
+                right: 6,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 2,
+                borderRadius: 12,
+                background: isActive ? `${item.color}40` : `${item.color}20`,
+                border: `1.5px solid ${item.color}${isActive ? 'cc' : '66'}`,
+                color: item.color,
+                fontSize: 8,
+                fontWeight: 800,
+                letterSpacing: '0.03em',
+                transform: open
+                  ? `translate(${pos.dx - 22}px, ${pos.dy - 24}px)`
+                  : 'translate(-22px, -24px)',
+                opacity: open ? 1 : 0,
+                pointerEvents: open ? 'auto' : 'none',
+                transition: `transform 0.38s cubic-bezier(0.34,1.56,0.64,1) ${i * 0.035}s, opacity 0.22s ease ${i * 0.035}s`,
+                boxShadow: isActive ? `0 0 10px ${item.color}66` : 'none',
+              }}
+            >
+              {item.icon}
+              <span style={{ lineHeight: 1 }}>{item.label}</span>
+            </button>
+          )
+        })}
+
+        <button
+          onClick={() => setOpen(v => !v)}
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 16,
+            background: 'linear-gradient(135deg, #1d4ed8, #2563eb)',
+            boxShadow: open
+              ? '0 0 28px rgba(59,130,246,0.80)'
+              : '0 0 18px rgba(59,130,246,0.55)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1,
+            border: '2px solid rgba(147,197,253,0.45)',
+            transform: open ? 'scale(1.08)' : 'scale(1)',
+            transition: 'transform 0.25s ease, box-shadow 0.25s ease',
+          }}
+          aria-label="Menú rápido"
+        >
+          <div style={{ width: 26, height: 26, position: 'relative' }}>
+            <Image src="/flame-logo.png" alt="Menu" fill className="object-contain" />
+          </div>
+          <span style={{ color: '#ef4444', fontSize: 8, fontWeight: 900, letterSpacing: '0.08em', lineHeight: 1 }}>
+            MENU
+          </span>
+        </button>
+      </div>
+    </>
   )
 }
 
@@ -324,7 +407,6 @@ export default function AcuaApp() {
 
   useEffect(() => { patchMiniKitLogger() }, [])
 
-  // Detect MiniKit
   useEffect(() => {
     console.log('[acua] detect: start', { worldApp: !!(window as any).WorldApp, ua: navigator.userAgent.slice(0, 80) })
     if (!(window as any).WorldApp) { setIsInstalled(false); return }
@@ -337,7 +419,6 @@ export default function AcuaApp() {
     return () => clearInterval(iv)
   }, [])
 
-  // Load data
   const loadData = useCallback(async () => {
     setLoadingData(true)
     try {
@@ -382,12 +463,10 @@ export default function AcuaApp() {
     } catch (e) { console.error('[acua] ownership ERROR', e) }
   }, [])
 
-  // Ownership flags
   const isAirFunder      = wallet.address?.toLowerCase() === AIR_FUNDER_ADDRESS
   const isSecondaryAdmin = wallet.address?.toLowerCase() === SECONDARY_ADMIN_ADDRESS
   const isMainOwner      = wallet.isOwner || isNewOwner || isSecondaryAdmin
 
-  // Gates
   if (isInstalled === null) return <LoadingScreen />
   if (!isInstalled || !wallet.address) {
     return (
@@ -415,20 +494,21 @@ export default function AcuaApp() {
       {/* ── Header ────────────────────────────────────────────────────── */}
       <header className="shrink-0 bg-[oklch(0.09_0.018_245)]/95 backdrop-blur-xl border-b border-[oklch(0.22_0.025_245)] z-10">
         <div className="flex items-center gap-2 px-2 pt-1 pb-2.5">
-          {/* Flame menu button — pulsing heartbeat */}
+          {/* Flame menu button with MENU label in red */}
           <button
             onClick={() => setMenuOpen(true)}
-            className="shrink-0 relative flex items-center justify-center"
-            style={{ width: 48, height: 52 }}
+            className="shrink-0 relative flex flex-col items-center justify-center gap-0.5"
+            style={{ width: 48, height: 56 }}
             aria-label="Menú principal"
           >
-            {/* Outer glow ring — heartbeat */}
             <span className="absolute inset-0 rounded-2xl border-2 border-blue-500/60 heartbeat-ring" />
-            {/* Button body */}
-            <span className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-500 flex items-center justify-center shadow-[0_0_16px_rgba(59,130,246,0.55)] heartbeat-logo">
-              <div className="relative w-7 h-7 mt-1">
+            <span className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-500 flex flex-col items-center justify-center shadow-[0_0_16px_rgba(59,130,246,0.55)] heartbeat-logo gap-0.5">
+              <div className="relative w-6 h-6">
                 <Image src="/flame-logo.png" alt="Menu" fill className="object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]" />
               </div>
+              <span style={{ color: '#ef4444', fontSize: 7, fontWeight: 900, letterSpacing: '0.08em', lineHeight: 1 }}>
+                MENU
+              </span>
             </span>
           </button>
 
@@ -454,7 +534,7 @@ export default function AcuaApp() {
       {/* ── Stats ticker ──────────────────────────────────────────────── */}
       <StatsTicker />
 
-      {/* ── Market mini card (H2O candle chart) ───────────────────────── */}
+      {/* ── Market mini card ──────────────────────────────────────────── */}
       <MarketMiniCard />
 
       {/* ── Content ───────────────────────────────────────────────────── */}
@@ -522,17 +602,24 @@ export default function AcuaApp() {
             </>
           )}
 
+          {activeTab === 'contracts-admin' && isMainOwner && (
+            <ContractAdminPanel userAddress={addr} />
+          )}
+
+          {activeTab === 'contracts-admin' && !isMainOwner && (
+            <div className="flex items-center justify-center py-16">
+              <div className="text-center space-y-2">
+                <Shield className="w-10 h-10 text-[oklch(0.40_0.01_230)] mx-auto" />
+                <p className="text-sm text-[oklch(0.50_0.012_230)]">Acceso restringido al owner</p>
+              </div>
+            </div>
+          )}
+
         </div>
       </main>
 
-      {/* ── Bottom Quick Nav ───────────────────────────────────────────── */}
-      <nav className="shrink-0 border-t border-[oklch(0.22_0.025_245)] bg-[oklch(0.09_0.018_245)]/95 backdrop-blur-xl flex">
-        <BottomTab icon={<Droplets className="w-4 h-4" />}    label="H2O"    active={activeTab === 'h2o'}     onClick={() => setActiveTab('h2o')} />
-        <BottomTab icon={<Repeat2 className="w-4 h-4" />}     label="Swap"   active={activeTab === 'swap'}    onClick={() => setActiveTab('swap')} />
-        <BottomTab icon={<Activity className="w-4 h-4" />}    label="Monitor" active={activeTab === 'monitor'} onClick={() => setActiveTab('monitor')} />
-        <BottomTab icon={<TrendingUp className="w-4 h-4" />}  label="Stake+" active={activeTab === 'stake-plus'} onClick={() => setActiveTab('stake-plus')} />
-        <BottomTab icon={<Sparkles className="w-4 h-4" />}    label="H2O 2.0" active={activeTab === 'h2o-new'} onClick={() => setActiveTab('h2o-new')} />
-      </nav>
+      {/* ── Floating Fan Menu ─────────────────────────────────────────── */}
+      <FloatingFab onSelect={setActiveTab} activeTab={activeTab} />
 
     </div>
   )
