@@ -602,6 +602,206 @@
         "AcuaClaimManager",
         "IClaimSource"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/CommissionManager.sol": {
+      "lastModificationDate": 1777650524444,
+      "contentHash": "5f19e472866f15733b52a85d4d04f5b5",
+      "sourceName": "contracts/CommissionManager.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "CommissionManager",
+        "IERC20Comm",
+        "IRewardPool"
+      ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/FundManager.sol": {
+      "lastModificationDate": 1777650314178,
+      "contentHash": "4d72dd72d47729d485df84b745314b56",
+      "sourceName": "contracts/FundManager.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "FundManager",
+        "IERC20",
+        "IFundReceiver"
+      ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/NewAcuaSwapRouter.sol": {
+      "lastModificationDate": 1777650485856,
+      "contentHash": "a10e0c297e967a0b826e40308fd07ed0",
+      "sourceName": "contracts/NewAcuaSwapRouter.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "IERC20Swap",
+        "IPermit2Swap",
+        "IPoolManager",
+        "ISwapRouter03",
+        "IUniswapV2Router",
+        "NewAcuaSwapRouter"
+      ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/NewH2OStaking.sol": {
+      "lastModificationDate": 1777650374335,
+      "contentHash": "a57556414bdcc8cc0a6d781a10a95a82",
+      "sourceName": "contracts/NewH2OStaking.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "IERC20New",
+        "IFundManagerNew",
+        "IPermit2New",
+        "IReferralSystemV2",
+        "NewH2OStaking"
+      ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/ReferralSystemV2.sol": {
+      "lastModificationDate": 1777650425989,
+      "contentHash": "7a89fd5c30c935a2b4866c540321de66",
+      "sourceName": "contracts/ReferralSystemV2.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "IERC20Ref",
+        "IStakingForRef",
+        "ReferralSystemV2"
+      ]
     }
   }
 }

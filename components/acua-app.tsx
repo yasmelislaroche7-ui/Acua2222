@@ -5,7 +5,7 @@ import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
 import {
   Droplets, RefreshCw, Wallet, Shield, Loader2,
-  TrendingUp, Pickaxe, Star, HelpCircle, Wind, Clock, BookOpen, Repeat2,
+  TrendingUp, Pickaxe, Star, HelpCircle, Wind, Clock, BookOpen, Repeat2, Sparkles,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StakePanel } from '@/components/stake-panel'
@@ -21,6 +21,7 @@ import { AirFunderPanel } from '@/components/air-funder-panel'
 import { InfoPanel } from '@/components/info-panel'
 import { TokenDirectoryPanel } from '@/components/token-directory-panel'
 import { SwapPanel } from '@/components/swap-panel'
+import { NewH2OPanel } from '@/components/new-h2o-panel'
 import { useWallet } from '@/hooks/use-wallet'
 import {
   fetchStakeInfo,
@@ -36,7 +37,7 @@ import {
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
-type Tab = 'h2o' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin'
+type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin'
 type InstalledState = null | true | false
 
 // ─── Hardcoded special addresses ──────────────────────────────────────────────
@@ -364,7 +365,7 @@ export default function AcuaApp() {
 
       {/* Stake section selector — H2O and Stake V2 as prominent section buttons */}
       <div className="shrink-0 border-b border-border bg-background/95 backdrop-blur z-10">
-        {/* Section row: H2O | Stake V2 */}
+        {/* Section row: H2O | H2O 2.0 | H2O v3 | Stake V2 */}
         <div className="flex gap-2 px-4 pt-3 pb-2">
           <button
             onClick={() => setActiveTab('h2o')}
@@ -377,6 +378,20 @@ export default function AcuaApp() {
           >
             <Droplets className="w-4 h-4" />
             Stake H2O
+          </button>
+          <button
+            onClick={() => setActiveTab('h2o-new')}
+            className={cn(
+              'relative flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-semibold transition-all border overflow-hidden',
+              activeTab === 'h2o-new'
+                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                : 'bg-surface-2 border-cyan-900 text-cyan-500 hover:border-cyan-500/50 hover:text-cyan-400',
+            )}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-teal-500/5" />
+            <Sparkles className="w-3.5 h-3.5 relative z-10" />
+            <span className="relative z-10">H2O 2.0</span>
+            <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
           </button>
           <button
             onClick={() => setActiveTab('h2o-v3')}
@@ -432,6 +447,8 @@ export default function AcuaApp() {
             onRefresh={loadData}
           />
         )}
+
+        {activeTab === 'h2o-new' && <NewH2OPanel userAddress={addr} />}
 
         {activeTab === 'stake-v2' && <StakeV2Panel userAddress={addr} />}
 

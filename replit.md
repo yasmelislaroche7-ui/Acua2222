@@ -159,6 +159,48 @@ User is `owners[1]` (index 1, second owner) of the AIR staking contract.
 
 ---
 
+## Migración H2O 2.0 — Preparación (NO DESPLEGADO AÚN)
+
+### Nueva Sección UI
+- Botón **H2O 2.0** agregado al lado de "Stake H2O" en la barra de navegación prominente.
+- Componente: `components/new-h2o-panel.tsx`
+  - Hero card con gradiente cyan/teal animado
+  - Contador regresivo hasta **1 Junio 2026** (lanzamiento en Puff)
+  - Stats: comisión depósito 5%, retiro 7%, referidos 10%
+  - Botones Stake/Unstake/Claim deshabilitados con badge "PRÓXIMAMENTE"
+  - Sección de referidos con link copiable e instrucciones
+
+### Nuevos Contratos Solidity (compilados, SIN deploy)
+Ubicados en `contracts-hh/contracts/`:
+
+| Contrato | Descripción |
+|----------|-------------|
+| `NewH2OStaking.sol` | Staking H2O nuevo: fees 5%/7%, Permit2, multi-owner (5), cualquiera puede fondear, connect/disconnect contratos, auto-distribución de fees |
+| `ReferralSystemV2.sol` | Sistema de referidos: ambos ganan al reclamar, split configurable (10% visible, 5% usuarios + 5% oculto al owner), wallets conectadas ganan simultáneamente |
+| `FundManager.sol` | Hub central de fondeo: cualquiera puede fondear, distribuye % a pool de recompensas + wallets de owners, conecta/desconecta contratos externos |
+| `CommissionManager.sol` | Comisión 1 H2O por tx (configurable), autoriza callers, distribuye % a pool + owners |
+| `NewAcuaSwapRouter.sol` | Swap universal: Uniswap v2 + v3 + v4, sin límites, fee configurable, Permit2, quoteV2 |
+
+### Arquitectura de contratos inter-conectados
+```
+FundManager ←── fees ─── NewH2OStaking ──→ ReferralSystemV2
+     │                         ↑
+     └─── depositRewards() ────┘
+CommissionManager ──authorizados──→ cualquier contrato del ecosistema
+NewAcuaSwapRouter ──fees──→ FundManager
+```
+
+### Parámetros configurables (todos)
+- Fees: depósito (default 5%), retiro (7%), claim (2%)
+- Distribución de fees: % al pool, % a wallets de owners
+- Referidos: % total (10%), % a usuarios vs oculto al owner
+- Comisión por tx: monto fijo (1 H2O) y distribución
+- Swap: fee de protocolo (0.3%), receptor de fees
+- Owners: hasta 5 por contrato, add/remove en tiempo real
+- Contratos: connect/disconnect sin redeployment
+
+---
+
 ## MiniKit Permit2 Pattern
 All token transfers use `sendTransaction` with Permit2:
 ```
