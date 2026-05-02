@@ -287,30 +287,36 @@ const TAB_LABELS: Record<Tab, string> = {
 interface FabItem { tab: Tab; icon: React.ReactNode; label: string; color: string }
 
 const FAB_ITEMS: FabItem[] = [
-  { tab: 'h2o',        icon: <Droplets className="w-3.5 h-3.5" />,   label: 'H2O',     color: '#06b6d4' },
-  { tab: 'swap',       icon: <Repeat2 className="w-3.5 h-3.5" />,    label: 'Swap',    color: '#3b82f6' },
-  { tab: 'h2o-new',    icon: <Sparkles className="w-3.5 h-3.5" />,   label: 'H2O 2.0', color: '#60a5fa' },
-  { tab: 'h2o-v3',     icon: <Droplets className="w-3.5 h-3.5" />,   label: 'H2O v3',  color: '#22d3ee' },
-  { tab: 'stake-v2',   icon: <Wind className="w-3.5 h-3.5" />,       label: 'Stake V2',color: '#a78bfa' },
-  { tab: 'stake-plus', icon: <TrendingUp className="w-3.5 h-3.5" />, label: 'Stake+',  color: '#10b981' },
-  { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,       label: 'WLD',     color: '#fbbf24' },
-  { tab: 'uth2',       icon: <Pickaxe className="w-3.5 h-3.5" />,    label: 'UTH2',    color: '#f97316' },
-  { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,      label: 'TIME',    color: '#c084fc' },
+  // ── Inner arc (R=82px) ─────────────────────────────────────────────────────
+  { tab: 'h2o',        icon: <Droplets className="w-3.5 h-3.5" />,   label: 'H2O',      color: '#06b6d4' },
+  { tab: 'swap',       icon: <Repeat2 className="w-3.5 h-3.5" />,    label: 'Swap',     color: '#3b82f6' },
+  { tab: 'h2o-new',    icon: <Sparkles className="w-3.5 h-3.5" />,   label: 'H2O 2.0',  color: '#60a5fa' },
+  { tab: 'h2o-v3',     icon: <Droplets className="w-3.5 h-3.5" />,   label: 'H2O v3',   color: '#22d3ee' },
+  { tab: 'stake-v2',   icon: <Wind className="w-3.5 h-3.5" />,       label: 'Stake V2', color: '#a78bfa' },
+  // ── Outer arc (R=150px) ────────────────────────────────────────────────────
+  { tab: 'stake-plus', icon: <TrendingUp className="w-3.5 h-3.5" />, label: 'Stake+',   color: '#10b981' },
+  { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,       label: 'WLD',      color: '#fbbf24' },
+  { tab: 'uth2',       icon: <Pickaxe className="w-3.5 h-3.5" />,    label: 'UTH2',     color: '#f97316' },
+  { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,      label: 'TIME',     color: '#c084fc' },
+  { tab: 'sushi-v2',   icon: <span style={{ fontSize: 13, lineHeight: 1 }}>🍣</span>,   label: 'SUSHI 2.0', color: '#ef4444' },
 ]
 
-// Double-arc fan positions (dx, dy) relative to FAB center
-// Inner arc (R=80px): items 0-4, θ from 90° to 175°
-// Outer arc (R=148px): items 5-8, θ from 90° to 165°
+// Double-arc fan positions — evenly spaced θ: 92°→170°, step 19.5°
+// sin/cos measured from top (90°=straight up), fanning left
+// Inner R=82px, 5 items; Outer R=150px, 5 items
 const FAB_POSITIONS = [
-  { dx: 0,    dy: -80  },  // H2O       — inner, 90°
-  { dx: -29,  dy: -75  },  // Swap      — inner, 111°
-  { dx: -54,  dy: -59  },  // H2O 2.0   — inner, 132°
-  { dx: -72,  dy: -36  },  // H2O v3    — inner, 154°
-  { dx: -80,  dy: -7   },  // Stake V2  — inner, 175°
-  { dx: 0,    dy: -148 },  // Stake+    — outer, 90°
-  { dx: -62,  dy: -134 },  // WLD       — outer, 115°
-  { dx: -113, dy: -95  },  // UTH2      — outer, 140°
-  { dx: -143, dy: -38  },  // TIME      — outer, 165°
+  // ── Inner arc ──
+  { dx:   0,  dy: -82  },  // H2O      θ=90°
+  { dx: -27,  dy: -77  },  // Swap     θ=109.5°
+  { dx: -52,  dy: -62  },  // H2O 2.0  θ=129°
+  { dx: -70,  dy: -41  },  // H2O v3   θ=148.5°
+  { dx: -80,  dy: -15  },  // Stake V2 θ=168°
+  // ── Outer arc ──
+  { dx:   0,  dy: -150 },  // Stake+   θ=90°
+  { dx: -50,  dy: -141 },  // WLD      θ=109.5°
+  { dx: -95,  dy: -113 },  // UTH2     θ=129°
+  { dx: -128, dy: -75  },  // TIME     θ=148.5°
+  { dx: -147, dy: -27  },  // SUSHI2.0 θ=168°
 ]
 
 function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; activeTab: Tab }) {
