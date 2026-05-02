@@ -802,6 +802,46 @@
         "IStakingForRef",
         "ReferralSystemV2"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/SushiStakeV2.sol": {
+      "lastModificationDate": 1777698422125,
+      "contentHash": "b9bc8c2226acb52264140a731ca4825d",
+      "sourceName": "contracts/SushiStakeV2.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "IERC20S",
+        "SushiStakeV2"
+      ]
     }
   }
 }

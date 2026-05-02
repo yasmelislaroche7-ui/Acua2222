@@ -1,0 +1,15 @@
+{
+  "deployedAt": "2026-05-02T05:13:08.792Z",
+  "network": "worldchain",
+  "chainId": 480,
+  "contract": "0x29F93B534c86a1B1A5923645878b93a3F46b08f9",
+  "owner": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
+  "owner2": "0x5474c309e985c6b4fc623acf01ade604da781e52",
+  "token": "0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38",
+  "tokenSymbol": "SUSHI",
+  "decimals": 18,
+  "aprBps": 30000,
+  "feeBps": 500,
+  "withdrawDelay": 172800,
+  "claimDelay": 86400
+}

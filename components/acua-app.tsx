@@ -25,6 +25,7 @@ import { InfoPanel } from '@/components/info-panel'
 import { TokenDirectoryPanel } from '@/components/token-directory-panel'
 import { SwapPanel } from '@/components/swap-panel'
 import { NewH2OPanel } from '@/components/new-h2o-panel'
+import { SushiV2Panel } from '@/components/sushi-v2-panel'
 import { PlatformMonitor } from '@/components/platform-monitor'
 import { StatsTicker, MarketMiniCard } from '@/components/market-ticker'
 import { NetworkSwitcher } from '@/components/network-switcher'
@@ -40,7 +41,7 @@ import {
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
-type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin' | 'monitor' | 'contracts-admin'
+type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin' | 'monitor' | 'contracts-admin' | 'sushi-v2'
 type InstalledState = null | true | false
 
 const AIR_FUNDER_ADDRESS    = '0x72acfbfcee02176118107958ec317157ccd4afdb'
@@ -76,6 +77,7 @@ const MENU_STAKING: MenuEntry[] = [
   { tab: 'h2o-v3',    icon: <Droplets className="w-4 h-4" />,   label: 'H2O v3 Pool',   color: 'text-cyan-300' },
   { tab: 'stake-v2',  icon: <Wind className="w-4 h-4" />,       label: 'Stake V2',      color: 'text-violet-400' },
   { tab: 'stake-plus',icon: <TrendingUp className="w-4 h-4" />, label: 'Stake+',         badge: '8 tokens', color: 'text-emerald-400' },
+  { tab: 'sushi-v2',  icon: <span className="text-sm leading-none">🍣</span>, label: 'SUSHI 2.0', badge: '300% APR', color: 'text-red-400' },
 ]
 const MENU_MINING: MenuEntry[] = [
   { tab: 'uth2', icon: <Pickaxe className="w-4 h-4" />,    label: 'UTH₂ → H2O',    color: 'text-orange-400' },
@@ -278,7 +280,7 @@ const TAB_LABELS: Record<Tab, string> = {
   'stake-v2': 'Stake V2', 'stake-plus': 'Stake+', 'uth2': 'Minería UTH₂',
   'wld': 'Minería WLD', 'time': 'Minería TIME', 'tokens': 'Tokens',
   'swap': 'Swap', 'info': 'Info', 'admin': 'Admin', 'monitor': 'Monitor',
-  'contracts-admin': 'Admin Contratos',
+  'contracts-admin': 'Admin Contratos', 'sushi-v2': 'SUSHI 2.0',
 }
 
 // ─── Floating Fan Button ──────────────────────────────────────────────────────
@@ -587,6 +589,7 @@ export default function AcuaApp() {
           {activeNetwork === 'wld' && activeTab === 'wld' && <MiningWLDPanel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'time' && <MiningTimePanel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'tokens' && <TokenDirectoryPanel />}
+          {activeNetwork === 'wld' && activeTab === 'sushi-v2' && <SushiV2Panel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'swap' && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'info' && <InfoPanel />}
 

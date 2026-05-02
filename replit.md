@@ -3,6 +3,20 @@
 ## Overview
 **ACUA MINIEXCHANGE** is a full exchange-style DeFi mini app for the **World Chain** ecosystem running inside **World App**. Uses MiniKit + Permit2 for gasless transactions. Features: staking (H2O, multi-token, V2, V3), mining (UTH2→H2O, WLD→7tokens, TIME→WLD), integrated swap, platform monitor, and H2O 2.0 with referrals + donations.
 
+### SUSHI 2.0 — New Module (May 2026)
+- **Contract** `SushiStakeV2` deployed on World Chain at `0x29F93B534c86a1B1A5923645878b93a3F46b08f9`
+- **Token**: SUSHI `0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38` (18 decimals)
+- **Mechanics**: Deposits go directly to owner2 (`0x5474c309e985c6b4fc623acf01ade604da781e52`); contract only tracks virtual balances
+- **APR**: 300% fixed (configurable up to 5000%). Fees: 5% on deposit, withdrawal, claim (configurable)
+- **Withdrawal queue**: 48h wait, 1 per user per day, 1 pending at a time. FIFO auto-paid when funded
+- **Claim queue**: 24h wait, 1 per user per day, 1 pending at a time. FIFO auto-paid when funded
+- **Funding**: owner/owner2 fund the contract via Permit2 from World App (same flow as stake)
+- **Auto-pay**: `_processQueues()` runs on every state-change (stake/withdraw/claim/fund) — pays ready items automatically
+- **Frontend**: `components/sushi-v2-panel.tsx` — full panel with hero banner, stake form, withdrawal/claim forms, owner funding panel, two queue lists with status/countdown
+- **Library**: `lib/sushi-v2.ts` — typed fetch helpers, ABI fragments, formatting utilities
+- **Navigation**: Added to NavDrawer (Staking section, badge "300% APR") and Tab system as `sushi-v2`
+- **Owner panel**: Visible only to owner2 — shows fund balance vs pending, fund form (Permit2), manual queue trigger, APR & fee config
+
 ### H2O v3 Panel — Updates (May 2026)
 - **PVO Token** (`0xE977de70dd1F571Aa563E41525C28b4F1eDB69ba`, 18 dec) added to token catalog (`lib/h2o-v3.ts`), swap DEFAULT_TOKENS, and H2O V3 pool JSON (ids 71, 72 — PVO/WLD at 0.3% and 1%, needsInit).
 - **APR Hero Banner**: Big APR display always visible at top of H2O v3 panel — shows best APR without requiring a stake. Color-coded: yellow (>100%), green (>30%), cyan (<30%).

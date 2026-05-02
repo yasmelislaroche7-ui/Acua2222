@@ -18,6 +18,7 @@
     "withdraw:uth2": "hardhat run scripts/withdraw-uth2.js --network worldchain",
     "withdraw:uth2-vip": "hardhat run scripts/withdraw-uth2-vip.js --network worldchain",
     "withdraw:h2o-stake": "hardhat run scripts/withdraw-h2o-stake.js --network worldchain",
+    "deploy:sushi-v2": "hardhat run scripts/deploy-sushi-v2.js --network worldchain",
     "verify": "hardhat verify --network worldchain"
   },
   "keywords": [],
