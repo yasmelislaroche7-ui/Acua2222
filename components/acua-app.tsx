@@ -27,7 +27,10 @@ import { SwapPanel } from '@/components/swap-panel'
 import { NewH2OPanel } from '@/components/new-h2o-panel'
 import { PlatformMonitor } from '@/components/platform-monitor'
 import { StatsTicker, MarketMiniCard } from '@/components/market-ticker'
+import { NetworkSwitcher } from '@/components/network-switcher'
+import { ComingSoonPanel } from '@/components/coming-soon-panel'
 import { useWallet } from '@/hooks/use-wallet'
+import { type NetworkId, NETWORKS } from '@/lib/networks'
 import {
   fetchStakeInfo, fetchContractConfig, fetchH2OBalance, fetchWLDBalance,
   StakeInfo, ContractConfig, shortenAddress,
@@ -402,6 +405,7 @@ export default function AcuaApp() {
   const [activeTab, setActiveTab] = useState<Tab>('h2o')
   const [menuOpen, setMenuOpen] = useState(false)
   const [isNewOwner, setIsNewOwner] = useState(false)
+  const [activeNetwork, setActiveNetwork] = useState<NetworkId>('wld')
 
   const wallet = useWallet(config?.owner ?? null, isInstalled === true)
 
@@ -512,36 +516,59 @@ export default function AcuaApp() {
             </span>
           </button>
 
-          {/* Title + active tab */}
+          {/* Title + active tab / network */}
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-black tracking-[0.12em] text-foreground leading-none">ACUA MINIEXCHANGE</p>
-            <p className="text-[9px] text-[oklch(0.50_0.012_230)] font-mono mt-0.5 truncate">
-              {TAB_LABELS[activeTab]}
+            <p className="text-[9px] font-mono mt-0.5 truncate" style={{ color: NETWORKS[activeNetwork].color }}>
+              {activeNetwork === 'wld' ? TAB_LABELS[activeTab] : `${NETWORKS[activeNetwork].name} · Coming Soon`}
             </p>
           </div>
 
-          {/* Status + wallet */}
-          <div className="flex items-center gap-2">
-            {loadingData && <Loader2 className="w-3 h-3 text-[oklch(0.50_0.012_230)] animate-spin" />}
-            <div className="flex items-center gap-1.5 rounded-lg border border-[oklch(0.22_0.025_245)] bg-[oklch(0.12_0.02_245)] px-2 py-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-[#00c076] animate-pulse" />
-              <span className="text-[10px] text-foreground font-mono">{shortenAddress(addr)}</span>
-            </div>
+          {/* Status + network switcher */}
+          <div className="flex items-center gap-1.5">
+            {loadingData && activeNetwork === 'wld' && (
+              <Loader2 className="w-3 h-3 text-[oklch(0.50_0.012_230)] animate-spin" />
+            )}
+            <NetworkSwitcher
+              address={addr}
+              activeNetwork={activeNetwork}
+              onSwitch={setActiveNetwork}
+            />
           </div>
         </div>
       </header>
 
-      {/* ── Stats ticker ──────────────────────────────────────────────── */}
-      <StatsTicker />
+      {/* ── Stats ticker (WLD only) ───────────────────────────────────── */}
+      {activeNetwork === 'wld' && <StatsTicker />}
 
-      {/* ── Market mini card ──────────────────────────────────────────── */}
-      <MarketMiniCard />
+      {/* ── Market mini card (WLD only) ───────────────────────────────── */}
+      {activeNetwork === 'wld' && <MarketMiniCard />}
+
+      {/* ── Network banner for non-WLD ────────────────────────────────── */}
+      {activeNetwork !== 'wld' && (
+        <div className="shrink-0 px-3 py-2 flex items-center gap-2 border-b border-[oklch(0.22_0.025_245)]"
+          style={{ background: `${NETWORKS[activeNetwork].color}12` }}>
+          <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: NETWORKS[activeNetwork].color }} />
+          <span className="text-[10px] font-bold" style={{ color: NETWORKS[activeNetwork].color }}>
+            {NETWORKS[activeNetwork].name} · Chain ID {NETWORKS[activeNetwork].chainId}
+          </span>
+          <span className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+            COMING SOON
+          </span>
+        </div>
+      )}
 
       {/* ── Content ───────────────────────────────────────────────────── */}
       <main className="flex-1 overflow-y-auto min-h-0">
         <div className="px-3 py-3">
 
-          {activeTab === 'h2o' && (
+          {/* ── Non-WLD networks show Coming Soon ─── */}
+          {activeNetwork !== 'wld' && (
+            <ComingSoonPanel network={activeNetwork} />
+          )}
+
+          {/* ── WLD / World Chain app ─────────────── */}
+          {activeNetwork === 'wld' && activeTab === 'h2o' && (
             <StakePanel
               stakeInfo={stakeInfo}
               config={config}
@@ -552,27 +579,18 @@ export default function AcuaApp() {
             />
           )}
 
-          {activeTab === 'h2o-new' && <NewH2OPanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'h2o-new' && <NewH2OPanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'stake-v2' && <StakeV2Panel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'h2o-v3' && <H2OV3Panel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'stake-plus' && <MultiStakingPanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'uth2' && <MiningUTH2Panel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'wld' && <MiningWLDPanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'time' && <MiningTimePanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'tokens' && <TokenDirectoryPanel />}
+          {activeNetwork === 'wld' && activeTab === 'swap' && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
+          {activeNetwork === 'wld' && activeTab === 'info' && <InfoPanel />}
 
-          {activeTab === 'stake-v2' && <StakeV2Panel userAddress={addr} />}
-
-          {activeTab === 'h2o-v3' && <H2OV3Panel userAddress={addr} />}
-
-          {activeTab === 'stake-plus' && <MultiStakingPanel userAddress={addr} />}
-
-          {activeTab === 'uth2' && <MiningUTH2Panel userAddress={addr} />}
-
-          {activeTab === 'wld' && <MiningWLDPanel userAddress={addr} />}
-
-          {activeTab === 'time' && <MiningTimePanel userAddress={addr} />}
-
-          {activeTab === 'tokens' && <TokenDirectoryPanel />}
-
-          {activeTab === 'swap' && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
-
-          {activeTab === 'info' && <InfoPanel />}
-
-          {activeTab === 'monitor' && (
+          {activeNetwork === 'wld' && activeTab === 'monitor' && (
             <PlatformMonitor
               userAddress={addr}
               stakeInfo={stakeInfo}
@@ -581,7 +599,7 @@ export default function AcuaApp() {
             />
           )}
 
-          {activeTab === 'admin' && (
+          {activeNetwork === 'wld' && activeTab === 'admin' && (
             <>
               {isAirFunder && !isMainOwner ? (
                 <AirFunderPanel userAddress={addr} />
@@ -602,11 +620,11 @@ export default function AcuaApp() {
             </>
           )}
 
-          {activeTab === 'contracts-admin' && isMainOwner && (
+          {activeNetwork === 'wld' && activeTab === 'contracts-admin' && isMainOwner && (
             <ContractAdminPanel userAddress={addr} />
           )}
 
-          {activeTab === 'contracts-admin' && !isMainOwner && (
+          {activeNetwork === 'wld' && activeTab === 'contracts-admin' && !isMainOwner && (
             <div className="flex items-center justify-center py-16">
               <div className="text-center space-y-2">
                 <Shield className="w-10 h-10 text-[oklch(0.40_0.01_230)] mx-auto" />
@@ -618,8 +636,10 @@ export default function AcuaApp() {
         </div>
       </main>
 
-      {/* ── Floating Fan Menu ─────────────────────────────────────────── */}
-      <FloatingFab onSelect={setActiveTab} activeTab={activeTab} />
+      {/* ── Floating Fan Menu (WLD only) ──────────────────────────────── */}
+      {activeNetwork === 'wld' && (
+        <FloatingFab onSelect={setActiveTab} activeTab={activeTab} />
+      )}
 
     </div>
   )
