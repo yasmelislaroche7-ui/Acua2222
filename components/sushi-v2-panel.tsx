@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useCountdown } from '@/hooks/use-countdown'
 import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
 import {
@@ -404,6 +405,16 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
   const canWithdraw = staked > 0n && !userInfo?.hasWithdraw && today > (userInfo?.lastWithdrawDay ?? 0)
   const canClaim    = rewards > 0n && !userInfo?.hasClaim  && today > (userInfo?.lastClaimDay ?? 0)
 
+  // Unlock timestamps: next midnight after the last action day
+  const wdLastDay  = userInfo?.lastWithdrawDay ?? 0
+  const clLastDay  = userInfo?.lastClaimDay    ?? 0
+  const withdrawUnlockTs = wdLastDay > 0 ? (wdLastDay + 1) * 86400 : null
+  const claimUnlockTs    = clLastDay > 0 ? (clLastDay + 1) * 86400 : null
+
+  // Countdowns (hooks must be at component top level)
+  const wdCd = useCountdown(withdrawUnlockTs, 86400)
+  const clCd = useCountdown(claimUnlockTs,    86400)
+
   const pendingWithdraw = stats?.totalPendingWithdrawals ?? 0n
   const pendingClaim    = stats?.totalPendingClaims ?? 0n
   const fundPool        = stats?.fundPool ?? 0n
@@ -635,13 +646,20 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
       <SectionCard title="Solicitar Retiro" collapsible defaultOpen={staked > 0n}>
         <div className="flex flex-col gap-3">
           {!canWithdraw && staked > 0n && (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-500/25 bg-amber-500/8 px-3 py-2">
-              <Clock className="w-3 h-3 text-amber-400 shrink-0" />
-              <p className="text-[9px] text-amber-300">
-                {userInfo?.hasWithdraw
-                  ? 'Ya tienes un retiro pendiente en la cola.'
-                  : 'Solo puedes solicitar un retiro por día.'}
-              </p>
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/25 bg-amber-500/8 px-3 py-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Clock className="w-3 h-3 text-amber-400 shrink-0 animate-pulse" />
+                <p className="text-[9px] text-amber-300">
+                  {userInfo?.hasWithdraw
+                    ? 'Retiro ya en cola de espera.'
+                    : 'Un retiro por día.'}
+                </p>
+              </div>
+              {!userInfo?.hasWithdraw && !wdCd.ready && (
+                <span className="text-[10px] font-mono font-bold text-amber-400 shrink-0">
+                  {wdCd.label}
+                </span>
+              )}
             </div>
           )}
           {staked === 0n && (
@@ -664,8 +682,12 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
             className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 border"
             style={{ borderColor: `${SUSHI_COLOR}50`, color: SUSHI_COLOR, background: `${SUSHI_COLOR}10` }}
           >
-            {busyWd ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowDownToLine className="w-4 h-4" />}
-            {busyWd ? 'Procesando…' : 'Solicitar Retiro (48h)'}
+            {busyWd
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Procesando…</>
+              : !canWithdraw && !wdCd.ready && staked > 0n && !userInfo?.hasWithdraw
+                ? <><Clock className="w-4 h-4 animate-pulse" /> Disponible en {wdCd.label}</>
+                : <><ArrowDownToLine className="w-4 h-4" /> Solicitar Retiro (48h)</>
+            }
           </button>
         </div>
       </SectionCard>
@@ -674,13 +696,20 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
       <SectionCard title="Solicitar Reclamo" collapsible defaultOpen={rewards > 0n}>
         <div className="flex flex-col gap-3">
           {!canClaim && rewards > 0n && (
-            <div className="flex items-center gap-2 rounded-lg border border-purple-500/25 bg-purple-500/8 px-3 py-2">
-              <Lock className="w-3 h-3 text-purple-400 shrink-0" />
-              <p className="text-[9px] text-purple-300">
-                {userInfo?.hasClaim
-                  ? 'Ya tienes un reclamo pendiente en la cola.'
-                  : 'Solo puedes reclamar una vez por día.'}
-              </p>
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-purple-500/25 bg-purple-500/8 px-3 py-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Lock className="w-3 h-3 text-purple-400 shrink-0 animate-pulse" />
+                <p className="text-[9px] text-purple-300">
+                  {userInfo?.hasClaim
+                    ? 'Reclamo ya en cola de espera.'
+                    : 'Un reclamo por día.'}
+                </p>
+              </div>
+              {!userInfo?.hasClaim && !clCd.ready && (
+                <span className="text-[10px] font-mono font-bold text-purple-400 shrink-0">
+                  {clCd.label}
+                </span>
+              )}
             </div>
           )}
           <div className="rounded-xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.08_0.015_245)] p-3 flex items-center gap-3">
@@ -703,8 +732,12 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
             className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 border"
             style={{ borderColor: 'rgba(34,197,94,0.40)', color: '#22c55e', background: 'rgba(34,197,94,0.10)' }}
           >
-            {busyClaim ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
-            {busyClaim ? 'Procesando…' : `Solicitar Reclamo (24h) · ${fmtSushi(rewards, 2)} SUSHI`}
+            {busyClaim
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Procesando…</>
+              : !canClaim && !clCd.ready && rewards > 0n && !userInfo?.hasClaim
+                ? <><Clock className="w-4 h-4 animate-pulse" /> Disponible en {clCd.label}</>
+                : <><Gift className="w-4 h-4" /> Solicitar Reclamo (24h) · {fmtSushi(rewards, 2)} SUSHI</>
+            }
           </button>
         </div>
       </SectionCard>
