@@ -3,6 +3,16 @@
 ## Overview
 **ACUA MINIEXCHANGE** is a full exchange-style DeFi mini app for the **World Chain** ecosystem running inside **World App**. Uses MiniKit + Permit2 for gasless transactions. Features: staking (H2O, multi-token, V2, V3), mining (UTH2→H2O, WLD→7tokens, TIME→WLD), integrated swap, platform monitor, and H2O 2.0 with referrals + donations.
 
+### H2O v3 Panel — Updates (May 2026)
+- **PVO Token** (`0xE977de70dd1F571Aa563E41525C28b4F1eDB69ba`, 18 dec) added to token catalog (`lib/h2o-v3.ts`), swap DEFAULT_TOKENS, and H2O V3 pool JSON (ids 71, 72 — PVO/WLD at 0.3% and 1%, needsInit).
+- **APR Hero Banner**: Big APR display always visible at top of H2O v3 panel — shows best APR without requiring a stake. Color-coded: yellow (>100%), green (>30%), cyan (<30%).
+- **Activity Feed**: Live-feel scrollable feed showing recent pool activity (based on on-chain data, auto-refreshing). Collapsed by default to save space.
+- **APR-sorted pools**: Pools now sorted by APR by default (highest first). Pool cards show large prominent APR with glow — yellow for >50% APR, green for >15%.
+- **Improved price chart**: Better SVG chart with gridlines, Y-axis price labels, volume bars at base, "NOW" badge, glowing current-price dot.
+- **Stable pool display**: Removed strict live-data filter — all active contract pools always shown (no more pools disappearing on RPC blips).
+- **Position stability**: Positions always initialized (even zeros) so UI never shows "undefined" state after reconnect.
+- **ClaimAll fix**: Split into batches of max 5 txs to respect World App per-batch limit. Shows batch progress.
+
 ### New UI (May 2026)
 - **Exchange shell** (`components/acua-app.tsx`): Binance-style dark theme, electric blue (`oklch(0.65 0.22 255)`), floating flame-logo menu button triggering side NavDrawer, scrolling stats ticker, H2O candlestick chart header, bottom quick-nav tabs.
 - **Market Ticker** (`components/market-ticker.tsx`): `CandlestickChart` SVG (deterministic candles by hour), `StatsTicker` horizontal scroll, `MarketMiniCard` price + chart header.

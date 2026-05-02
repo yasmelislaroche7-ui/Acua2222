@@ -195,6 +195,7 @@ const TOKEN_META_BY_ADDR: Record<string, TokenMeta> = {
   '0x6a7b33b8a7f7b3535dc832ecd147f6dec8a8e8cf': { address: '0x6A7B33B8A7f7B3535dc832ECD147F6dEC8A8e8Cf', symbol: 'GFY',       decimals: 18 },
   '0x1191a54c53dbe8487c3a258c2a4a84aae7e936f5': { address: '0x1191a54c53DBe8487c3A258C2A4a84aAe7E936F5', symbol: 'VEN',       decimals: 18 },
   '0x212d7448720852d8ad282a5d4a895b3461f9076e': { address: '0x212d7448720852D8Ad282a5d4A895B3461F9076E', symbol: 'TIME',      decimals: 18 },
+  '0xe977de70dd1f571aa563e41525c28b4f1edb69ba': { address: '0xE977de70dd1F571Aa563E41525C28b4F1eDB69ba', symbol: 'PVO',       decimals: 18, logoUrl: '/tokens/pvo.jpg' },
 }
 
 export function tokenMeta(addr: string): TokenMeta {

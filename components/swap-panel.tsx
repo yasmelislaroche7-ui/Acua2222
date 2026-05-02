@@ -139,7 +139,8 @@ const DEFAULT_TOKENS: TokenItem[] = [
   address: '0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38',
   decimals: 18,
   color: '#fa52a0'
-},
+  },
+  { symbol: 'PVO', name: 'PVO Token', address: '0xE977de70dd1F571Aa563E41525C28b4F1eDB69ba', decimals: 18, color: '#a855f7' },
 ]
 
 // ─── ABIs ─────────────────────────────────────────────────────────────────────

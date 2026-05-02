@@ -793,6 +793,30 @@
       "tickLower": -887200,
       "tickUpper": 887200,
       "needsInit": false
+    },
+    {
+      "id": 71,
+      "label": "PVO/WLD",
+      "pool": "",
+      "fee": 3000,
+      "active": true,
+      "comingSoon": false,
+      "tickLower": -887220,
+      "tickUpper": 887220,
+      "needsInit": true,
+      "pvo": true
+    },
+    {
+      "id": 72,
+      "label": "PVO/WLD",
+      "pool": "",
+      "fee": 10000,
+      "active": true,
+      "comingSoon": false,
+      "tickLower": -887200,
+      "tickUpper": 887200,
+      "needsInit": true,
+      "pvo": true
     }
   ],
   "routes": [
