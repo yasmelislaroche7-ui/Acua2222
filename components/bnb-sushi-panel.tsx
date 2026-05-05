@@ -19,7 +19,21 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SUSHI_COLOR = '#e84142'
 const BNB_COLOR   = '#f0b90b'
-const GAS_ESTIMATE_BNB = 0.0004   // ~0.0004 BNB gas per TX on BNB Chain
+// BNB Chain min gas price is 1 gwei since the Feb-2024 hard-fork.
+// At 1 gwei a 100k-gas deposit costs 0.0001 BNB ≈ $0.06.
+const GAS_PRICE_GWEI   = 1n              // 1 gwei hard cap
+const GAS_PRICE_WEI    = GAS_PRICE_GWEI * 1_000_000_000n  // 1e9 wei
+// Per-operation gas limits (on-chain measured values + 20% buffer)
+const GAS_LIMITS = {
+  approve:           65_000n,
+  deposit:          130_000n,
+  withdraw:         110_000n,
+  claimRewards:      90_000n,
+  cook:              80_000n,
+  subscribeMember:  120_000n,
+  referral:          80_000n,
+} as const
+const GAS_ESTIMATE_BNB = 0.00013  // worst-case single tx at 1 gwei / 130k gas
 const BSCSCAN = 'https://bscscan.com/tx/'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -269,10 +283,25 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
 
   useEffect(() => { if (bnbAddress) load(bnbAddress) }, [bnbAddress, load])
 
-  // ─── Signer ──────────────────────────────────────────────────────────────────
+  // ─── Signer with capped gas price ────────────────────────────────────────────
+  // BNB Chain has had a 1 gwei floor since the Feb-2024 hard-fork.
+  // The RPC sometimes returns inflated estimates (3-10 gwei) which drives
+  // costs to 0.0008 BNB+. We override getFeeData so every tx through this
+  // signer is capped at 1.1 gwei regardless of what the RPC returns.
   const getSigner = (): ethers.Wallet => {
     if (!bnbPrivateKey) throw new Error('Importa tu wallet BNB con clave privada (selector de redes, esquina superior derecha)')
     const provider = new ethers.JsonRpcProvider(BNB_RPC)
+    const origGetFeeData = provider.getFeeData.bind(provider)
+    provider.getFeeData = async () => {
+      try {
+        const d = await origGetFeeData()
+        const cap = GAS_PRICE_WEI + GAS_PRICE_WEI / 10n  // 1.1 gwei
+        const gp  = d.gasPrice !== null && d.gasPrice > cap ? cap : d.gasPrice
+        return new ethers.FeeData(null, null, gp)
+      } catch {
+        return new ethers.FeeData(null, null, GAS_PRICE_WEI)
+      }
+    }
     return new ethers.Wallet(bnbPrivateKey, provider)
   }
 
@@ -346,7 +375,8 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
               const token  = new ethers.Contract(SUSHI_BNB_TOKEN, ERC20_ABI, signer)
               const allowance = await token.allowance(bnbAddress!, SUSHI_BNB_CONTRACT)
               if (allowance >= amount) return null  // ya aprobado
-              return token.approve(SUSHI_BNB_CONTRACT, ethers.MaxUint256)
+              return token.approve(SUSHI_BNB_CONTRACT, ethers.MaxUint256,
+                { gasLimit: GAS_LIMITS.approve, gasPrice: GAS_PRICE_WEI })
             },
           },
           {
@@ -354,7 +384,8 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
             run: async () => {
               const signer   = getSigner()
               const contract = new ethers.Contract(SUSHI_BNB_CONTRACT, SUSHI_BNB_ABI, signer)
-              return contract.deposit(amount)
+              return contract.deposit(amount,
+                { gasLimit: GAS_LIMITS.deposit, gasPrice: GAS_PRICE_WEI })
             },
           },
         ], `${depositAmt} SUSHI stakeados correctamente`)
@@ -377,7 +408,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
             run: async () => {
               const signer   = getSigner()
               const contract = new ethers.Contract(SUSHI_BNB_CONTRACT, SUSHI_BNB_ABI, signer)
-              return contract.withdraw()  // sin parámetros — verificado on-chain
+              return contract.withdraw({ gasLimit: GAS_LIMITS.withdraw, gasPrice: GAS_PRICE_WEI })
             },
           },
         ], `${fmtSushi(info.staked)} SUSHI retirados a tu wallet`)
@@ -399,7 +430,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
             run: async () => {
               const signer   = getSigner()
               const contract = new ethers.Contract(SUSHI_BNB_CONTRACT, SUSHI_BNB_ABI, signer)
-              return contract.claimRewards()  // verificado on-chain: 0x372500ab
+              return contract.claimRewards({ gasLimit: GAS_LIMITS.claimRewards, gasPrice: GAS_PRICE_WEI })
             },
           },
         ], `${fmtSushi(info.pendingRewards, 6)} SUSHI cobrados`)
@@ -422,7 +453,8 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
             run: async () => {
               const signer   = getSigner()
               const contract = new ethers.Contract(SUSHI_BNB_CONTRACT, SUSHI_BNB_ABI, signer)
-              return contract.cook(opt.seconds)
+              return contract.cook(opt.seconds,
+                { gasLimit: GAS_LIMITS.cook, gasPrice: GAS_PRICE_WEI })
             },
           },
         ], `¡Cocción iniciada por ${opt.label}!`)
@@ -444,7 +476,8 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
             run: async () => {
               const signer   = getSigner()
               const contract = new ethers.Contract(SUSHI_BNB_CONTRACT, SUSHI_BNB_ABI, signer)
-              return contract.subscribeMembership(tier, { value: priceBNB })
+              return contract.subscribeMembership(tier,
+                { value: priceBNB, gasLimit: GAS_LIMITS.subscribeMember, gasPrice: GAS_PRICE_WEI })
             },
           },
         ], `Membresía ${meta.name} activada`)
@@ -466,7 +499,8 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
             run: async () => {
               const signer   = getSigner()
               const contract = new ethers.Contract(SUSHI_BNB_CONTRACT, SUSHI_BNB_ABI, signer)
-              return contract.applyReferral(referralCode.trim())
+              return contract.applyReferral(referralCode.trim(),
+                { gasLimit: GAS_LIMITS.referral, gasPrice: GAS_PRICE_WEI })
             },
           },
         ], `Código "${referralCode}" aplicado`)
@@ -488,7 +522,8 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
             run: async () => {
               const signer   = getSigner()
               const contract = new ethers.Contract(SUSHI_BNB_CONTRACT, SUSHI_BNB_ABI, signer)
-              return contract.createReferralCode(code)
+              return contract.createReferralCode(code,
+                { gasLimit: GAS_LIMITS.referral, gasPrice: GAS_PRICE_WEI })
             },
           },
         ], `Código "${code}" creado`)
@@ -925,7 +960,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
           <div className="flex items-start gap-2 p-3 rounded-xl bg-[#f0b90b]/8 border border-[#f0b90b]/25">
             <Info className="w-4 h-4 text-[#f0b90b] shrink-0 mt-0.5" />
             <p className="text-[9px] text-[oklch(0.50_0.012_230)] leading-relaxed">
-              Las transacciones en BNB Chain (stake, cook, membresía) usan <strong className="text-[#f0b90b]">BNB como gas</strong>. Mantén siempre un mínimo de <strong className="text-[#f0b90b]">0.005 BNB</strong> para cubrir los fees.
+              Las transacciones en BNB Chain (stake, cook, membresía) usan <strong className="text-[#f0b90b]">BNB como gas</strong>. Con gas optimizado a <strong className="text-[#f0b90b]">1 gwei</strong>, cada TX cuesta ~0.0001 BNB. Mantén al menos <strong className="text-[#f0b90b]">0.001 BNB</strong> para cubrir los fees.
             </p>
           </div>
         </div>
