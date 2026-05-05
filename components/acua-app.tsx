@@ -7,30 +7,34 @@ import { ethers } from 'ethers'
 import {
   Droplets, RefreshCw, Wallet, Shield, Loader2,
   TrendingUp, Pickaxe, Star, HelpCircle, Wind, Clock, BookOpen, Repeat2,
-  Sparkles, X, ChevronRight, Activity, BarChart2, Zap, Flame,
-  Menu, Home, Settings, Bell, ArrowLeftRight,
+  Sparkles, X, ChevronRight, Activity, ArrowLeftRight,
 } from 'lucide-react'
-import { StakePanel } from '@/components/stake-panel'
-import { OwnerPanel } from '@/components/owner-panel'
-import { MultiStakingPanel } from '@/components/multi-staking-panel'
-import { StakeV2Panel } from '@/components/stake-v2-panel'
-import { H2OV3Panel } from '@/components/h2o-v3-panel'
-import { MiningUTH2Panel } from '@/components/mining-uth2-panel'
-import { MiningWLDPanel } from '@/components/mining-wld-panel'
-import { MiningTimePanel } from '@/components/mining-time-panel'
-import { ContractsOwnerPanel } from '@/components/contracts-owner-panel'
-import { ContractAdminPanel } from '@/components/contracts-admin-panel'
-import { AirFunderPanel } from '@/components/air-funder-panel'
-import { InfoPanel } from '@/components/info-panel'
-import { TokenDirectoryPanel } from '@/components/token-directory-panel'
-import { SwapPanel } from '@/components/swap-panel'
-import { NewH2OPanel } from '@/components/new-h2o-panel'
-import { SushiV2Panel } from '@/components/sushi-v2-panel'
-import { PlatformMonitor } from '@/components/platform-monitor'
+import { StakePanel }            from '@/components/stake-panel'
+import { OwnerPanel }            from '@/components/owner-panel'
+import { MultiStakingPanel }     from '@/components/multi-staking-panel'
+import { StakeV2Panel }          from '@/components/stake-v2-panel'
+import { H2OV3Panel }            from '@/components/h2o-v3-panel'
+import { MiningUTH2Panel }       from '@/components/mining-uth2-panel'
+import { MiningWLDPanel }        from '@/components/mining-wld-panel'
+import { MiningTimePanel }       from '@/components/mining-time-panel'
+import { ContractsOwnerPanel }   from '@/components/contracts-owner-panel'
+import { ContractAdminPanel }    from '@/components/contracts-admin-panel'
+import { AirFunderPanel }        from '@/components/air-funder-panel'
+import { InfoPanel }             from '@/components/info-panel'
+import { TokenDirectoryPanel }   from '@/components/token-directory-panel'
+import { SwapPanel }             from '@/components/swap-panel'
+import { NewH2OPanel }           from '@/components/new-h2o-panel'
+import { SushiV2Panel }          from '@/components/sushi-v2-panel'
+import { PlatformMonitor }       from '@/components/platform-monitor'
 import { StatsTicker, MarketMiniCard } from '@/components/market-ticker'
-import { NetworkSwitcher } from '@/components/network-switcher'
-import { ComingSoonPanel } from '@/components/coming-soon-panel'
-import { useWallet } from '@/hooks/use-wallet'
+import { NetworkSwitcher }       from '@/components/network-switcher'
+import { ComingSoonPanel }       from '@/components/coming-soon-panel'
+import { LanguageSwitcher }      from '@/components/language-switcher'
+import { AiAgent }               from '@/components/ai-agent'
+import { BNBSushiPanel }         from '@/components/bnb-sushi-panel'
+import { BNBWalletPanel }        from '@/components/bnb-wallet-panel'
+import { BNBBridgePanel }        from '@/components/bnb-bridge-panel'
+import { useWallet }             from '@/hooks/use-wallet'
 import { type NetworkId, NETWORKS } from '@/lib/networks'
 import {
   fetchStakeInfo, fetchContractConfig, fetchH2OBalance, fetchWLDBalance,
@@ -41,13 +45,16 @@ import {
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
-type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'tokens' | 'swap' | 'info' | 'admin' | 'monitor' | 'contracts-admin' | 'sushi-v2'
+// ─── Types ───────────────────────────────────────────────────────────────────
+type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time'
+         | 'tokens' | 'swap' | 'info' | 'admin' | 'monitor' | 'contracts-admin' | 'sushi-v2'
+type BNBTab = 'bnb-stake' | 'bnb-wallet' | 'bnb-bridge'
 type InstalledState = null | true | false
 
-const AIR_FUNDER_ADDRESS    = '0x72acfbfcee02176118107958ec317157ccd4afdb'
+const AIR_FUNDER_ADDRESS      = '0x72acfbfcee02176118107958ec317157ccd4afdb'
 const SECONDARY_ADMIN_ADDRESS = '0xc2ef127734f296952de75c1b58a6cec605cc2e59'
 
-// ─── MiniKit logger ───────────────────────────────────────────────────────────
+// ─── MiniKit logger ──────────────────────────────────────────────────────────
 function patchMiniKitLogger() {
   if (typeof window === 'undefined') return
   if ((window as any).__minikitPatched) return
@@ -69,31 +76,31 @@ function patchMiniKitLogger() {
   log('MiniKit logger active ✓', { patchedAt: new Date().toISOString() }, '#888888')
 }
 
-// ─── Menu categories config ───────────────────────────────────────────────────
+// ─── Menu config ─────────────────────────────────────────────────────────────
 interface MenuEntry { tab: Tab; icon: React.ReactNode; label: string; badge?: string; color?: string }
 const MENU_STAKING: MenuEntry[] = [
-  { tab: 'h2o',       icon: <Droplets className="w-4 h-4" />,   label: 'Stake H2O',     badge: '12% APY', color: 'text-cyan-400' },
-  { tab: 'h2o-new',   icon: <Sparkles className="w-4 h-4" />,   label: 'H2O 2.0',       badge: 'NUEVO',   color: 'text-blue-400' },
-  { tab: 'h2o-v3',    icon: <Droplets className="w-4 h-4" />,   label: 'H2O v3 Pool',   color: 'text-cyan-300' },
-  { tab: 'stake-v2',  icon: <Wind className="w-4 h-4" />,       label: 'Stake V2',      color: 'text-violet-400' },
-  { tab: 'stake-plus',icon: <TrendingUp className="w-4 h-4" />, label: 'Stake+',         badge: '8 tokens', color: 'text-emerald-400' },
-  { tab: 'sushi-v2',  icon: <span className="text-sm leading-none">🍣</span>, label: 'SUSHI 2.0', badge: '300% APR', color: 'text-red-400' },
+  { tab: 'h2o',        icon: <Droplets className="w-4 h-4" />,    label: 'Stake H2O',      badge: '12% APY',  color: 'text-cyan-400' },
+  { tab: 'h2o-new',    icon: <Sparkles className="w-4 h-4" />,    label: 'H2O 2.0',        badge: 'NUEVO',    color: 'text-blue-400' },
+  { tab: 'h2o-v3',     icon: <Droplets className="w-4 h-4" />,    label: 'H2O v3 Pool',    color: 'text-cyan-300' },
+  { tab: 'stake-v2',   icon: <Wind className="w-4 h-4" />,        label: 'Stake V2',       color: 'text-violet-400' },
+  { tab: 'stake-plus', icon: <TrendingUp className="w-4 h-4" />,  label: 'Stake+',          badge: '8 tokens', color: 'text-emerald-400' },
+  { tab: 'sushi-v2',   icon: <span className="text-sm leading-none">🍣</span>, label: 'SUSHI 2.0', badge: '300% APR', color: 'text-red-400' },
 ]
 const MENU_MINING: MenuEntry[] = [
-  { tab: 'uth2', icon: <Pickaxe className="w-4 h-4" />,    label: 'UTH₂ → H2O',    color: 'text-orange-400' },
-  { tab: 'wld',  icon: <Star className="w-4 h-4" />,       label: 'WLD → 7 tokens', color: 'text-yellow-400' },
-  { tab: 'time', icon: <Clock className="w-4 h-4" />,      label: 'TIME → WLD',     color: 'text-purple-400' },
+  { tab: 'uth2', icon: <Pickaxe className="w-4 h-4" />, label: 'UTH₂ → H2O',    color: 'text-orange-400' },
+  { tab: 'wld',  icon: <Star className="w-4 h-4" />,    label: 'WLD → 7 tokens', color: 'text-yellow-400' },
+  { tab: 'time', icon: <Clock className="w-4 h-4" />,   label: 'TIME → WLD',     color: 'text-purple-400' },
 ]
 const MENU_MARKET: MenuEntry[] = [
-  { tab: 'swap',   icon: <Repeat2 className="w-4 h-4" />,   label: 'Swap',   color: 'text-blue-400' },
-  { tab: 'tokens', icon: <BookOpen className="w-4 h-4" />,  label: 'Tokens', color: 'text-teal-400' },
+  { tab: 'swap',   icon: <Repeat2 className="w-4 h-4" />,  label: 'Swap',   color: 'text-blue-400' },
+  { tab: 'tokens', icon: <BookOpen className="w-4 h-4" />, label: 'Tokens', color: 'text-teal-400' },
 ]
 const MENU_INFO: MenuEntry[] = [
-  { tab: 'monitor', icon: <Activity className="w-4 h-4" />,    label: 'Monitor',     badge: 'LIVE', color: 'text-green-400' },
-  { tab: 'info',    icon: <HelpCircle className="w-4 h-4" />,  label: 'Info / Guía', color: 'text-slate-400' },
+  { tab: 'monitor', icon: <Activity className="w-4 h-4" />,   label: 'Monitor',     badge: 'LIVE', color: 'text-green-400' },
+  { tab: 'info',    icon: <HelpCircle className="w-4 h-4" />, label: 'Info / Guía', color: 'text-slate-400' },
 ]
 
-// ─── Screens ──────────────────────────────────────────────────────────────────
+// ─── Screens ─────────────────────────────────────────────────────────────────
 function NotInstalled() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6 text-center">
@@ -137,12 +144,12 @@ function ConnectScreen({ onConnect, loading }: { onConnect: () => void; loading:
       </div>
       <div className="w-full max-w-xs rounded-xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.12_0.02_245)] divide-y divide-[oklch(0.18_0.02_245)]">
         {[
-          { dot: 'bg-blue-500',    label: 'Stake H2O',         val: '12% APY' },
-          { dot: 'bg-emerald-500', label: 'Multi-Stake 8 tokens', val: 'APY variable' },
-          { dot: 'bg-orange-500',  label: 'Minería UTH₂ → H2O',  val: 'Permanente' },
+          { dot: 'bg-blue-500',    label: 'Stake H2O',              val: '12% APY'   },
+          { dot: 'bg-emerald-500', label: 'Multi-Stake 8 tokens',   val: 'APY variable' },
+          { dot: 'bg-orange-500',  label: 'Minería UTH₂ → H2O',    val: 'Permanente' },
           { dot: 'bg-yellow-500',  label: 'Minería WLD → 7 tokens', val: 'Simultáneo' },
-          { dot: 'bg-violet-500',  label: 'Stake TIME → WLD',   val: 'Pool rewards' },
-          { dot: 'bg-cyan-500',    label: 'Swap integrado',     val: 'V2 + V3 + V4' },
+          { dot: 'bg-red-500',     label: 'SUSHI BNB Staking',      val: 'Cocción VIP' },
+          { dot: 'bg-cyan-500',    label: 'Bridge WLD ↔ BNB',       val: '1:1 SUSHI'  },
         ].map(f => (
           <div key={f.label} className="flex items-center gap-3 px-4 py-2.5">
             <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', f.dot)} />
@@ -176,7 +183,7 @@ function LoadingScreen() {
   )
 }
 
-// ─── Navigation Drawer ────────────────────────────────────────────────────────
+// ─── Navigation Drawer ───────────────────────────────────────────────────────
 function NavDrawer({
   open, onClose, activeTab, onSelect, isMainOwner, isAirFunder,
 }: {
@@ -184,14 +191,11 @@ function NavDrawer({
   onSelect: (t: Tab) => void; isMainOwner: boolean; isAirFunder: boolean
 }) {
   if (!open) return null
-
   const select = (t: Tab) => { onSelect(t); onClose() }
 
   const Section = ({ title, items }: { title: string; items: MenuEntry[] }) => (
     <div>
-      <p className="text-[9px] font-bold text-[oklch(0.40_0.01_230)] uppercase tracking-[0.15em] px-4 py-2">
-        {title}
-      </p>
+      <p className="text-[9px] font-bold text-[oklch(0.40_0.01_230)] uppercase tracking-[0.15em] px-4 py-2">{title}</p>
       {items.map(item => (
         <button
           key={item.tab}
@@ -258,8 +262,8 @@ function NavDrawer({
             <>
               <div className="mx-4 border-t border-[oklch(0.18_0.02_245)] my-1" />
               <Section title="Admin" items={[
-                { tab: 'admin', icon: <Shield className="w-4 h-4" />, label: 'Panel Admin', badge: 'OWNER', color: 'text-violet-400' },
-                { tab: 'contracts-admin', icon: <Settings className="w-4 h-4" />, label: 'Admin Contratos', badge: 'OWNER', color: 'text-blue-400' },
+                { tab: 'admin',          icon: <Shield className="w-4 h-4" />,   label: 'Panel Admin',   badge: 'OWNER', color: 'text-violet-400' },
+                { tab: 'contracts-admin',icon: <Shield className="w-4 h-4" />,   label: 'Admin Contratos', badge: 'OWNER', color: 'text-blue-400' },
               ]} />
             </>
           )}
@@ -274,7 +278,7 @@ function NavDrawer({
   )
 }
 
-// ─── Tab label map ────────────────────────────────────────────────────────────
+// ─── Tab label map ───────────────────────────────────────────────────────────
 const TAB_LABELS: Record<Tab, string> = {
   'h2o': 'Stake H2O', 'h2o-new': 'H2O 2.0', 'h2o-v3': 'H2O v3 Pool',
   'stake-v2': 'Stake V2', 'stake-plus': 'Stake+', 'uth2': 'Minería UTH₂',
@@ -283,40 +287,42 @@ const TAB_LABELS: Record<Tab, string> = {
   'contracts-admin': 'Admin Contratos', 'sushi-v2': 'SUSHI 2.0',
 }
 
-// ─── Floating Fan Button ──────────────────────────────────────────────────────
+const BNB_TAB_LABELS: Record<BNBTab, string> = {
+  'bnb-stake': '🍣 SUSHI Stake',
+  'bnb-wallet': '💛 Wallet BNB',
+  'bnb-bridge': '🌉 Bridge WLD↔BNB',
+}
+
+// ─── Improved Floating Fan Button ────────────────────────────────────────────
 interface FabItem { tab: Tab; icon: React.ReactNode; label: string; color: string }
 
 const FAB_ITEMS: FabItem[] = [
-  // ── Inner arc (R=82px) ─────────────────────────────────────────────────────
-  { tab: 'h2o',        icon: <Droplets className="w-3.5 h-3.5" />,   label: 'H2O',      color: '#06b6d4' },
-  { tab: 'swap',       icon: <Repeat2 className="w-3.5 h-3.5" />,    label: 'Swap',     color: '#3b82f6' },
-  { tab: 'h2o-new',    icon: <Sparkles className="w-3.5 h-3.5" />,   label: 'H2O 2.0',  color: '#60a5fa' },
-  { tab: 'h2o-v3',     icon: <Droplets className="w-3.5 h-3.5" />,   label: 'H2O v3',   color: '#22d3ee' },
-  { tab: 'stake-v2',   icon: <Wind className="w-3.5 h-3.5" />,       label: 'Stake V2', color: '#a78bfa' },
-  // ── Outer arc (R=150px) ────────────────────────────────────────────────────
-  { tab: 'stake-plus', icon: <TrendingUp className="w-3.5 h-3.5" />, label: 'Stake+',   color: '#10b981' },
-  { tab: 'wld',        icon: <Star className="w-3.5 h-3.5" />,       label: 'WLD',      color: '#fbbf24' },
-  { tab: 'uth2',       icon: <Pickaxe className="w-3.5 h-3.5" />,    label: 'UTH2',     color: '#f97316' },
-  { tab: 'time',       icon: <Clock className="w-3.5 h-3.5" />,      label: 'TIME',     color: '#c084fc' },
-  { tab: 'sushi-v2',   icon: <span style={{ fontSize: 13, lineHeight: 1 }}>🍣</span>,   label: 'SUSHI 2.0', color: '#ef4444' },
+  { tab: 'h2o',        icon: <Droplets className="w-3 h-3" />,   label: 'H2O',     color: '#06b6d4' },
+  { tab: 'swap',       icon: <Repeat2 className="w-3 h-3" />,    label: 'Swap',    color: '#3b82f6' },
+  { tab: 'h2o-new',    icon: <Sparkles className="w-3 h-3" />,   label: 'H2O 2.0', color: '#60a5fa' },
+  { tab: 'h2o-v3',     icon: <Droplets className="w-3 h-3" />,   label: 'H2O v3',  color: '#22d3ee' },
+  { tab: 'stake-v2',   icon: <Wind className="w-3 h-3" />,       label: 'StakeV2', color: '#a78bfa' },
+  { tab: 'stake-plus', icon: <TrendingUp className="w-3 h-3" />, label: 'Stake+',  color: '#10b981' },
+  { tab: 'wld',        icon: <Star className="w-3 h-3" />,       label: 'WLD',     color: '#fbbf24' },
+  { tab: 'uth2',       icon: <Pickaxe className="w-3 h-3" />,    label: 'UTH2',    color: '#f97316' },
+  { tab: 'time',       icon: <Clock className="w-3 h-3" />,      label: 'TIME',    color: '#c084fc' },
+  { tab: 'sushi-v2',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🍣</span>, label: 'SUSHI', color: '#ef4444' },
 ]
 
-// Double-arc fan positions — evenly spaced θ: 92°→170°, step 19.5°
-// sin/cos measured from top (90°=straight up), fanning left
-// Inner R=82px, 5 items; Outer R=150px, 5 items
+// Tighter double-arc: inner R=68, outer R=128 — smaller, tighter fan
 const FAB_POSITIONS = [
-  // ── Inner arc ──
-  { dx:   0,  dy: -82  },  // H2O      θ=90°
-  { dx: -27,  dy: -77  },  // Swap     θ=109.5°
-  { dx: -52,  dy: -62  },  // H2O 2.0  θ=129°
-  { dx: -70,  dy: -41  },  // H2O v3   θ=148.5°
-  { dx: -80,  dy: -15  },  // Stake V2 θ=168°
-  // ── Outer arc ──
-  { dx:   0,  dy: -150 },  // Stake+   θ=90°
-  { dx: -50,  dy: -141 },  // WLD      θ=109.5°
-  { dx: -95,  dy: -113 },  // UTH2     θ=129°
-  { dx: -128, dy: -75  },  // TIME     θ=148.5°
-  { dx: -147, dy: -27  },  // SUSHI2.0 θ=168°
+  // ── Inner arc (R=68) ──
+  { dx:   0, dy:  -68 },  // H2O       θ=90°
+  { dx: -22, dy:  -64 },  // Swap      θ=109.5°
+  { dx: -43, dy:  -51 },  // H2O 2.0   θ=129°
+  { dx: -58, dy:  -34 },  // H2O v3    θ=148.5°
+  { dx: -66, dy:  -12 },  // Stake V2  θ=168°
+  // ── Outer arc (R=128) ──
+  { dx:   0, dy: -128 },  // Stake+    θ=90°
+  { dx: -42, dy: -120 },  // WLD       θ=109.5°
+  { dx: -80, dy:  -96 },  // UTH2      θ=129°
+  { dx: -108, dy: -64 },  // TIME      θ=148.5°
+  { dx: -125, dy:  -22 }, // SUSHI     θ=168°
 ]
 
 function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; activeTab: Tab }) {
@@ -324,11 +330,9 @@ function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; acti
 
   return (
     <>
-      {open && (
-        <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-      )}
+      {open && <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />}
 
-      <div className="fixed z-40" style={{ bottom: 20, right: 20 }}>
+      <div className="fixed z-40" style={{ bottom: 18, right: 18 }}>
         {FAB_ITEMS.map((item, i) => {
           const pos = FAB_POSITIONS[i]
           const isActive = activeTab === item.tab
@@ -338,29 +342,31 @@ function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; acti
               onClick={() => { onSelect(item.tab); setOpen(false) }}
               style={{
                 position: 'absolute',
-                width: 44,
-                height: 48,
-                bottom: 6,
-                right: 6,
+                width: 38,
+                height: 42,
+                bottom: 5,
+                right: 5,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 2,
-                borderRadius: 12,
-                background: isActive ? `${item.color}40` : `${item.color}20`,
-                border: `1.5px solid ${item.color}${isActive ? 'cc' : '66'}`,
+                borderRadius: 10,
+                // Less translucent: solid background instead of near-transparent
+                background: isActive ? `${item.color}55` : `${item.color}35`,
+                border: `1.5px solid ${item.color}${isActive ? 'ee' : '99'}`,
                 color: item.color,
-                fontSize: 8,
+                fontSize: 7,
                 fontWeight: 800,
                 letterSpacing: '0.03em',
+                backdropFilter: 'none',
                 transform: open
-                  ? `translate(${pos.dx - 22}px, ${pos.dy - 24}px)`
-                  : 'translate(-22px, -24px)',
+                  ? `translate(${pos.dx - 19}px, ${pos.dy - 21}px)`
+                  : 'translate(-19px, -21px)',
                 opacity: open ? 1 : 0,
                 pointerEvents: open ? 'auto' : 'none',
-                transition: `transform 0.38s cubic-bezier(0.34,1.56,0.64,1) ${i * 0.035}s, opacity 0.22s ease ${i * 0.035}s`,
-                boxShadow: isActive ? `0 0 10px ${item.color}66` : 'none',
+                transition: `transform 0.32s cubic-bezier(0.34,1.46,0.64,1) ${i * 0.028}s, opacity 0.18s ease ${i * 0.028}s`,
+                boxShadow: isActive ? `0 0 8px ${item.color}88` : `0 2px 6px rgba(0,0,0,0.5)`,
               }}
             >
               {item.icon}
@@ -369,31 +375,34 @@ function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; acti
           )
         })}
 
+        {/* Main button */}
         <button
           onClick={() => setOpen(v => !v)}
           style={{
-            width: 56,
-            height: 56,
-            borderRadius: 16,
-            background: 'linear-gradient(135deg, #1d4ed8, #2563eb)',
+            width: 50,
+            height: 50,
+            borderRadius: 14,
+            background: open
+              ? 'linear-gradient(135deg, #1e40af, #2563eb)'
+              : 'linear-gradient(135deg, #1d4ed8, #2563eb)',
             boxShadow: open
-              ? '0 0 28px rgba(59,130,246,0.80)'
-              : '0 0 18px rgba(59,130,246,0.55)',
+              ? '0 0 22px rgba(59,130,246,0.80)'
+              : '0 0 14px rgba(59,130,246,0.50)',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
             gap: 1,
-            border: '2px solid rgba(147,197,253,0.45)',
-            transform: open ? 'scale(1.08)' : 'scale(1)',
-            transition: 'transform 0.25s ease, box-shadow 0.25s ease',
+            border: '1.5px solid rgba(147,197,253,0.40)',
+            transform: open ? 'scale(1.06) rotate(10deg)' : 'scale(1)',
+            transition: 'transform 0.22s ease, box-shadow 0.22s ease',
           }}
           aria-label="Menú rápido"
         >
-          <div style={{ width: 26, height: 26, position: 'relative' }}>
+          <div style={{ width: 22, height: 22, position: 'relative' }}>
             <Image src="/flame-logo.png" alt="Menu" fill className="object-contain" />
           </div>
-          <span style={{ color: '#ef4444', fontSize: 8, fontWeight: 900, letterSpacing: '0.08em', lineHeight: 1 }}>
+          <span style={{ color: '#ef4444', fontSize: 7, fontWeight: 900, letterSpacing: '0.08em', lineHeight: 1 }}>
             MENU
           </span>
         </button>
@@ -402,18 +411,48 @@ function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; acti
   )
 }
 
+// ─── BNB Sub-navigation tabs ─────────────────────────────────────────────────
+function BNBSubNav({ active, onChange }: { active: BNBTab; onChange: (t: BNBTab) => void }) {
+  const tabs: { id: BNBTab; label: string; color: string }[] = [
+    { id: 'bnb-stake',  label: '🍣 Stake',  color: '#e84142' },
+    { id: 'bnb-wallet', label: '💛 Wallet', color: '#f0b90b' },
+    { id: 'bnb-bridge', label: '🌉 Bridge', color: '#3b82f6' },
+  ]
+  return (
+    <div className="shrink-0 flex gap-1.5 px-3 py-2 border-b border-[oklch(0.22_0.025_245)] bg-[oklch(0.085_0.018_245)]">
+      {tabs.map(tb => (
+        <button
+          key={tb.id}
+          onClick={() => onChange(tb.id)}
+          className={cn(
+            'flex-1 py-1.5 rounded-xl text-[10px] font-bold transition-all border',
+            active === tb.id
+              ? 'text-white'
+              : 'bg-[oklch(0.10_0.018_245)] border-[oklch(0.22_0.025_245)] text-[oklch(0.50_0.012_230)] hover:text-foreground'
+          )}
+          style={active === tb.id ? { background: tb.color, borderColor: `${tb.color}cc` } : {}}
+        >
+          {tb.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function AcuaApp() {
   const [isInstalled, setIsInstalled] = useState<InstalledState>(null)
-  const [config, setConfig] = useState<ContractConfig | null>(null)
-  const [stakeInfo, setStakeInfo] = useState<StakeInfo | null>(null)
-  const [h2oBalance, setH2OBalance] = useState(0n)
-  const [wldBalance, setWLDBalance] = useState(0n)
+  const [config, setConfig]           = useState<ContractConfig | null>(null)
+  const [stakeInfo, setStakeInfo]     = useState<StakeInfo | null>(null)
+  const [h2oBalance, setH2OBalance]   = useState(0n)
+  const [wldBalance, setWLDBalance]   = useState(0n)
   const [loadingData, setLoadingData] = useState(false)
-  const [activeTab, setActiveTab] = useState<Tab>('h2o')
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [isNewOwner, setIsNewOwner] = useState(false)
+  const [activeTab, setActiveTab]     = useState<Tab>('h2o')
+  const [activeBNBTab, setActiveBNBTab] = useState<BNBTab>('bnb-stake')
+  const [menuOpen, setMenuOpen]       = useState(false)
+  const [isNewOwner, setIsNewOwner]   = useState(false)
   const [activeNetwork, setActiveNetwork] = useState<NetworkId>('wld')
+  const [bnbAddress, setBnbAddress]   = useState<string | null>(null)
 
   const wallet = useWallet(config?.owner ?? null, isInstalled === true)
 
@@ -475,9 +514,9 @@ export default function AcuaApp() {
     } catch (e) { console.error('[acua] ownership ERROR', e) }
   }, [])
 
-  const isAirFunder      = wallet.address?.toLowerCase() === AIR_FUNDER_ADDRESS
-  const isSecondaryAdmin = wallet.address?.toLowerCase() === SECONDARY_ADMIN_ADDRESS
-  const isMainOwner      = wallet.isOwner || isNewOwner || isSecondaryAdmin
+  const isAirFunder       = wallet.address?.toLowerCase() === AIR_FUNDER_ADDRESS
+  const isSecondaryAdmin  = wallet.address?.toLowerCase() === SECONDARY_ADMIN_ADDRESS
+  const isMainOwner       = wallet.isOwner || isNewOwner || isSecondaryAdmin
 
   if (isInstalled === null) return <LoadingScreen />
   if (!isInstalled || !wallet.address) {
@@ -498,7 +537,7 @@ export default function AcuaApp() {
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
         activeTab={activeTab}
-        onSelect={setActiveTab}
+        onSelect={t => { setActiveTab(t); setActiveNetwork('wld') }}
         isMainOwner={isMainOwner}
         isAirFunder={isAirFunder}
       />
@@ -506,19 +545,19 @@ export default function AcuaApp() {
       {/* ── Header ────────────────────────────────────────────────────── */}
       <header className="shrink-0 bg-[oklch(0.09_0.018_245)]/95 backdrop-blur-xl border-b border-[oklch(0.22_0.025_245)] z-10">
         <div className="flex items-center gap-2 px-2 pt-1 pb-2.5">
-          {/* Flame menu button with MENU label in red */}
+          {/* Flame menu button */}
           <button
             onClick={() => setMenuOpen(true)}
             className="shrink-0 relative flex flex-col items-center justify-center gap-0.5"
-            style={{ width: 48, height: 56 }}
+            style={{ width: 44, height: 52 }}
             aria-label="Menú principal"
           >
             <span className="absolute inset-0 rounded-2xl border-2 border-blue-500/60 heartbeat-ring" />
-            <span className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-500 flex flex-col items-center justify-center shadow-[0_0_16px_rgba(59,130,246,0.55)] heartbeat-logo gap-0.5">
-              <div className="relative w-6 h-6">
+            <span className="relative w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-500 flex flex-col items-center justify-center shadow-[0_0_14px_rgba(59,130,246,0.55)] heartbeat-logo gap-0.5">
+              <div className="relative w-5 h-5">
                 <Image src="/flame-logo.png" alt="Menu" fill className="object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]" />
               </div>
-              <span style={{ color: '#ef4444', fontSize: 7, fontWeight: 900, letterSpacing: '0.08em', lineHeight: 1 }}>
+              <span style={{ color: '#ef4444', fontSize: 6, fontWeight: 900, letterSpacing: '0.08em', lineHeight: 1 }}>
                 MENU
               </span>
             </span>
@@ -526,21 +565,27 @@ export default function AcuaApp() {
 
           {/* Title + active tab / network */}
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-black tracking-[0.12em] text-foreground leading-none">ACUA MINIEXCHANGE</p>
+            <p className="text-[10px] font-black tracking-[0.12em] text-foreground leading-none">ACUA MINIEXCHANGE</p>
             <p className="text-[9px] font-mono mt-0.5 truncate" style={{ color: NETWORKS[activeNetwork].color }}>
-              {activeNetwork === 'wld' ? TAB_LABELS[activeTab] : `${NETWORKS[activeNetwork].name} · Coming Soon`}
+              {activeNetwork === 'wld'
+                ? TAB_LABELS[activeTab]
+                : activeNetwork === 'bnb'
+                  ? BNB_TAB_LABELS[activeBNBTab]
+                  : `${NETWORKS[activeNetwork].name} · Coming Soon`}
             </p>
           </div>
 
-          {/* Status + network switcher */}
+          {/* Right side: language switcher + network switcher */}
           <div className="flex items-center gap-1.5">
             {loadingData && activeNetwork === 'wld' && (
               <Loader2 className="w-3 h-3 text-[oklch(0.50_0.012_230)] animate-spin" />
             )}
+            <LanguageSwitcher />
             <NetworkSwitcher
               address={addr}
               activeNetwork={activeNetwork}
               onSwitch={setActiveNetwork}
+              onBnbAddressChange={setBnbAddress}
             />
           </div>
         </div>
@@ -549,11 +594,16 @@ export default function AcuaApp() {
       {/* ── Stats ticker (WLD only) ───────────────────────────────────── */}
       {activeNetwork === 'wld' && <StatsTicker />}
 
-      {/* ── Market mini card (WLD only) ───────────────────────────────── */}
+      {/* ── Market mini card (WLD only) ────────────────────────────────── */}
       {activeNetwork === 'wld' && <MarketMiniCard />}
 
-      {/* ── Network banner for non-WLD ────────────────────────────────── */}
-      {activeNetwork !== 'wld' && (
+      {/* ── BNB sub-navigation ────────────────────────────────────────── */}
+      {activeNetwork === 'bnb' && (
+        <BNBSubNav active={activeBNBTab} onChange={setActiveBNBTab} />
+      )}
+
+      {/* ── Network banner for non-WLD non-BNB ───────────────────────── */}
+      {activeNetwork !== 'wld' && activeNetwork !== 'bnb' && (
         <div className="shrink-0 px-3 py-2 flex items-center gap-2 border-b border-[oklch(0.22_0.025_245)]"
           style={{ background: `${NETWORKS[activeNetwork].color}12` }}>
           <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: NETWORKS[activeNetwork].color }} />
@@ -566,13 +616,46 @@ export default function AcuaApp() {
         </div>
       )}
 
+      {/* ── BNB banner ────────────────────────────────────────────────── */}
+      {activeNetwork === 'bnb' && (
+        <div className="shrink-0 px-3 py-2 flex items-center gap-2 border-b border-[oklch(0.22_0.025_245)]"
+          style={{ background: '#f0b90b12' }}>
+          <div className="w-1.5 h-1.5 rounded-full animate-pulse bg-[#f0b90b]" />
+          <span className="text-[10px] font-bold text-[#f0b90b]">BNB Chain · ID 56</span>
+          {bnbAddress ? (
+            <span className="ml-auto text-[8px] font-mono text-[oklch(0.50_0.012_230)] truncate max-w-[120px]">
+              {bnbAddress.slice(0, 8)}…{bnbAddress.slice(-4)}
+            </span>
+          ) : (
+            <span className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              Importa wallet →
+            </span>
+          )}
+        </div>
+      )}
+
       {/* ── Content ───────────────────────────────────────────────────── */}
       <main className="flex-1 overflow-y-auto min-h-0">
         <div className="px-3 py-3">
 
-          {/* ── Non-WLD networks show Coming Soon ─── */}
-          {activeNetwork !== 'wld' && (
-            <ComingSoonPanel network={activeNetwork} />
+          {/* ── Polygon: Coming Soon ─── */}
+          {activeNetwork === 'polygon' && (
+            <ComingSoonPanel network="polygon" />
+          )}
+
+          {/* ── BNB panels ──────────────────────────────────────────── */}
+          {activeNetwork === 'bnb' && activeBNBTab === 'bnb-stake' && (
+            <BNBSushiPanel bnbAddress={bnbAddress} />
+          )}
+          {activeNetwork === 'bnb' && activeBNBTab === 'bnb-wallet' && (
+            <BNBWalletPanel bnbAddress={bnbAddress} />
+          )}
+          {activeNetwork === 'bnb' && activeBNBTab === 'bnb-bridge' && (
+            <BNBBridgePanel
+              wldAddress={addr}
+              bnbAddress={bnbAddress}
+              isOwner={isMainOwner}
+            />
           )}
 
           {/* ── WLD / World Chain app ─────────────── */}
@@ -587,17 +670,17 @@ export default function AcuaApp() {
             />
           )}
 
-          {activeNetwork === 'wld' && activeTab === 'h2o-new' && <NewH2OPanel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'stake-v2' && <StakeV2Panel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'h2o-v3' && <H2OV3Panel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'stake-plus' && <MultiStakingPanel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'uth2' && <MiningUTH2Panel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'wld' && <MiningWLDPanel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'time' && <MiningTimePanel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'tokens' && <TokenDirectoryPanel />}
-          {activeNetwork === 'wld' && activeTab === 'sushi-v2' && <SushiV2Panel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'swap' && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
-          {activeNetwork === 'wld' && activeTab === 'info' && <InfoPanel />}
+          {activeNetwork === 'wld' && activeTab === 'h2o-new'    && <NewH2OPanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'stake-v2'   && <StakeV2Panel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'h2o-v3'     && <H2OV3Panel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'stake-plus'  && <MultiStakingPanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'uth2'        && <MiningUTH2Panel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'wld'         && <MiningWLDPanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'time'        && <MiningTimePanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'tokens'      && <TokenDirectoryPanel />}
+          {activeNetwork === 'wld' && activeTab === 'sushi-v2'   && <SushiV2Panel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'swap'        && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
+          {activeNetwork === 'wld' && activeTab === 'info'        && <InfoPanel />}
 
           {activeNetwork === 'wld' && activeTab === 'monitor' && (
             <PlatformMonitor
@@ -649,6 +732,9 @@ export default function AcuaApp() {
       {activeNetwork === 'wld' && (
         <FloatingFab onSelect={setActiveTab} activeTab={activeTab} />
       )}
+
+      {/* ── Floating AI Agent "Agente H2O" ────────────────────────────── */}
+      <AiAgent />
 
     </div>
   )

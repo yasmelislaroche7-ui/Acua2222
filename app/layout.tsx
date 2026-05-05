@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { LangProvider } from '@/context/lang-context'
 import './globals.css'
 
 const inter = Inter({
@@ -13,8 +14,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Acua Staking',
-  description: 'Stake H2O on World Chain — earn 12% APY',
+  title: 'ACUA MINIEXCHANGE',
+  description: 'Multi-chain DeFi on World Chain — Stake, Swap, Bridge, Mine',
   generator: 'v0.app',
 }
 
@@ -34,7 +35,9 @@ export default function RootLayout({
   return (
     <html lang="es" className={`${inter.variable} ${geistMono.variable}`}>
       <body className="font-sans antialiased bg-background text-foreground">
-        {children}
+        <LangProvider>
+          {children}
+        </LangProvider>
         <Analytics />
       </body>
     </html>

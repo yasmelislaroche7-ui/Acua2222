@@ -256,4 +256,11 @@ export class StakingService {
         if (!this.signer) throw new Error("No signer available for transaction.");
 
         try {
-            
+            throw new Error('buyVIP not implemented');
+        } catch (error: any) {
+            console.error("[StakingService] ERROR buyVIP:", error);
+            throw new Error(error?.message ?? 'Error desconocido en buyVIP');
+        }
+    }
+}
+

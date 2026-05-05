@@ -1,59 +1,69 @@
 # ACUA MINIEXCHANGE — World Chain DeFi Mini App
 
 ## Overview
-ACUA MINIEXCHANGE is a full exchange-style DeFi mini app designed for the World Chain ecosystem, operating within the World App. It leverages MiniKit and Permit2 for gasless transactions. The platform offers a comprehensive suite of DeFi functionalities including staking (H2O, multi-token, V2, V3), mining (UTH2→H2O, WLD→7tokens, TIME→WLD), an integrated swap, a platform monitor, and an enhanced H2O 2.0 system featuring referrals and donations. The project aims to provide a robust and user-friendly decentralized finance experience within the World Chain.
+ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain ecosystem, running inside World App. It leverages MiniKit and Permit2 for gasless transactions. The platform offers staking (H2O, multi-token, V2, V3), mining (UTH2→H2O, WLD→7tokens, TIME→WLD), swap, bridge, BNB Chain staking, a floating AI assistant, and a multi-language interface.
 
 ## User Preferences
-I want iterative development.
-Ask before making major changes.
-Do not modify `components/stake-panel.tsx`.
+- Iterative development.
+- Ask before making major changes.
+- Do not modify `components/stake-panel.tsx`.
 
 ## System Architecture
 
 ### Frontend Stack
 - **Framework**: Next.js 16 (App Router) with TypeScript
 - **Styling**: Tailwind CSS v4 + Radix UI (Shadcn UI components)
-- **Blockchain Interaction**: ethers.js v6 for blockchain reads, @worldcoin/minikit-js for wallet authentication and transactions.
-- **UI/UX**: Binance-style dark theme with an electric blue color scheme (oklch(0.65 0.22 255)). Features include a floating flame-logo menu button for the side NavDrawer, a scrolling stats ticker, an H2O candlestick chart header, and bottom quick-nav tabs.
-- **Components**:
-    - `AcuaApp`: Manages main app routing, tab navigation, and ownership detection.
-    - `MiniKitProvider`: Handles MiniKit initialization with a safe Replit preview fallback.
-    - `MarketTicker`: Displays `CandlestickChart` (SVG with deterministic candles by hour), `StatsTicker` (horizontal scroll), and `MarketMiniCard` (price + chart header).
-    - `PlatformMonitor`: Shows live on-chain statistics including user wallet/staked/pending balances, platform totals, and an active contracts table.
-    - `H2O 2.0 Donation Card`: An amber-themed donation card for H2O 2.0, including copy-to-clipboard functionality and WLD/World Chain metadata.
-    - `SushiStakeV2 Panel`: A full panel with hero banner, stake/withdrawal/claim forms, owner funding panel, and two queue lists with status/countdown.
-    - `H2O v3 Panel`: Features a prominent APR hero banner (color-coded), an activity feed, APR-sorted pools (highest first), an improved SVG price chart with gridlines, Y-axis labels, volume bars, and a "NOW" badge. Ensures stable pool and position displays.
+- **Blockchain**: ethers.js v6 (reads), @worldcoin/minikit-js (auth + txs), Permit2
+- **Internationalization**: 16 languages via `lib/i18n.ts` + `context/lang-context.tsx` (LangProvider)
+- **Theme**: Binance-style dark theme, electric blue (oklch(0.65 0.22 255))
+
+### Key Components
+- `AcuaApp` — Main shell with nav drawer, header (language switcher + network switcher), floating fan menu (10-item double-arc, smaller/more opaque), BNB panels, and AI agent
+- `LanguageSwitcher` — Top-right flag dropdown, 16 languages, persisted in localStorage
+- `WalletManager` — Import (seed phrase / private key) and export wallet, security warnings, blur toggle
+- `NetworkSwitcher` — Network dropdown (WLD/BNB/Polygon) + wallet import/export built-in; notifies parent of BNB address
+- `AiAgent` — Floating draggable chatbot "Agente H2O", local KB (no external API), 16-language, quick questions
+- `BNBSushiPanel` — Full SUSHI staking on BNB: deposit/withdraw/harvest/cook, membership tiers, referrals
+- `BNBWalletPanel` — BNB Chain token balances (BNB, SUSHI, USDT, USDC, BUSD) via ethers
+- `BNBBridgePanel` — SUSHI WLD↔BNB bridge UI: request/track/admin-process, localStorage requests, owner admin tab
+- `FloatingFab` — Tighter double-arc fan (inner R=68, outer R=128), 10 shortcuts, solid backgrounds, no blur
+
+### BNB Chain Integration
+- **Network**: BNB Chain (Chain ID 56), RPC `https://bsc-dataseed1.binance.org`
+- **SUSHI contract**: `0x945B4b199Baf8F41E11E79df32D9919bd1fd1c08`
+- **SUSHI token (both chains)**: `0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38`
+- **ABI**: `lib/sushibnb-abi.ts` — full ABI, ERC20_ABI, BNB_TOKENS, MEMBERSHIP_TIERS
+- **BNB nav**: 3-tab sub-nav (Stake / Wallet / Bridge) shown when BNB network is active
+- **Wallet**: imported via WalletManager (seed or private key), stored in parent state, passed to BNB panels
+
+### Bridge Contracts (written, not yet deployed)
+- `contracts-hh/contracts/AcuaBridgeWLD.sol` — World Chain side: deposit via Permit2, fulfill/cancel/release by owner
+- `contracts-hh/contracts/AcuaBridgeBNB.sol` — BNB Chain side: deposit via transferFrom, fulfill/cancel/release by owner
+- Bridge is currently manual: owner reads events, sends on the other chain, marks fulfilled
+- Bridge requests tracked in localStorage, visible in requests tab and owner admin tab
+
+### H2OFeeCollector
+- **Contract**: `0xB58B80EF6db1B508A0241ac4565fe7c29F299d60` on World Chain
+- **Fee**: 0.001 H2O (set via `setFee` with PRIVATE_KEY, TX: `0x33e9373cdeec650dec3c4532531d091b61c22f4bf11902a3d90cce122afb1691`)
 
 ### Blockchain
-- **Network**: World Chain (Chain ID 480)
-- **RPC**: Alchemy World Chain mainnet (`/v2/<key>`). H2O v3 panel uses a single shared `JsonRpcProvider` with `staticNetwork: true` and `batchMaxCount: 8` for efficient data fetching.
-- **Transaction Pattern**: All write operations utilize MiniKit `sendTransaction` with Permit2 for gasless transactions.
-
-### Core Features
-- **Staking**:
-    - **H2O Staking (Legacy)**: Standard H2O staking with a 12% APY.
-    - **Multi-Token Staking**: Supports staking for 8 additional tokens (WLD, FIRE, SUSHI, USDC, wCOP, wARS, BTCH2O, AIR).
-    - **Sushi V2 Staking**: Deposits SUSHI tokens, tracking virtual balances. Features a 300% fixed APR (configurable up to 5000%), with 5% fees on deposit, withdrawal, and claim. Includes 48-hour withdrawal and 24-hour claim queues with FIFO auto-payment.
-- **Mining**:
-    - **UTH2 Mining**: Pay UTH2 to mine H2O.
-    - **WLD Mining**: Pay WLD to mine 7 different tokens.
-    - **TIME Mining**.
-- **Swap (Acua Swap V2)**: Integrates Uniswap V3 direct pools (World Chain factory) and includes a Uniswap V2 fallback. Supports single and multi-hop swaps. Features a 2% swap fee + 0.1% H2O buyback (configurable). Utilizes Permit2 AllowanceTransfer.
-- **Volume Rewards**: `AcuaVolumeRewardsV2` tracks USDC-equivalent swap volume per user over 30-day periods. Configurable tiers offer UTH2 rewards claimable mid-month.
-- **Claim Management**: `AcuaClaimManager` allows for wrapping external claim contracts (e.g., Thirdweb TokenStake) and collecting a configurable fee (default 30%) in the reward token, paid directly to the owner via Permit2.
-- **H2O VIP Standalone**: A separate system for UTH2 subscriptions where the owner funds H2O rewards, and users can claim linearly over 365 days.
-- **Ownership Logic**: Differentiates between `isMainOwner` (sees Admin tab) and `isAirFunder` (sees AIR tab for depositing rewards only).
+- **World Chain**: Chain ID 480, Alchemy RPC
+- **BNB Chain**: Chain ID 56, `https://bsc-dataseed1.binance.org`
+- **Transaction Pattern**: Write ops use MiniKit `sendTransaction` + Permit2 (World Chain), or ethers signer from imported wallet (BNB Chain)
 
 ### Navigation
-- **Public Tabs**: H2O (Stake H2O), Stake+ (Multi-Stake), UTH₂ (Minera UTH₂), WLD (Minera WLD), TIME (Minera TIME), Tokens (Directorio), Swap (DEX Swap), Admin (Panel Admin - visible based on ownership), Info (Guía).
-- **Conditional Tabs**: Admin (for `isMainOwner`), AIR (for `isAirFunder`).
+- **Side Drawer**: Staking (H2O, H2O 2.0, H2O v3, StakeV2, Stake+, SUSHI 2.0) / Mining (UTH2, WLD, TIME) / Market (Swap, Tokens) / Info (Monitor, Info/Guía) / Admin (owner only)
+- **Fan Menu**: 10-item floating double-arc shortcut to all WLD tabs (only shown on WLD network)
+- **BNB Sub-Nav**: 3 tabs (SUSHI Stake / Wallet BNB / Bridge WLD↔BNB) shown when BNB network active
+- **Polygon**: Coming Soon panel
+- **Language Switcher**: Top-right, persisted, flags for all 16 languages
+- **AI Agent**: Bottom-right floating chatbot, draggable, local DeFi knowledge base
 
 ## External Dependencies
-
-- **World Chain**: The primary blockchain network (Chain ID 480).
-- **Alchemy**: Provides RPC services for World Chain mainnet.
-- **@worldcoin/minikit-js**: Used for wallet authentication and transaction signing within the World App.
-- **Uniswap V3**: Integrated for decentralized exchange functionalities and liquidity pools on World Chain.
-- **SushiSwap V2**: Integrated for additional decentralized exchange capabilities.
-- **Permit2**: Utilized for gasless token approvals and transfers.
-- **Thirdweb**: Referenced for external claim contracts, specifically for WDD claims.
+- **World Chain** (Chain ID 480) — primary staking/mining/swap network
+- **BNB Chain** (Chain ID 56) — SUSHI staking, bridge destination
+- **Alchemy** — World Chain RPC
+- **@worldcoin/minikit-js** — World App wallet + transactions
+- **Uniswap V3/V4** — DEX on World Chain
+- **Permit2** — Gasless approvals
+- **ethers.js v6** — Blockchain reads + BNB wallet signing
