@@ -52,7 +52,7 @@ type BNBTab = 'bnb-stake' | 'bnb-wallet' | 'bnb-bridge'
 type InstalledState = null | true | false
 
 const AIR_FUNDER_ADDRESS      = '0x72acfbfcee02176118107958ec317157ccd4afdb'
-const SECONDARY_ADMIN_ADDRESS = '0xc2ef127734f296952de75c1b58a6cec605cc2e59'
+const SECONDARY_ADMIN_ADDRESS = '0x5474c309e985c6b4fc623acf01ade604da781e52'
 
 // ─── MiniKit logger ──────────────────────────────────────────────────────────
 function patchMiniKitLogger() {
@@ -309,20 +309,21 @@ const FAB_ITEMS: FabItem[] = [
   { tab: 'sushi-v2',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🍣</span>, label: 'SUSHI', color: '#ef4444' },
 ]
 
-// Tighter double-arc: inner R=68, outer R=128 — smaller, tighter fan
+// Wider double-arc: inner R=90, outer R=162 — more separation between buttons
+// Angles sweep from 90° (up) to 180° (left) in 22.5° steps
 const FAB_POSITIONS = [
-  // ── Inner arc (R=68) ──
-  { dx:   0, dy:  -68 },  // H2O       θ=90°
-  { dx: -22, dy:  -64 },  // Swap      θ=109.5°
-  { dx: -43, dy:  -51 },  // H2O 2.0   θ=129°
-  { dx: -58, dy:  -34 },  // H2O v3    θ=148.5°
-  { dx: -66, dy:  -12 },  // Stake V2  θ=168°
-  // ── Outer arc (R=128) ──
-  { dx:   0, dy: -128 },  // Stake+    θ=90°
-  { dx: -42, dy: -120 },  // WLD       θ=109.5°
-  { dx: -80, dy:  -96 },  // UTH2      θ=129°
-  { dx: -108, dy: -64 },  // TIME      θ=148.5°
-  { dx: -125, dy:  -22 }, // SUSHI     θ=168°
+  // ── Inner arc (R=90) ──
+  { dx:   0, dy:  -90 },  // H2O       θ=90°
+  { dx: -34, dy:  -83 },  // Swap      θ=112.5°
+  { dx: -64, dy:  -64 },  // H2O 2.0   θ=135°
+  { dx: -83, dy:  -34 },  // H2O v3    θ=157.5°
+  { dx: -90, dy:    0 },  // Stake V2  θ=180°
+  // ── Outer arc (R=162) ──
+  { dx:   0,  dy: -162 }, // Stake+    θ=90°
+  { dx: -62,  dy: -150 }, // WLD       θ=112.5°
+  { dx: -115, dy: -115 }, // UTH2      θ=135°
+  { dx: -150, dy:  -62 }, // TIME      θ=157.5°
+  { dx: -162, dy:    0 }, // SUSHI     θ=180°
 ]
 
 function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; activeTab: Tab }) {
@@ -585,6 +586,7 @@ export default function AcuaApp() {
               address={addr}
               activeNetwork={activeNetwork}
               onSwitch={setActiveNetwork}
+              bnbAddress={bnbAddress}
               onBnbAddressChange={setBnbAddress}
             />
           </div>
@@ -623,12 +625,12 @@ export default function AcuaApp() {
           <div className="w-1.5 h-1.5 rounded-full animate-pulse bg-[#f0b90b]" />
           <span className="text-[10px] font-bold text-[#f0b90b]">BNB Chain · ID 56</span>
           {bnbAddress ? (
-            <span className="ml-auto text-[8px] font-mono text-[oklch(0.50_0.012_230)] truncate max-w-[120px]">
-              {bnbAddress.slice(0, 8)}…{bnbAddress.slice(-4)}
+            <span className="ml-auto text-[8px] font-mono text-[oklch(0.50_0.012_230)] truncate max-w-[130px]">
+              🔑 {bnbAddress.slice(0, 8)}…{bnbAddress.slice(-4)}
             </span>
           ) : (
-            <span className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
-              Importa wallet →
+            <span className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              🌐 World Wallet
             </span>
           )}
         </div>
@@ -645,10 +647,10 @@ export default function AcuaApp() {
 
           {/* ── BNB panels ──────────────────────────────────────────── */}
           {activeNetwork === 'bnb' && activeBNBTab === 'bnb-stake' && (
-            <BNBSushiPanel bnbAddress={bnbAddress} />
+            <BNBSushiPanel bnbAddress={bnbAddress ?? addr} />
           )}
           {activeNetwork === 'bnb' && activeBNBTab === 'bnb-wallet' && (
-            <BNBWalletPanel bnbAddress={bnbAddress} />
+            <BNBWalletPanel bnbAddress={bnbAddress ?? addr} />
           )}
           {activeNetwork === 'bnb' && activeBNBTab === 'bnb-bridge' && (
             <BNBBridgePanel
