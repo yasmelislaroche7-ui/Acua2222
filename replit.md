@@ -23,7 +23,7 @@ ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain eco
 - `WalletManager` — Import (seed phrase / private key) and export wallet, security warnings, blur toggle
 - `NetworkSwitcher` — Network dropdown (WLD/BNB/Polygon) + wallet import/export built-in; notifies parent of BNB address
 - `AiAgent` — Floating draggable chatbot "Agente H2O", local KB (no external API), 16-language, quick questions
-- `BNBSushiPanel` — Full SUSHI staking on BNB: deposit/withdraw/harvest/cook, membership tiers, referrals
+- `BNBSushiPanel` — Full SUSHI staking on BNB: deposit/withdraw(no-param!)/claimRewards/cook, membership tiers, referrals. ABI 100% verified on-chain via bytecode selector matching.
 - `BNBWalletPanel` — BNB Chain token balances (BNB, SUSHI, USDT, USDC, BUSD) via ethers
 - `BNBBridgePanel` — SUSHI WLD↔BNB bridge UI: request/track/admin-process, localStorage requests, owner admin tab
 - `FloatingFab` — Tighter double-arc fan (inner R=68, outer R=128), 10 shortcuts, solid backgrounds, no blur
@@ -32,7 +32,10 @@ ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain eco
 - **Network**: BNB Chain (Chain ID 56), RPC `https://bsc-dataseed1.binance.org`
 - **SUSHI contract**: `0x945B4b199Baf8F41E11E79df32D9919bd1fd1c08`
 - **SUSHI token (both chains)**: `0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38`
-- **ABI**: `lib/sushibnb-abi.ts` — full ABI, ERC20_ABI, BNB_TOKENS, MEMBERSHIP_TIERS
+- **ABI**: `lib/sushibnb-abi.ts` — verified ABI, ERC20_ABI, BNB_TOKENS, MEMBERSHIP_TIERS
+- **Verified selectors**: `deposit(uint256)`=0xb6b55f25, `withdraw()`=0x3ccfd60b (NO param — withdraws ALL), `claimRewards()`=0x372500ab (NOT harvest), `getUserInfo(address)`=0x6386c1c7 returns (staked,pendingRewards,cookingRewards,lastActionTs), `totalStaked()`=0x817b1cd2
+- **getUserInfo fields**: [0]=staked(wei), [1]=pendingRewards(wei), [2]=cookingRewards acum(wei), [3]=lastActionTs(unix seconds)
+- **TX flow**: 2-step confirm dialog (summary + gas cost BNB) → step-by-step progress bar → TX hash link to BNBScan → done/error state
 - **BNB nav**: 3-tab sub-nav (Stake / Wallet / Bridge) shown when BNB network is active
 - **Wallet**: imported via WalletManager (seed or private key), stored in parent state, passed to BNB panels
 
