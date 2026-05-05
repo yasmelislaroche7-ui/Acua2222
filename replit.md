@@ -36,11 +36,13 @@ ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain eco
 - **BNB nav**: 3-tab sub-nav (Stake / Wallet / Bridge) shown when BNB network is active
 - **Wallet**: imported via WalletManager (seed or private key), stored in parent state, passed to BNB panels
 
-### Bridge Contracts (written, not yet deployed)
-- `contracts-hh/contracts/AcuaBridgeWLD.sol` — World Chain side: deposit via Permit2, fulfill/cancel/release by owner
-- `contracts-hh/contracts/AcuaBridgeBNB.sol` — BNB Chain side: deposit via transferFrom, fulfill/cancel/release by owner
-- Bridge is currently manual: owner reads events, sends on the other chain, marks fulfilled
-- Bridge requests tracked in localStorage, visible in requests tab and owner admin tab
+### Bridge Contracts v2 (written, not yet deployed)
+- `contracts-hh/contracts/AcuaBridgeWLD.sol` — World Chain side (Permit2 gasless). Flat fee 1000 SUSHI, min 10k, auto-split >100k into 10k chunks. Pools: fundPool / userPool / feePool. P2P offset via releaseFromUsers(). 10% of fees → owner2 (configurable).
+- `contracts-hh/contracts/AcuaBridgeBNB.sol` — BNB side (transferFrom). Same logic, no Permit2. fund(amount) with prior approve.
+- Deploy scripts: `contracts-hh/scripts/deploy-bridge-wld.js` and `deploy-bridge-bnb.js`
+- BNB deploy cost estimate: ~0.006-0.010 BNB at 3-5 gwei. Recommended wallet balance: 0.05 BNB (~$30)
+- Bridge UI (`components/bnb-bridge-panel.tsx`): 4 tabs (Bridge / WLD list / BNB list / Admin owner). Total bridged counter public. Contract balance owner-only. Process from fund + P2P buttons. Full config panel.
+- DEPLOYED=false flag in panel — switch to true + update addresses after deploy
 
 ### H2OFeeCollector
 - **Contract**: `0xB58B80EF6db1B508A0241ac4565fe7c29F299d60` on World Chain
