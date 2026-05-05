@@ -30,6 +30,11 @@ contract AcuaBridgeBNB {
     address public owner2;
     address public immutable SUSHI;
 
+    // ── Peer contract (WLD side) — changeable ─────────────────────────────────
+    address public peerContract;
+
+    event PeerContractChanged(address indexed prev, address indexed next);
+
     // ── Config ────────────────────────────────────────────────────────────────
     uint256 public flatFee          = 1_000 * 1e18;
     uint256 public minAmount        = 10_000 * 1e18;
@@ -303,6 +308,19 @@ contract AcuaBridgeBNB {
 
     function setOwner2(address _owner2) external onlyOwner {
         owner2 = _owner2;
+    }
+
+    function setPeerContract(address _peer) external onlyOwner {
+        emit PeerContractChanged(peerContract, _peer);
+        peerContract = _peer;
+    }
+
+    /// @notice Anyone (e.g. UI routing 2% stake fees) can donate SUSHI to fundPool.
+    function receiveFee(uint256 amount) external {
+        require(amount > 0, "zero");
+        require(IERC20(SUSHI).transferFrom(msg.sender, address(this), amount), "transfer failed");
+        unchecked { fundPool += amount; }
+        emit Funded(msg.sender, amount);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -1,74 +1,68 @@
 # ACUA MINIEXCHANGE — World Chain DeFi Mini App
 
 ## Overview
-ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain ecosystem, running inside World App. It leverages MiniKit and Permit2 for gasless transactions. The platform offers staking (H2O, multi-token, V2, V3), mining (UTH2→H2O, WLD→7tokens, TIME→WLD), swap, bridge, BNB Chain staking, a floating AI assistant, and a multi-language interface.
+ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain ecosystem, running inside World App. It leverages MiniKit and Permit2 for gasless transactions. The platform offers staking (H2O, multi-token, V2, V3), mining (UTH2→H2O, WLD→7tokens, TIME→WLD), swap, bridge, BNB Chain full exchange (Send/Receive/QR/Swap/History), a draggable AI assistant, and a multi-language interface.
 
 ## User Preferences
 - Iterative development.
 - Ask before making major changes.
 - Do not modify `components/stake-panel.tsx`.
 
-## System Architecture
+## Run & Operate
+- **Dev**: `npm run dev` (port 5000)
+- **Build**: `npm run build`
+- **TypeScript**: `npx tsc --noEmit` (pre-existing BigInt `n` literal warnings are benign — Turbopack handles them)
 
-### Frontend Stack
-- **Framework**: Next.js 16 (App Router) with TypeScript
+## Stack
+- **Framework**: Next.js 16 (App Router, Turbopack) with TypeScript
 - **Styling**: Tailwind CSS v4 + Radix UI (Shadcn UI components)
-- **Blockchain**: ethers.js v6 (reads), @worldcoin/minikit-js (auth + txs), Permit2
-- **Internationalization**: 16 languages via `lib/i18n.ts` + `context/lang-context.tsx` (LangProvider)
-- **Theme**: Binance-style dark theme, electric blue (oklch(0.65 0.22 255))
+- **Blockchain**: ethers.js v6 (reads + BNB signing), @worldcoin/minikit-js (auth + txs), Permit2
+- **i18n**: 16 languages via `lib/i18n.ts` + `context/lang-context.tsx` (LangProvider), persisted in localStorage
+- **Theme**: Binance-style dark, electric blue (oklch(0.65 0.22 255))
 
-### Key Components
-- `AcuaApp` — Main shell with nav drawer, header (language switcher + network switcher), floating fan menu (10-item double-arc, smaller/more opaque), BNB panels, and AI agent
-- `LanguageSwitcher` — Top-right flag dropdown, 16 languages, persisted in localStorage
-- `WalletManager` — Import (seed phrase / private key) and export wallet, security warnings, blur toggle
-- `NetworkSwitcher` — Network dropdown (WLD/BNB/Polygon) + wallet import/export built-in; notifies parent of BNB address
-- `AiAgent` — Floating draggable chatbot "Agente H2O", local KB (no external API), 16-language, quick questions
-- `BNBSushiPanel` — Full SUSHI staking on BNB: deposit/withdraw(no-param!)/claimRewards/cook, membership tiers, referrals. ABI 100% verified on-chain via bytecode selector matching.
-- `BNBWalletPanel` — BNB Chain token balances (BNB, SUSHI, USDT, USDC, BUSD) via ethers
-- `BNBBridgePanel` — SUSHI WLD↔BNB bridge UI: request/track/admin-process, localStorage requests, owner admin tab
-- `FloatingFab` — Tighter double-arc fan (inner R=68, outer R=128), 10 shortcuts, solid backgrounds, no blur
+## Where Things Live
+- `components/acua-app.tsx` — Main shell, nav, network switcher, BNB panels orchestration
+- `components/bnb-wallet-panel.tsx` — Full BNB exchange: Balances/Send/Receive(QR)/History(BSCScan)/Swap(PancakeSwap V2)
+- `components/bnb-sushi-panel.tsx` — SUSHI staking BNB: cook/deposit/withdraw/claimRewards + TX history
+- `components/bnb-bridge-panel.tsx` — Bridge UI: 4 tabs, cancel/refund visible per request, admin config
+- `components/ai-agent.tsx` — Draggable floating AI chatbot (pointer events + snap-to-corner), 24-topic KB
+- `contracts-hh/contracts/AcuaBridgeBNB.sol` — BNB bridge v3 + peerContract + receiveFee()
+- `contracts-hh/contracts/AcuaBridgeWLD.sol` — WLD bridge v3 + peerContract + receiveFee()
+- `lib/i18n.ts` — All 16 language translations
+- `lib/sushibnb-abi.ts` — BNB contract ABIs, BNB_TOKENS, MEMBERSHIP_TIERS
+- `lib/new-contracts.ts` — World Chain contract addresses + providers
 
-### BNB Chain Integration
-- **Network**: BNB Chain (Chain ID 56), RPC `https://bsc-dataseed1.binance.org`
-- **SUSHI contract**: `0x945B4b199Baf8F41E11E79df32D9919bd1fd1c08`
-- **SUSHI token (both chains)**: `0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38`
-- **ABI**: `lib/sushibnb-abi.ts` — verified ABI, ERC20_ABI, BNB_TOKENS, MEMBERSHIP_TIERS
-- **Verified selectors**: `deposit(uint256)`=0xb6b55f25, `withdraw()`=0x3ccfd60b (NO param — withdraws ALL), `claimRewards()`=0x372500ab (NOT harvest), `getUserInfo(address)`=0x6386c1c7 returns (staked,pendingRewards,cookingRewards,lastActionTs), `totalStaked()`=0x817b1cd2
-- **getUserInfo fields**: [0]=staked(wei), [1]=pendingRewards(wei), [2]=cookingRewards acum(wei), [3]=lastActionTs(unix seconds)
-- **TX flow**: 2-step confirm dialog (summary + gas cost BNB) → step-by-step progress bar → TX hash link to BNBScan → done/error state
-- **BNB nav**: 3-tab sub-nav (Stake / Wallet / Bridge) shown when BNB network is active
-- **Wallet**: imported via WalletManager (seed or private key), stored in parent state, passed to BNB panels
+## Architecture Decisions
+- **Non-custodial**: imported BNB wallet stored in parent state in memory only (not persisted to server)
+- **Permit2**: used on World Chain for gasless ERC20 approvals; BNB uses standard `transferFrom`
+- **Bridge pre-deploy**: `DEPLOYED=false` flag in bridge panel — flip to `true` + set real addresses after deploy
+- **Gas floor**: BSC minimum 1 gwei (Tycho hard fork, Feb 2024) enforced via `GAS_WEI = 1_100_000_000n`
+- **PancakeSwap V2 router**: `0x10ED43C718714eb63d5aA57B78B54704E256024E` on BSC for BNB wallet swap tab
+- **BSCScan free API**: used for BNB wallet history tab (no API key, rate-limited but functional)
+- **AI agent draggable**: pointer capture API (`setPointerCapture`) on the button, snaps to nearest screen corner on release, position persisted in localStorage `acua_agent_pos`
 
-### Bridge Contracts v2 (written, not yet deployed)
-- `contracts-hh/contracts/AcuaBridgeWLD.sol` — World Chain side (Permit2 gasless). Flat fee 1000 SUSHI, min 10k, auto-split >100k into 10k chunks. Pools: fundPool / userPool / feePool. P2P offset via releaseFromUsers(). 10% of fees → owner2 (configurable).
-- `contracts-hh/contracts/AcuaBridgeBNB.sol` — BNB side (transferFrom). Same logic, no Permit2. fund(amount) with prior approve.
-- Deploy scripts: `contracts-hh/scripts/deploy-bridge-wld.js` and `deploy-bridge-bnb.js`
-- BNB deploy cost estimate: ~0.006-0.010 BNB at 3-5 gwei. Recommended wallet balance: 0.05 BNB (~$30)
-- Bridge UI (`components/bnb-bridge-panel.tsx`): 4 tabs (Bridge / WLD list / BNB list / Admin owner). Total bridged counter public. Contract balance owner-only. Process from fund + P2P buttons. Full config panel.
-- DEPLOYED=false flag in panel — switch to true + update addresses after deploy
+## Product
+- **Staking**: H2O (12% APY), H2O 2.0, H2O v3, StakeV2, Stake+ (8 tokens), SUSHI 2.0 (300% APR)
+- **Mining**: UTH2→H2O, WLD→7 tokens, TIME→WLD
+- **BNB Exchange**: Send / Receive (QR) / TX History / Swap (PancakeSwap V2) / Balances
+- **Bridge**: SUSHI WLD↔BNB, cancel/refund, configurable peerContract, receiveFee() for stake routing
+- **AI Agent H2O**: 24-topic local KB, 16-language, draggable button, snap-to-corner, 6 quick questions
 
-### H2OFeeCollector
-- **Contract**: `0xB58B80EF6db1B508A0241ac4565fe7c29F299d60` on World Chain
-- **Fee**: 0.001 H2O (set via `setFee` with PRIVATE_KEY, TX: `0x33e9373cdeec650dec3c4532531d091b61c22f4bf11902a3d90cce122afb1691`)
+## Key Contracts
+- **H2OFeeCollector**: `0xB58B80EF6db1B508A0241ac4565fe7c29F299d60` on World Chain — fee 0.001 H2O
+- **SUSHI Staking BNB**: `0x945B4b199Baf8F41E11E79df32D9919bd1fd1c08` — withdraw() NO PARAM (withdraws all)
+- **SUSHI token**: `0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38` (same address on both chains)
+- **Bridge contracts**: NOT DEPLOYED — placeholder addresses, flip DEPLOYED=false→true after deploy
 
-### Blockchain
-- **World Chain**: Chain ID 480, Alchemy RPC
-- **BNB Chain**: Chain ID 56, `https://bsc-dataseed1.binance.org`
-- **Transaction Pattern**: Write ops use MiniKit `sendTransaction` + Permit2 (World Chain), or ethers signer from imported wallet (BNB Chain)
+## User Preferences
+- Iterative development.
+- Ask before making major changes.
+- Do not modify `components/stake-panel.tsx`.
 
-### Navigation
-- **Side Drawer**: Staking (H2O, H2O 2.0, H2O v3, StakeV2, Stake+, SUSHI 2.0) / Mining (UTH2, WLD, TIME) / Market (Swap, Tokens) / Info (Monitor, Info/Guía) / Admin (owner only)
-- **Fan Menu**: 10-item floating double-arc shortcut to all WLD tabs (only shown on WLD network)
-- **BNB Sub-Nav**: 3 tabs (SUSHI Stake / Wallet BNB / Bridge WLD↔BNB) shown when BNB network active
-- **Polygon**: Coming Soon panel
-- **Language Switcher**: Top-right, persisted, flags for all 16 languages
-- **AI Agent**: Bottom-right floating chatbot, draggable, local DeFi knowledge base
-
-## External Dependencies
-- **World Chain** (Chain ID 480) — primary staking/mining/swap network
-- **BNB Chain** (Chain ID 56) — SUSHI staking, bridge destination
-- **Alchemy** — World Chain RPC
-- **@worldcoin/minikit-js** — World App wallet + transactions
-- **Uniswap V3/V4** — DEX on World Chain
-- **Permit2** — Gasless approvals
-- **ethers.js v6** — Blockchain reads + BNB wallet signing
+## Gotchas
+- `withdraw()` on SUSHI BNB stake contract takes NO parameter — always withdraws entire staked amount
+- `claimRewards()` (not `harvest`) to claim without withdrawing
+- BSC gas minimum is 1 gwei (network hard floor since Feb 2024 Tycho fork)
+- Bridge contracts: `cancel(uint256 id)` already refunds 100% SUSHI to user — both contracts have it
+- `receiveFee(uint256)` in both bridge contracts lets anyone route stake fees to fundPool (2% stake routing)
+- BNB wallet panel requires `bnbPrivateKey` prop for signing — read-only mode shows balances only

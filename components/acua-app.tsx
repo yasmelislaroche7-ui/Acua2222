@@ -652,7 +652,7 @@ export default function AcuaApp() {
             <BNBSushiPanel bnbAddress={bnbAddress ?? addr} bnbPrivateKey={bnbPrivateKey} />
           )}
           {activeNetwork === 'bnb' && activeBNBTab === 'bnb-wallet' && (
-            <BNBWalletPanel bnbAddress={bnbAddress ?? addr} />
+            <BNBWalletPanel bnbAddress={bnbAddress ?? addr} bnbPrivateKey={bnbPrivateKey} />
           )}
           {activeNetwork === 'bnb' && activeBNBTab === 'bnb-bridge' && (
             <BNBBridgePanel
