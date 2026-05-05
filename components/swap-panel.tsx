@@ -25,14 +25,38 @@ const ACUA_SWAP_ROUTER    = '0xA2FD6cd36a661E270FC7AdaA82D0d22f4660706d'
 const ACUA_VOLUME_REWARDS = '0xc74D6B65f8E30E040CE744117228118d107f77f1'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-// 95% slippage tolerance — removes effective limit so swaps of any size succeed even in shallow pools.
-// The router's quoteSingle uses spot price only (no depth), so large swaps in low-liquidity pools
-// would otherwise revert with "Too much slippage". Price impact is shown to the user before confirming.
-const SLIPPAGE_BPS    = 9500
 const ACUA_FEE_BPS    = 210   // 2.1% total fee (2% to owner + 0.1% H2O buyback via WLD)
 const IMPACT_WARN_BPS = 300   // yellow warning >3%
 const IMPACT_HIGH_BPS = 1500  // red warning >15%
 const QUOTE_TTL_MS    = 25000
+
+// ─── Adaptive slippage per pair type ─────────────────────────────────────────
+// Tight slippage for liquid pairs → better execution for the user.
+// Falls back to wider tolerance only for exotic / low-liquidity pairs.
+function getAdaptiveSlippageBps(fromAddr: string, toAddr: string): number {
+  const USDC_L  = '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1'.toLowerCase()
+  const WLD_L   = '0x2cFc85d8E48F8EAB294be644d9E25C3030863003'.toLowerCase()
+  const WETH_L  = '0x4200000000000000000000000000000000000006'.toLowerCase()
+  const inL  = fromAddr.toLowerCase()
+  const outL = toAddr.toLowerCase()
+  // Stable ↔ Stable (USDC/EURC type): 0.3%
+  const stables = new Set([USDC_L])
+  if (stables.has(inL) && stables.has(outL)) return 30
+  // Major liquid pairs (WLD/USDC, WLD/WETH, USDC/WETH): 0.5%
+  const majors = new Set([WLD_L, USDC_L, WETH_L])
+  if (majors.has(inL) && majors.has(outL)) return 50
+  // One side is a major: 1%
+  if (majors.has(inL) || majors.has(outL)) return 100
+  // Exotic / unknown pair: 2%
+  return 200
+}
+
+function slippageLabel(bps: number): string {
+  if (bps <= 30)  return '0.3%'
+  if (bps <= 50)  return '0.5%'
+  if (bps <= 100) return '1%'
+  return '2%'
+}
 
 const WETH_ADDR = '0x4200000000000000000000000000000000000006'
 
@@ -592,8 +616,12 @@ async function getBestRouteQuote(
   if (results.length === 0) return null
 
   results.sort((a, b) => {
-    if (a.amountOut !== b.amountOut) return a.amountOut > b.amountOut ? -1 : 1
-    return (a.fee + (a.fee2 ?? 0)) - (b.fee + (b.fee2 ?? 0))
+    const larger  = a.amountOut > b.amountOut ? a.amountOut : b.amountOut
+    const diffAbs = a.amountOut > b.amountOut ? a.amountOut - b.amountOut : b.amountOut - a.amountOut
+    const diffBps = larger === 0n ? 0 : Number(diffAbs * 10000n / larger)
+    // Within 0.1% output → prefer the cheaper pool (lower total fee bps)
+    if (diffBps <= 10) return (a.fee + (a.fee2 ?? 0)) - (b.fee + (b.fee2 ?? 0))
+    return a.amountOut > b.amountOut ? -1 : 1
   })
 
   const best = results[0]
@@ -1167,8 +1195,9 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
         activeQuote = fresh
       }
 
-      // Very permissive minOut (50% tolerance) — allows high-volume & volatile market swaps
-      const minOut = activeQuote.amountOut * BigInt(10000 - SLIPPAGE_BPS) / 10000n
+      // Adaptive slippage: tight for liquid pairs, wider only for exotic ones
+      const adaptiveSlipBps = getAdaptiveSlippageBps(fromToken.address, toToken.address)
+      const minOut = activeQuote.amountOut * BigInt(10000 - adaptiveSlipBps) / 10000n
 
       // ── USDC equivalent for volume tracking ───────────────────────────────
       // Fetch fresh price from DexScreener at swap time so volume is always
@@ -1767,7 +1796,10 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
               {/* Fee + route info bar */}
               <div className="flex items-center justify-between rounded-lg px-3 py-2 text-[10px]" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
                 <span className="text-white/40 flex items-center gap-1">
-                  <Coins className="w-3 h-3" /> 2% owner · 0.1% H2O vía WLD · Slippage: <strong className="text-white/60">Auto</strong>
+                  <Coins className="w-3 h-3" /> 2.1% fee · Slippage:{' '}
+                  <strong className="text-green-400/80">
+                    {slippageLabel(getAdaptiveSlippageBps(fromToken.address, toToken.address))}
+                  </strong>
                 </span>
                 {quote && (
                   <span className={cn('px-1.5 py-0.5 rounded font-mono font-bold text-[9px]',
@@ -1882,8 +1914,10 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                     <span className="font-mono">{feeAmt} {fromToken.symbol}</span>
                   </div>
                   <div className="flex justify-between text-white/40">
-                    <span className="flex items-center gap-1"><Zap className="w-2.5 h-2.5 text-yellow-400" /> Slippage</span>
-                    <span className="font-mono text-yellow-400/70">Auto · sin límite</span>
+                    <span className="flex items-center gap-1"><Zap className="w-2.5 h-2.5 text-green-400" /> Slippage máx.</span>
+                    <span className="font-mono text-green-400/80">
+                      {slippageLabel(getAdaptiveSlippageBps(fromToken.address, toToken.address))}
+                    </span>
                   </div>
                   {impactBps !== null && (
                     <div className="flex justify-between">
@@ -1897,14 +1931,18 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                       </span>
                     </div>
                   )}
-                  {quote && (
-                    <div className="flex justify-between text-white/40">
-                      <span>Mínimo a recibir</span>
-                      <span className="font-mono text-white/60">
-                        {formatToken(quote.amountOut * BigInt(10000 - SLIPPAGE_BPS) / 10000n, toToken.decimals, 4)} {toToken.symbol}
-                      </span>
-                    </div>
-                  )}
+                  {quote && (() => {
+                    const slipBps = getAdaptiveSlippageBps(fromToken.address, toToken.address)
+                    const minReceive = quote.amountOut * BigInt(10000 - slipBps) / 10000n
+                    return (
+                      <div className="flex justify-between text-white/40">
+                        <span>Mínimo a recibir</span>
+                        <span className="font-mono text-white/70 font-semibold">
+                          {formatToken(minReceive, toToken.decimals, 4)} {toToken.symbol}
+                        </span>
+                      </div>
+                    )
+                  })()}
                   {effectiveRate && (
                     <div className="flex justify-between text-white/30 pt-1 mt-0.5" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                       <span>Tasa efectiva</span>
