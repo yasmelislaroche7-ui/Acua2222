@@ -6,7 +6,7 @@ import { ethers } from 'ethers'
 import {
   TrendingUp, Clock, RefreshCw, Loader2, ChevronDown, AlertCircle,
   Wallet, Crown, ExternalLink, Info, Users, Gift, Zap, Lock,
-  CheckCircle2, ArrowRight, Flame, XCircle, ShieldAlert,
+  CheckCircle2, ArrowRight, Flame, XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useLang } from '@/context/lang-context'
@@ -19,13 +19,17 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SUSHI_COLOR = '#e84142'
 const BNB_COLOR   = '#f0b90b'
-// BNB Chain enforces a hard minimum gas price of 1 gwei (Tycho hard fork, Feb 2024).
-// Any tx with gasPrice < 1 gwei is rejected by all validators — this is a network rule.
-// 0.05–0.09 gwei is not achievable on BSC. We already use the floor (1 gwei).
-// Cost is minimised by tightening gas LIMITS to measured on-chain values + 10% buffer.
-const GAS_PRICE_GWEI   = 1n                              // 1 gwei = BSC minimum
-const GAS_PRICE_WEI    = GAS_PRICE_GWEI * 1_000_000_000n // 1_000_000_000 wei
-// Per-operation gas limits — measured on-chain + 10 % buffer (was 20 %)
+// ─── Gas reality on BSC ───────────────────────────────────────────────────────
+// BSC hard minimum gas price = 1 gwei (1,000,000,000 wei) since Tycho hard fork
+// Feb 2024.  Anything below 1 gwei is rejected by all validators — it is a
+// protocol rule, not configurable.  0.05–0.09 gwei or costs < 0.00002 BNB per
+// smart-contract call are NOT achievable on BSC.
+// Minimum costs at 1 gwei:
+//   ERC20 approve (~46k gas)  → 0.000046 BNB ≈ $0.028
+//   SUSHI deposit (~100k gas) → 0.0001  BNB ≈ $0.060
+//   Full stake (approve+dep)  → 0.00015 BNB ≈ $0.090
+const GAS_PRICE_GWEI   = 1n
+const GAS_PRICE_WEI    = GAS_PRICE_GWEI * 1_000_000_000n  // 1e9 wei = 1 gwei
 const GAS_LIMITS = {
   approve:           50_000n,   // ERC20 approve  ~44-47k
   deposit:          110_000n,   // SUSHI deposit  ~95-105k
@@ -35,7 +39,9 @@ const GAS_LIMITS = {
   subscribeMember:  100_000n,   // payable member ~80-95k
   referral:          65_000n,   // referral       ~55-60k
 } as const
-const GAS_ESTIMATE_BNB = 0.00011  // worst-case single tx at 1 gwei / 110k gas
+// Cheapest realistic single TX at 1 gwei (claim / cook / withdraw)
+const GAS_ESTIMATE_BNB = 0.000070   // ~70k gas × 1 gwei = 0.000070 BNB
+const GAS_ESTIMATE_STAKE = 0.000150 // approve + deposit = ~150k gas total
 const BSCSCAN = 'https://bscscan.com/tx/'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -59,6 +65,22 @@ interface TxStep {
   hash?:   string
   done?:   boolean
   error?:  string
+}
+
+// TX history record
+interface TxRecord {
+  id:     string
+  op:     string
+  hashes: string[]
+  ts:     number
+}
+
+const HISTORY_KEY = 'acua_bnb_tx_history_v1'
+function loadHistory(): TxRecord[] {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
+}
+function saveHistory(recs: TxRecord[]) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(recs.slice(0, 50))) } catch { /* ignore */ }
 }
 
 // ─── Cook options ─────────────────────────────────────────────────────────────
@@ -216,11 +238,10 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
   const [info, setInfo]           = useState<StakeInfo | null>(null)
   const [totalStaked, setTotalStaked] = useState<bigint | null>(null)
   const [loading, setLoading]     = useState(false)
-  const [activeView, setActiveView] = useState<'stake' | 'membership' | 'referral'>('stake')
+  const [activeView, setActiveView] = useState<'stake' | 'membership' | 'referral' | 'history'>('stake')
 
   // Inputs
   const [depositAmt, setDepositAmt]   = useState('')
-  const [withdrawAll, setWithdrawAll] = useState(false)
   const [cookOption, setCookOption]   = useState(0)
   const [showCookDrop, setShowCookDrop] = useState(false)
   const [referralCode, setReferralCode] = useState('')
@@ -232,6 +253,10 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
     title: string; detail: string; gasNote: string; onConfirm: () => Promise<void>
   }>(null)
   const [confirming, setConfirming] = useState(false)
+
+  // TX history
+  const [txHistory, setTxHistory] = useState<TxRecord[]>([])
+  useEffect(() => { setTxHistory(loadHistory()) }, [])
 
   // ─── Load user info ──────────────────────────────────────────────────────────
   const load = useCallback(async (addr: string) => {
@@ -291,7 +316,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
   // costs to 0.0008 BNB+. We override getFeeData so every tx through this
   // signer is capped at 1.1 gwei regardless of what the RPC returns.
   const getSigner = (): ethers.Wallet => {
-    if (!bnbPrivateKey) throw new Error('Importa tu wallet BNB con clave privada (selector de redes, esquina superior derecha)')
+    if (!bnbPrivateKey) throw new Error('Para firmar en BNB Chain necesitas importar tu wallet con clave privada. Toca el selector de redes (arriba a la derecha) e importa tu clave.')
     const provider = new ethers.JsonRpcProvider(BNB_RPC)
     const origGetFeeData = provider.getFeeData.bind(provider)
     provider.getFeeData = async () => {
@@ -314,21 +339,30 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
   ) => {
     setTxPending(true)
     setTxStep(null)
+    const collectedHashes: string[] = []
     try {
       for (let i = 0; i < steps.length; i++) {
         const s = steps[i]
         setTxStep({ step: i + 1, total: steps.length, label: s.label })
         const tx = await s.run()
         if (tx) {
+          collectedHashes.push(tx.hash)
           setTxStep({ step: i + 1, total: steps.length, label: s.label + ' — confirmando en BNB Chain…', hash: tx.hash })
           await tx.wait()
         }
       }
       setTxStep({ step: steps.length, total: steps.length, label: `✓ ${successLabel}`, done: true })
+      // Save to TX history
+      if (collectedHashes.length > 0) {
+        const rec: TxRecord = { id: Date.now().toString(), op: successLabel, hashes: collectedHashes, ts: Date.now() }
+        const updated = [rec, ...loadHistory()]
+        saveHistory(updated)
+        setTxHistory(updated)
+      }
       if (bnbAddress) await load(bnbAddress)
     } catch (e: any) {
       const msg = e?.reason ?? e?.data?.message ?? e?.message ?? 'Error desconocido'
-      const clean = msg.length > 120 ? msg.slice(0, 120) + '…' : msg
+      const clean = msg.length > 180 ? msg.slice(0, 180) + '…' : msg
       setTxStep({ step: 1, total: 1, label: 'Error en la transacción', error: clean })
     } finally {
       setTxPending(false)
@@ -628,13 +662,21 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
           </div>
         </div>
 
-        {/* No key warning */}
-        {noKey && (
-          <div className="relative mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-amber-500/12 border border-amber-500/30">
-            <ShieldAlert className="w-3 h-3 text-amber-400 shrink-0" />
-            <p className="text-[8px] text-amber-300">Importa wallet con clave privada para firmar transacciones</p>
-          </div>
-        )}
+        {/* Account change hint */}
+        <div className="relative mt-2 flex items-center justify-between gap-2 px-2.5 py-1 rounded-xl bg-white/4 border border-white/8">
+          <p className="text-[8px] text-[oklch(0.45_0.01_230)]">
+            {noKey ? '👁 Solo lectura · sin clave privada BNB' : '🔑 Wallet con firma activa'}
+          </p>
+          <button
+            onClick={() => {
+              const el = document.getElementById('network-switcher-trigger')
+              if (el) el.click()
+            }}
+            className="text-[8px] text-blue-400 hover:text-blue-300 font-bold shrink-0 transition-colors"
+          >
+            Cambiar →
+          </button>
+        </div>
       </div>
 
       {/* ── Tabs ────────────────────────────────────────────────────────────── */}
@@ -642,10 +684,11 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
         {[
           { id: 'stake',      label: '🍣 Stake'   },
           { id: 'membership', label: '👑 VIP'      },
-          { id: 'referral',   label: '🤝 Referidos'},
+          { id: 'referral',   label: '🤝 Ref'      },
+          { id: 'history',    label: `🕑 Historial${txHistory.length > 0 ? ` (${txHistory.length})` : ''}` },
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveView(tab.id as any)}
-            className={cn('flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-colors', activeView === tab.id ? 'text-white' : 'text-[oklch(0.50_0.012_230)] hover:text-foreground')}
+            className={cn('flex-1 py-1.5 rounded-lg text-[9px] font-bold transition-colors', activeView === tab.id ? 'text-white' : 'text-[oklch(0.50_0.012_230)] hover:text-foreground')}
             style={activeView === tab.id ? { background: SUSHI_COLOR } : {}}>
             {tab.label}
           </button>
@@ -690,7 +733,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
             {/* Withdraw button */}
             <button
               onClick={doWithdraw}
-              disabled={txPending || noKey || !info || info.staked === BigInt(0)}
+              disabled={txPending || !info || info.staked === BigInt(0)}
               className="w-full py-2.5 rounded-xl text-xs font-bold border border-[oklch(0.30_0.025_245)] bg-[oklch(0.14_0.02_245)] text-[oklch(0.60_0.01_230)] disabled:opacity-40 hover:bg-[oklch(0.18_0.025_245)] transition-colors flex items-center justify-center gap-2"
             >
               {txPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '📤'}
@@ -709,9 +752,9 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
             </div>
             <button
               onClick={doClaim}
-              disabled={txPending || noKey || !info || info.pendingRewards === BigInt(0)}
+              disabled={txPending || !info || info.pendingRewards === BigInt(0)}
               className="w-full py-2.5 rounded-xl text-xs font-bold disabled:opacity-40 transition-all flex items-center justify-center gap-2"
-              style={info && info.pendingRewards > BigInt(0) && !noKey
+              style={info && info.pendingRewards > BigInt(0)
                 ? { background: 'linear-gradient(135deg,#e84142,#c02f30)', color: 'white', boxShadow: '0 0 16px rgba(232,65,66,0.3)' }
                 : { border: '1px solid oklch(0.22 0.025 245)', background: 'oklch(0.14 0.02 245)', color: 'oklch(0.55 0.01 230)' }
               }
@@ -789,7 +832,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
                 {/* Cook button */}
                 <button
                   onClick={doCook}
-                  disabled={txPending || noKey || !info || info.staked === BigInt(0)}
+                  disabled={txPending || !info || info.staked === BigInt(0)}
                   className="w-full py-3 rounded-xl text-sm font-black flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: 'white', boxShadow: '0 0 16px rgba(34,197,94,0.4)' }}
                 >
@@ -819,12 +862,12 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
             {/* Info about 2 TXs */}
             <div className="flex items-start gap-1.5 text-[8px] text-[oklch(0.45_0.01_230)]">
               <Info className="w-3 h-3 shrink-0 mt-0.5" />
-              <p>2 transacciones: Approve SUSHI + Deposit. Gas total estimado: <span className="text-[#f0b90b] font-bold">~{(GAS_ESTIMATE_BNB * 2).toFixed(4)} BNB</span> (~${(GAS_ESTIMATE_BNB * 2 * BNB_USD_APPROX).toFixed(2)} USD)</p>
+              <p>2 transacciones: Approve SUSHI + Deposit. Gas mínimo BSC (1 gwei): <span className="text-[#f0b90b] font-bold">~{GAS_ESTIMATE_STAKE.toFixed(6)} BNB</span> (~${(GAS_ESTIMATE_STAKE * BNB_USD_APPROX).toFixed(3)} USD)</p>
             </div>
 
             <button
               onClick={doDeposit}
-              disabled={txPending || noKey || !depositAmt || parseFloat(depositAmt) <= 0}
+              disabled={txPending || !depositAmt || parseFloat(depositAmt) <= 0}
               className="w-full py-3 rounded-xl text-sm font-black flex items-center justify-center gap-2 disabled:opacity-40 transition-all"
               style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: 'white', boxShadow: '0 0 16px rgba(34,197,94,0.25)' }}
             >
@@ -848,8 +891,12 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
               </a>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-[oklch(0.45_0.01_230)]">Gas estimado / TX</span>
-              <span className="font-mono text-[#f0b90b]">~{GAS_ESTIMATE_BNB} BNB ≈ ${gasCostUSD()} USD</span>
+              <span className="text-[oklch(0.45_0.01_230)]">Gas mínimo / TX (1 gwei)</span>
+              <span className="font-mono text-[#f0b90b]">~{GAS_ESTIMATE_BNB.toFixed(6)} BNB ≈ ${gasCostUSD()} USD</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[oklch(0.45_0.01_230)]">Gas stake (approve+dep)</span>
+              <span className="font-mono text-[#f0b90b]">~{GAS_ESTIMATE_STAKE.toFixed(6)} BNB ≈ ${(GAS_ESTIMATE_STAKE * BNB_USD_APPROX).toFixed(3)} USD</span>
             </div>
           </div>
         </div>
@@ -899,7 +946,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
                     ) : (
                       <button
                         onClick={() => doMembership(i, tier.priceBNB)}
-                        disabled={txPending || noKey || isCurrent}
+                        disabled={txPending || isCurrent}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold disabled:opacity-40 transition-all active:scale-95"
                         style={{ background: `${tier.color}20`, color: tier.color, border: `1.5px solid ${tier.color}50` }}
                       >
@@ -936,7 +983,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
               <input value={referralCode} onChange={e => setReferralCode(e.target.value)}
                 placeholder="Código de descuento"
                 className="flex-1 bg-[oklch(0.14_0.02_245)] border border-[oklch(0.22_0.025_245)] rounded-xl px-3 py-2 text-xs text-foreground focus:outline-none focus:border-emerald-500/50 placeholder:text-[oklch(0.35_0.01_230)]" />
-              <button onClick={doApplyReferral} disabled={txPending || noKey || !referralCode.trim()}
+              <button onClick={doApplyReferral} disabled={txPending || !referralCode.trim()}
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-[oklch(0.14_0.02_245)] border border-[oklch(0.22_0.025_245)] text-[oklch(0.60_0.01_230)] hover:border-emerald-500/40 disabled:opacity-40 transition-colors">
                 Aplicar
               </button>
@@ -951,7 +998,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
             <p className="text-[10px] text-[oklch(0.50_0.012_230)]">
               Crea tu código único para compartir y gana el 10% de las membresías que tus amigos compren.
             </p>
-            <button onClick={doCreateCode} disabled={txPending || noKey}
+            <button onClick={doCreateCode} disabled={txPending}
               className="w-full py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-2 disabled:opacity-40 transition-all"
               style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: 'white' }}>
               {txPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '🔗'}
@@ -962,8 +1009,79 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
           <div className="flex items-start gap-2 p-3 rounded-xl bg-[#f0b90b]/8 border border-[#f0b90b]/25">
             <Info className="w-4 h-4 text-[#f0b90b] shrink-0 mt-0.5" />
             <p className="text-[9px] text-[oklch(0.50_0.012_230)] leading-relaxed">
-              Las transacciones en BNB Chain (stake, cook, membresía) usan <strong className="text-[#f0b90b]">BNB como gas</strong>. Con gas optimizado a <strong className="text-[#f0b90b]">1 gwei</strong>, cada TX cuesta ~0.0001 BNB. Mantén al menos <strong className="text-[#f0b90b]">0.001 BNB</strong> para cubrir los fees.
+              BSC usa <strong className="text-[#f0b90b]">mínimo 1 gwei</strong> de gas (regla de protocolo inamovible). Cada TX cuesta <strong className="text-[#f0b90b]">~0.000070–0.000150 BNB</strong>. Mantén al menos <strong className="text-[#f0b90b]">0.001 BNB</strong> para cubrir fees cómodamente.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          HISTORY TAB
+          ════════════════════════════════════════════════════════════════════ */}
+      {activeView === 'history' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[9px] font-bold text-[oklch(0.45_0.01_230)] uppercase tracking-wider">Historial de Transacciones BNB</p>
+            {txHistory.length > 0 && (
+              <button
+                onClick={() => { saveHistory([]); setTxHistory([]) }}
+                className="text-[8px] text-red-400 hover:text-red-300 transition-colors font-bold"
+              >
+                Borrar todo
+              </button>
+            )}
+          </div>
+
+          {txHistory.length === 0 ? (
+            <div className="rounded-2xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] p-8 text-center space-y-2">
+              <p className="text-3xl">🕑</p>
+              <p className="text-xs font-bold text-[oklch(0.50_0.012_230)]">Sin historial aún</p>
+              <p className="text-[9px] text-[oklch(0.40_0.01_230)]">Las transacciones completadas aparecerán aquí automáticamente.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {txHistory.map(rec => {
+                const date = new Date(rec.ts)
+                const dateStr = date.toLocaleDateString('es', { day: '2-digit', month: 'short' })
+                const timeStr = date.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+                return (
+                  <div key={rec.id} className="rounded-xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-bold text-emerald-400 leading-snug">✓ {rec.op}</p>
+                        <p className="text-[8px] text-[oklch(0.40_0.01_230)] mt-0.5">{dateStr} · {timeStr}</p>
+                      </div>
+                      <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 shrink-0">
+                        {rec.hashes.length} TX
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {rec.hashes.map((hash, i) => (
+                        <a key={hash} href={`${BSCSCAN}${hash}`} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 group">
+                          <span className="text-[7px] font-bold text-[oklch(0.35_0.01_230)] w-4 shrink-0">#{i + 1}</span>
+                          <code className="flex-1 text-[8px] font-mono text-[oklch(0.45_0.01_230)] group-hover:text-blue-400 transition-colors truncate">
+                            {hash.slice(0, 18)}…{hash.slice(-8)}
+                          </code>
+                          <ExternalLink className="w-2.5 h-2.5 text-[oklch(0.35_0.01_230)] group-hover:text-blue-400 transition-colors shrink-0" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Gas info note */}
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-blue-500/8 border border-blue-500/25">
+            <Info className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <p className="text-[8px] text-blue-300 font-bold">Gas mínimo en BSC</p>
+              <p className="text-[8px] text-[oklch(0.45_0.01_230)] leading-relaxed">
+                BSC impone 1 gwei como precio mínimo de gas (protocolo, no configurable). El costo más barato posible es <strong className="text-[#f0b90b]">~0.000046 BNB por approve</strong> y <strong className="text-[#f0b90b]">~0.0001 BNB por stake</strong>. Gas de 0.05–0.09 gwei o costos de 0.000001 BNB no son alcanzables en ninguna tx de smart contract en BSC.
+              </p>
+            </div>
           </div>
         </div>
       )}
