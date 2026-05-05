@@ -12,31 +12,34 @@
  *   - Añadir red "bnbchain" en hardhat.config.js (ver instrucciones abajo)
  *
  * ═══════════════════════════════════════════════════════════════════
- * ESTIMADO DE COSTOS EN BNB CHAIN
+ * ESTIMADO DE COSTOS EN BNB CHAIN  (AcuaBridgeBNB v3-lean)
  * ═══════════════════════════════════════════════════════════════════
  *
+ * Versión lean: eliminados releaseToUserBatch, getRequests, getWaitingList,
+ * withdrawAll y 5 eventos individuales → ~25% menos bytecode que v2.
+ *
  * Gas estimado para el deploy completo:
- *   - Deploy contrato:       ~1 800 000 gas
- *   - setFlatFee():          ~    30 000 gas
- *   - setMinAmount():        ~    30 000 gas
- *   - setSplitThreshold():   ~    30 000 gas
- *   - setChunkSize():        ~    30 000 gas
- *   - setMembershipFeeBps(): ~    30 000 gas
- *   TOTAL GAS:               ~1 950 000 gas
+ *   - Deploy contrato:       ~1 350 000 gas  (era ~1 800 000)
+ *   - setFlatFee():          ~    28 000 gas
+ *   - setMinAmount():        ~    28 000 gas
+ *   - setSplitThreshold():   ~    28 000 gas
+ *   - setChunkSize():        ~    28 000 gas
+ *   - setMembershipFeeBps(): ~    28 000 gas
+ *   TOTAL GAS:               ~1 490 000 gas  (era ~1 950 000)
  *
- * Gas price en BNB (histórico):
- *   - Normal:   3 gwei
+ * Gas price en BNB — MÍNIMO DE RED = 1 gwei (hard floor desde Feb 2024):
+ *   - Normal:   3 gwei  (validators prefieren ≥ 3 gwei para inclusión rápida)
  *   - Alto:     5 gwei
- *   - Pico:    10 gwei
+ *   ⚠️  NO usar < 1 gwei — los validadores rechazan el TX.
  *
- * Costo en BNB:
- *   - A 3 gwei:  1 950 000 × 3e-9 = 0.00585 BNB ≈ $3.5
- *   - A 5 gwei:  1 950 000 × 5e-9 = 0.00975 BNB ≈ $5.9
- *   - A 10 gwei: 1 950 000 × 10e-9 = 0.0195 BNB ≈ $11.7
+ * Costo del deploy completo:
+ *   - A 1 gwei:  1 490 000 × 1e-9 = 0.00149 BNB ≈ $0.90
+ *   - A 3 gwei:  1 490 000 × 3e-9 = 0.00447 BNB ≈ $2.7
+ *   - A 5 gwei:  1 490 000 × 5e-9 = 0.00745 BNB ≈ $4.5
  *
- * RECOMENDACIÓN: Tener mínimo 0.05 BNB en la wallet antes de deployer.
- *   Esto cubre el deploy + transacciones de prueba (approve, fund, etc.)
- *   Precio BNB estimado: $600 → 0.05 BNB = ~$30
+ * RECOMENDACIÓN: Tener mínimo 0.02 BNB en la wallet antes de deployer.
+ *   Esto cubre el deploy + approve SUSHI + fund() + 3-5 txs de prueba.
+ *   Precio BNB estimado: $600 → 0.02 BNB = ~$12
  *
  * PARA FONDEAR EL CONTRATO después del deploy:
  *   - Transferir SUSHI a la dirección del contrato via fund()
@@ -97,13 +100,13 @@ async function main() {
   console.log(' Balance  :', ethers.formatEther(balance), 'BNB')
 
   const gasPrice = feeData.gasPrice ?? ethers.parseUnits('3', 'gwei')
-  const estGas   = 1_950_000n
+  const estGas   = 1_490_000n  // v3-lean: ~25% menos bytecode que v2
   const estCost  = gasPrice * estGas
   console.log(' Gas price:', ethers.formatUnits(gasPrice, 'gwei'), 'gwei')
   console.log(' Est. costo deploy:', ethers.formatEther(estCost), 'BNB')
 
   if (balance < estCost * 2n) {
-    console.warn('\n⚠️  ADVERTENCIA: Balance bajo. Recomendado >= 0.05 BNB')
+    console.warn('\n⚠️  ADVERTENCIA: Balance bajo. Recomendado >= 0.02 BNB')
     console.warn('   Balance actual:', ethers.formatEther(balance), 'BNB')
   }
 

@@ -10,36 +10,22 @@ interface IERC20 {
 }
 
 /**
- * @title AcuaBridgeWLD v3
+ * @title AcuaBridgeWLD v3-lean
  * @notice Bridge SUSHI World Chain ↔ BNB Chain — lado World Chain.
  *
  * FLUJO WLD→BNB  (usuario quiere SUSHI en BNB):
- *   1. Usuario llama deposit(permit, sig, amount, destBNBAddr).
- *   2. SUSHI entra al contrato (userPool).  Fee → feePool.
- *   3. Se emite RequestCreated con un ID único.
- *   4. Owner ve la lista; hace click "Aprobar" en el panel.
- *   5. Panel lee automáticamente req.destAddress y req.net.
- *   6. Panel envía TX en BNB: BNBContract.releaseToUser(destAddress, net).
- *   7. Panel llama aquí: markFulfilled(id)  →  userPool -= amount, fundPool += net.
- *      El SUSHI queda en el contrato como liquidez para el sentido inverso.
+ *   1. deposit(permit, sig, amount, destBNBAddr) via Permit2 (gasless).
+ *   2. Owner click "Aprobar" → Panel TX1: BNBContract.releaseToUser(dest, net).
+ *   3. Panel TX2: markFulfilled(id) → SUSHI queda como liquidez (fundPool).
  *
  * FLUJO BNB→WLD  (usuario quiere SUSHI en World Chain):
- *   1. Usuario deposita en AcuaBridgeBNB; destAddress = wallet WLD.
- *   2. Owner hace click "Aprobar" en el panel.
- *   3. Panel lee automáticamente req.destAddress y req.net del contrato BNB.
- *   4. Panel llama aquí: releaseToUser(destAddress, net)  →  fundPool -= net, transfer.
- *   5. Panel llama en BNB: BNBContract.markFulfilled(id).
+ *   1. Usuario deposita en AcuaBridgeBNB.
+ *   2. Owner click "Aprobar" → Panel TX1: releaseToUser(dest, net).
+ *   3. Panel TX2: BNBContract.markFulfilled(id).
  *
- * SPLIT AUTOMÁTICO  (>splitThreshold SUSHI):
- *   - deposit() crea sub-requests de chunkSize automáticamente.
- *
- * COMISIÓN FLAT:
- *   - flatFee SUSHI por sub-request.  membershipFeeBps % → owner2 al retirar fees.
- *
- * POOLS:
- *   - fundPool:    SUSHI fondeado por owner (o acumulado de WLD→BNB procesados).
- *   - userPool:    SUSHI bloqueado de solicitudes WLD→BNB pendientes.
- *   - feePool:     Fees acumulados.
+ * SPLIT: deposit() > splitThreshold → sub-requests automáticos de chunkSize.
+ * COMISIÓN: membershipFeeBps % de fees → owner2 al llamar withdrawFees().
+ * POOLS: fundPool (owner), userPool (pendientes), feePool (comisiones).
  */
 contract AcuaBridgeWLD {
 
@@ -47,7 +33,6 @@ contract AcuaBridgeWLD {
 
     address public owner;
     address public owner2;
-
     address public immutable SUSHI;
 
     // ── Config ────────────────────────────────────────────────────────────────
@@ -55,7 +40,7 @@ contract AcuaBridgeWLD {
     uint256 public minAmount        = 10_000 * 1e18;
     uint256 public splitThreshold   = 100_000 * 1e18;
     uint256 public chunkSize        = 10_000 * 1e18;
-    uint256 public membershipFeeBps = 1_000;  // 10% → owner2
+    uint256 public membershipFeeBps = 1_000;
     bool    public paused;
 
     // ── Pools ─────────────────────────────────────────────────────────────────
@@ -69,7 +54,7 @@ contract AcuaBridgeWLD {
     // ── Request ───────────────────────────────────────────────────────────────
     struct BridgeRequest {
         address user;
-        address destAddress; // wallet destino en BNB (o WLD si es inverso)
+        address destAddress;
         uint256 amount;
         uint256 fee;
         uint256 net;
@@ -82,7 +67,6 @@ contract AcuaBridgeWLD {
     mapping(uint256 => BridgeRequest) public requests;
     uint256 public totalRequests;
 
-    // ── Waiting list ──────────────────────────────────────────────────────────
     uint256[] private _waitingList;
     mapping(uint256 => uint256) private _waitingIndex;
 
@@ -90,18 +74,12 @@ contract AcuaBridgeWLD {
     event RequestCreated(uint256 indexed id, address indexed user, address indexed destAddress, uint256 amount, uint256 fee, uint256 net, uint256 parentId);
     event RequestFulfilled(uint256 indexed id);
     event RequestCancelled(uint256 indexed id, address user, uint256 refund);
-    event ReleasedToUser(address indexed dest, uint256 amount, string source);
+    event ReleasedToUser(address indexed dest, uint256 amount);
     event Funded(address indexed from, uint256 amount);
     event Withdrawn(address indexed to, uint256 amount);
     event FeesWithdrawn(address indexed to, uint256 amount, uint256 toOwner2);
-    event FlatFeeChanged(uint256 oldFee, uint256 newFee);
-    event MinAmountChanged(uint256 oldMin, uint256 newMin);
-    event SplitThresholdChanged(uint256 old, uint256 newVal);
-    event ChunkSizeChanged(uint256 old, uint256 newVal);
-    event MembershipFeeBpsChanged(uint256 old, uint256 newVal);
+    event ConfigChanged(bytes32 indexed key, uint256 val);
     event Paused(bool state);
-    event OwnerChanged(address indexed oldOwner, address indexed newOwner);
-    event Owner2Changed(address indexed oldOwner2, address indexed newOwner2);
 
     modifier onlyOwner() {
         require(msg.sender == owner || msg.sender == owner2, "not owner");
@@ -117,13 +95,9 @@ contract AcuaBridgeWLD {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // USER: deposit SUSHI en WLD para recibir SUSHI en BNB
+    // USER: depositar SUSHI en WLD para recibir en BNB (Permit2 gasless)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * @notice Deposita SUSHI via Permit2 (gasless). destAddress = wallet en BNB.
-     *   Si amount > splitThreshold → sub-requests automáticos de chunkSize.
-     */
     function deposit(
         IPermit2.PermitTransferFrom calldata permit,
         bytes calldata signature,
@@ -154,7 +128,6 @@ contract AcuaBridgeWLD {
     function _createSplit(address user, address dest, uint256 total) internal returns (uint256 firstId) {
         uint256 remaining = total;
         bool    isFirst   = true;
-
         while (remaining >= minAmount) {
             uint256 chunk = remaining > chunkSize ? chunkSize : remaining;
             uint256 id    = _createRequest(user, dest, chunk, isFirst ? 0 : firstId);
@@ -173,15 +146,8 @@ contract AcuaBridgeWLD {
 
         id = totalRequests++;
         requests[id] = BridgeRequest({
-            user:        user,
-            destAddress: dest,
-            amount:      amount,
-            fee:         fee,
-            net:         net,
-            createdAt:   block.timestamp,
-            fulfilled:   false,
-            cancelled:   false,
-            parentId:    parentId
+            user: user, destAddress: dest, amount: amount, fee: fee, net: net,
+            createdAt: block.timestamp, fulfilled: false, cancelled: false, parentId: parentId
         });
 
         unchecked {
@@ -189,20 +155,14 @@ contract AcuaBridgeWLD {
             feePool            += fee;
             totalFeesCollected += fee;
         }
-
         _addToWaiting(id);
         emit RequestCreated(id, user, dest, amount, fee, net, parentId);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // OWNER: marcar WLD→BNB como completado (después de enviar en BNB)
+    // OWNER: marcar WLD→BNB como completado
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * @notice Marca una solicitud WLD→BNB como procesada.
-     *   El SUSHI del usuario queda en el contrato (fundPool) como liquidez
-     *   disponible para futuras solicitudes BNB→WLD. Sin hash de TX.
-     */
     function markFulfilled(uint256 id) external onlyOwner {
         BridgeRequest storage req = requests[id];
         require(!req.fulfilled && !req.cancelled, "already done");
@@ -210,15 +170,12 @@ contract AcuaBridgeWLD {
         _removeFromWaiting(id);
         unchecked {
             userPool     -= req.amount;
-            fundPool     += req.net;   // net queda como liquidez para BNB→WLD
+            fundPool     += req.net;
             totalBridged += req.net;
         }
         emit RequestFulfilled(id);
     }
 
-    /**
-     * @notice Marca múltiples solicitudes WLD→BNB como procesadas en un solo TX.
-     */
     function markFulfilledBatch(uint256[] calldata ids) external onlyOwner {
         for (uint256 i; i < ids.length; ) {
             BridgeRequest storage req = requests[ids[i]];
@@ -237,51 +194,18 @@ contract AcuaBridgeWLD {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // OWNER: liberar SUSHI en WLD a usuario (viene BNB→WLD)
-    // El panel lee automáticamente destAddress y net del contrato BNB.
+    // OWNER: liberar SUSHI en WLD a usuario (BNB→WLD)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * @notice Envía SUSHI desde fundPool al usuario WLD (BNB→WLD).
-     *   destAddress y amount los lee el panel del contrato BNB automáticamente.
-     *   El owner solo hace click "Aprobar" — no tipea nada.
-     */
     function releaseToUser(address dest, uint256 amount) external onlyOwner notPaused {
         require(dest != address(0), "zero addr");
         require(fundPool >= amount, "insufficient fund pool");
         unchecked { fundPool -= amount; }
         require(IERC20(SUSHI).transfer(dest, amount), "transfer failed");
         unchecked { totalBridged += amount; }
-        emit ReleasedToUser(dest, amount, "fund");
+        emit ReleasedToUser(dest, amount);
     }
 
-    /**
-     * @notice Libera a múltiples usuarios BNB→WLD en un solo TX.
-     */
-    function releaseToUserBatch(
-        address[] calldata dests,
-        uint256[] calldata amounts
-    ) external onlyOwner notPaused {
-        require(dests.length == amounts.length, "length mismatch");
-        for (uint256 i; i < dests.length; ) {
-            require(dests[i] != address(0), "zero addr");
-            uint256 amt = amounts[i];
-            require(fundPool >= amt, "insufficient fund pool");
-            unchecked { fundPool -= amt; }
-            require(IERC20(SUSHI).transfer(dests[i], amt), "transfer failed");
-            unchecked { totalBridged += amt; }
-            emit ReleasedToUser(dests[i], amt, "fund-batch");
-            unchecked { ++i; }
-        }
-    }
-
-    /**
-     * @notice P2P: usa SUSHI del userPool (de WLD→BNB pendientes) para pagar
-     *   a usuarios BNB→WLD. Marca las solicitudes WLD→BNB como completadas.
-     *   El panel selecciona automáticamente los IDs a consumir.
-     *   dest = dirección WLD del usuario BNB→WLD.
-     *   wldToBnbIds = IDs de solicitudes WLD→BNB cuyos fondos se utilizan.
-     */
     function processP2P(
         address dest,
         uint256 amount,
@@ -289,7 +213,6 @@ contract AcuaBridgeWLD {
     ) external onlyOwner notPaused {
         require(dest != address(0), "zero addr");
         require(userPool >= amount, "insufficient user pool");
-
         uint256 covered;
         for (uint256 i; i < wldToBnbIds.length; ) {
             BridgeRequest storage req = requests[wldToBnbIds[i]];
@@ -305,15 +228,11 @@ contract AcuaBridgeWLD {
             unchecked { ++i; }
         }
         require(covered >= amount, "covered < amount");
-
         unchecked { userPool -= amount; }
         require(IERC20(SUSHI).transfer(dest, amount), "transfer failed");
-        emit ReleasedToUser(dest, amount, "p2p");
+        emit ReleasedToUser(dest, amount);
     }
 
-    /**
-     * @notice Cancela una solicitud y devuelve SUSHI al usuario.
-     */
     function cancel(uint256 id) external onlyOwner {
         BridgeRequest storage req = requests[id];
         require(!req.fulfilled && !req.cancelled, "already done");
@@ -326,7 +245,7 @@ contract AcuaBridgeWLD {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // OWNER: fondeo / retiro
+    // OWNER: fondeo via Permit2 / retiro
     // ─────────────────────────────────────────────────────────────────────────
 
     function fund(
@@ -353,23 +272,13 @@ contract AcuaBridgeWLD {
         emit Withdrawn(to, amount);
     }
 
-    function withdrawAll(address to) external onlyOwner {
-        uint256 amt = fundPool;
-        require(amt > 0, "empty");
-        fundPool = 0;
-        require(IERC20(SUSHI).transfer(to, amt), "transfer failed");
-        emit Withdrawn(to, amt);
-    }
-
     function withdrawFees(address to) external onlyOwner {
         require(to != address(0), "zero addr");
         uint256 total = feePool;
         require(total > 0, "no fees");
         feePool = 0;
-
         uint256 toOwner2 = (total * membershipFeeBps) / 10_000;
         uint256 toMain   = total - toOwner2;
-
         if (toOwner2 > 0 && owner2 != address(0)) {
             require(IERC20(SUSHI).transfer(owner2, toOwner2), "fee2 failed");
         } else {
@@ -384,30 +293,30 @@ contract AcuaBridgeWLD {
     // ─────────────────────────────────────────────────────────────────────────
 
     function setFlatFee(uint256 _fee) external onlyOwner {
-        emit FlatFeeChanged(flatFee, _fee);
         flatFee = _fee;
+        emit ConfigChanged("flatFee", _fee);
     }
 
     function setMinAmount(uint256 _min) external onlyOwner {
-        emit MinAmountChanged(minAmount, _min);
         minAmount = _min;
+        emit ConfigChanged("minAmount", _min);
     }
 
     function setSplitThreshold(uint256 _threshold) external onlyOwner {
-        emit SplitThresholdChanged(splitThreshold, _threshold);
         splitThreshold = _threshold;
+        emit ConfigChanged("splitThreshold", _threshold);
     }
 
     function setChunkSize(uint256 _chunk) external onlyOwner {
         require(_chunk >= minAmount, "chunk < min");
-        emit ChunkSizeChanged(chunkSize, _chunk);
         chunkSize = _chunk;
+        emit ConfigChanged("chunkSize", _chunk);
     }
 
     function setMembershipFeeBps(uint256 _bps) external onlyOwner {
         require(_bps <= 5_000, "max 50%");
-        emit MembershipFeeBpsChanged(membershipFeeBps, _bps);
         membershipFeeBps = _bps;
+        emit ConfigChanged("membershipFeeBps", _bps);
     }
 
     function setPaused(bool _paused) external onlyOwner {
@@ -418,12 +327,10 @@ contract AcuaBridgeWLD {
     function setOwner(address _owner) external {
         require(msg.sender == owner, "not main owner");
         require(_owner != address(0), "zero addr");
-        emit OwnerChanged(owner, _owner);
         owner = _owner;
     }
 
     function setOwner2(address _owner2) external onlyOwner {
-        emit Owner2Changed(owner2, _owner2);
         owner2 = _owner2;
     }
 
@@ -443,10 +350,6 @@ contract AcuaBridgeWLD {
         return _waitingList.length;
     }
 
-    function getWaitingList() external view returns (uint256[] memory) {
-        return _waitingList;
-    }
-
     function getWaitingRequests(uint256 offset, uint256 limit)
         external view returns (BridgeRequest[] memory out, uint256[] memory ids)
     {
@@ -464,15 +367,6 @@ contract AcuaBridgeWLD {
 
     function getRequest(uint256 id) external view returns (BridgeRequest memory) {
         return requests[id];
-    }
-
-    function getRequests(uint256 offset, uint256 limit) external view returns (BridgeRequest[] memory out) {
-        uint256 end = offset + limit > totalRequests ? totalRequests : offset + limit;
-        out = new BridgeRequest[](end > offset ? end - offset : 0);
-        for (uint256 i = offset; i < end; ) {
-            out[i - offset] = requests[i];
-            unchecked { ++i; }
-        }
     }
 
     function getStats() external view returns (

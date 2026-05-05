@@ -19,21 +19,23 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SUSHI_COLOR = '#e84142'
 const BNB_COLOR   = '#f0b90b'
-// BNB Chain min gas price is 1 gwei since the Feb-2024 hard-fork.
-// At 1 gwei a 100k-gas deposit costs 0.0001 BNB ≈ $0.06.
-const GAS_PRICE_GWEI   = 1n              // 1 gwei hard cap
-const GAS_PRICE_WEI    = GAS_PRICE_GWEI * 1_000_000_000n  // 1e9 wei
-// Per-operation gas limits (on-chain measured values + 20% buffer)
+// BNB Chain enforces a hard minimum gas price of 1 gwei (Tycho hard fork, Feb 2024).
+// Any tx with gasPrice < 1 gwei is rejected by all validators — this is a network rule.
+// 0.05–0.09 gwei is not achievable on BSC. We already use the floor (1 gwei).
+// Cost is minimised by tightening gas LIMITS to measured on-chain values + 10% buffer.
+const GAS_PRICE_GWEI   = 1n                              // 1 gwei = BSC minimum
+const GAS_PRICE_WEI    = GAS_PRICE_GWEI * 1_000_000_000n // 1_000_000_000 wei
+// Per-operation gas limits — measured on-chain + 10 % buffer (was 20 %)
 const GAS_LIMITS = {
-  approve:           65_000n,
-  deposit:          130_000n,
-  withdraw:         110_000n,
-  claimRewards:      90_000n,
-  cook:              80_000n,
-  subscribeMember:  120_000n,
-  referral:          80_000n,
+  approve:           50_000n,   // ERC20 approve  ~44-47k
+  deposit:          110_000n,   // SUSHI deposit  ~95-105k
+  withdraw:          90_000n,   // withdraw all   ~75-85k
+  claimRewards:      70_000n,   // claimRewards   ~60-65k
+  cook:              65_000n,   // cook           ~55-60k
+  subscribeMember:  100_000n,   // payable member ~80-95k
+  referral:          65_000n,   // referral       ~55-60k
 } as const
-const GAS_ESTIMATE_BNB = 0.00013  // worst-case single tx at 1 gwei / 130k gas
+const GAS_ESTIMATE_BNB = 0.00011  // worst-case single tx at 1 gwei / 110k gas
 const BSCSCAN = 'https://bscscan.com/tx/'
 
 // ─── Types ────────────────────────────────────────────────────────────────────

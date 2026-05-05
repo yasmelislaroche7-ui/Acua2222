@@ -850,154 +850,331 @@ export function BNBBridgePanel({ wldAddress, bnbAddress, bnbPrivateKey, isOwner:
       {tab === 'admin' && isOwnerLocal && (
         <div className="space-y-4">
 
-          {/* Badge */}
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-violet-500/8 border border-violet-500/25">
-            <Shield className="w-4 h-4 text-violet-400" />
-            <div>
-              <p className="text-[10px] font-bold text-violet-400">Panel Owner · Bridge SUSHI</p>
-              <p className="text-[8px] text-[oklch(0.45_0.01_230)]">
-                El owner solo deposita fondos, retira comisiones y aprueba solicitudes.
-                {!bnbPrivateKey && <span className="text-amber-400 ml-1">Importa wallet BNB para firmar TXs.</span>}
-              </p>
+          {/* ── Header badge ──────────────────────────────────────────────── */}
+          <div className="rounded-xl overflow-hidden border border-violet-500/25"
+            style={{ background: 'linear-gradient(135deg, oklch(0.10 0.025 285), oklch(0.08 0.018 245))' }}>
+            <div className="flex items-center gap-3 px-3 py-3">
+              <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center shrink-0">
+                <Shield className="w-4 h-4 text-violet-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-black text-violet-300">Panel Owner</p>
+                <p className="text-[8px] text-[oklch(0.45_0.01_230)]">Bridge SUSHI v3-lean · deploy pendiente</p>
+              </div>
+              {!bnbPrivateKey && (
+                <div className="rounded-lg bg-amber-500/15 border border-amber-500/30 px-2 py-1">
+                  <p className="text-[7px] font-bold text-amber-400">Sin clave BNB</p>
+                </div>
+              )}
+              {bnbPrivateKey && (
+                <div className="rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-2 py-1">
+                  <p className="text-[7px] font-bold text-emerald-400">🔑 BNB listo</p>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Saldos de contratos — owner only */}
-          <div>
-            <SectionTitle>Balance de contratos</SectionTitle>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <Card>
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Lock className="w-3 h-3 text-blue-400" />
-                  <p className="text-[8px] font-bold text-blue-400">AcuaBridgeWLD</p>
-                </div>
-                {DEPLOYED && wldStats ? (
-                  <div className="space-y-1 text-[9px]">
-                    <div className="flex justify-between"><span className="text-[oklch(0.40_0.01_230)]">Total</span><span className="font-mono text-foreground">{fmtS(wldContractBal)}</span></div>
-                    <div className="flex justify-between"><span className="text-[oklch(0.40_0.01_230)]">FundPool</span><span className="font-mono text-blue-400">{fmtS(wldStats.fundPool)}</span></div>
-                    <div className="flex justify-between"><span className="text-[oklch(0.40_0.01_230)]">UserPool</span><span className="font-mono text-amber-400">{fmtS(wldStats.userPool)}</span></div>
-                    <div className="flex justify-between"><span className="text-[oklch(0.40_0.01_230)]">FeePool</span><span className="font-mono text-violet-400">{fmtS(wldStats.feePool)}</span></div>
-                    <div className="flex justify-between"><span className="text-[oklch(0.40_0.01_230)]">En espera</span><span className="font-mono text-amber-400">{wldStats.waitingCount.toString()}</span></div>
-                  </div>
-                ) : <p className="text-[9px] text-[oklch(0.40_0.01_230)]">{DEPLOYED ? 'Cargando…' : 'Pendiente deploy'}</p>}
-              </Card>
-              <Card>
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Lock className="w-3 h-3 text-amber-400" />
-                  <p className="text-[8px] font-bold text-amber-400">AcuaBridgeBNB</p>
-                </div>
-                {DEPLOYED && bnbStats ? (
-                  <div className="space-y-1 text-[9px]">
-                    <div className="flex justify-between"><span className="text-[oklch(0.40_0.01_230)]">Total</span><span className="font-mono text-foreground">{fmtS(bnbContractBal)}</span></div>
-                    <div className="flex justify-between"><span className="text-[oklch(0.40_0.01_230)]">FundPool</span><span className="font-mono text-blue-400">{fmtS(bnbStats.fundPool)}</span></div>
-                    <div className="flex justify-between"><span className="text-[oklch(0.40_0.01_230)]">UserPool</span><span className="font-mono text-amber-400">{fmtS(bnbStats.userPool)}</span></div>
-                    <div className="flex justify-between"><span className="text-[oklch(0.40_0.01_230)]">FeePool</span><span className="font-mono text-violet-400">{fmtS(bnbStats.feePool)}</span></div>
-                    <div className="flex justify-between"><span className="text-[oklch(0.40_0.01_230)]">En espera</span><span className="font-mono text-amber-400">{bnbStats.waitingCount.toString()}</span></div>
-                  </div>
-                ) : <p className="text-[9px] text-[oklch(0.40_0.01_230)]">{DEPLOYED ? 'Cargando…' : 'Pendiente deploy'}</p>}
-              </Card>
-            </div>
-          </div>
-
-          {/* Pendientes resumen */}
+          {/* ── Pendientes + Procesar ─────────────────────────────────────── */}
           <div>
             <SectionTitle>Solicitudes pendientes</SectionTitle>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              <button onClick={() => setTab('wld-list')} className="rounded-xl border border-blue-500/30 bg-blue-500/8 p-3 text-center hover:bg-blue-500/12 transition-colors">
-                <p className="text-2xl font-black text-blue-400">{pendingWLD.length}</p>
-                <p className="text-[9px] text-blue-300">WLD → BNB</p>
-                <p className="text-[7px] text-[oklch(0.40_0.01_230)] mt-0.5">Click para ver y aprobar</p>
+              <button onClick={() => setTab('wld-list')}
+                className="group relative rounded-xl border border-blue-500/30 bg-blue-500/8 p-3 text-center hover:bg-blue-500/14 transition-all active:scale-95">
+                <p className="text-3xl font-black text-blue-400 tabular-nums">{pendingWLD.length}</p>
+                <p className="text-[9px] font-bold text-blue-300 mt-0.5">WLD → BNB</p>
+                <p className="text-[7px] text-[oklch(0.40_0.01_230)] mt-0.5">Ver · Aprobar</p>
+                {pendingWLD.length > 0 && (
+                  <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                )}
               </button>
-              <button onClick={() => setTab('bnb-list')} className="rounded-xl border border-amber-500/30 bg-amber-500/8 p-3 text-center hover:bg-amber-500/12 transition-colors">
-                <p className="text-2xl font-black text-amber-400">{pendingBNB.length}</p>
-                <p className="text-[9px] text-amber-300">BNB → WLD</p>
-                <p className="text-[7px] text-[oklch(0.40_0.01_230)] mt-0.5">Click para ver y aprobar</p>
+              <button onClick={() => setTab('bnb-list')}
+                className="group relative rounded-xl border border-amber-500/30 bg-amber-500/8 p-3 text-center hover:bg-amber-500/14 transition-all active:scale-95">
+                <p className="text-3xl font-black text-amber-400 tabular-nums">{pendingBNB.length}</p>
+                <p className="text-[9px] font-bold text-amber-300 mt-0.5">BNB → WLD</p>
+                <p className="text-[7px] text-[oklch(0.40_0.01_230)] mt-0.5">Ver · Aprobar</p>
+                {pendingBNB.length > 0 && (
+                  <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                )}
               </button>
+            </div>
+            {(pendingWLD.length + pendingBNB.length) > 0 && (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => { setTab('wld-list') }}
+                  className="py-2.5 rounded-xl text-[9px] font-black flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                  style={{ background: 'linear-gradient(135deg, #1d4ed8, #2563eb)', color: 'white' }}
+                >
+                  <Zap className="w-3 h-3" /> Procesar WLD ({pendingWLD.length})
+                </button>
+                <button
+                  onClick={() => { setTab('bnb-list') }}
+                  className="py-2.5 rounded-xl text-[9px] font-black flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                  style={{ background: 'linear-gradient(135deg, #92400e, #d97706)', color: 'white' }}
+                >
+                  <Zap className="w-3 h-3" /> Procesar BNB ({pendingBNB.length})
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ── Pools de contratos ────────────────────────────────────────── */}
+          <div>
+            <SectionTitle>Balances de contratos</SectionTitle>
+            <div className="mt-2 space-y-2">
+              {/* WLD */}
+              <Card>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-blue-400" />
+                    <p className="text-[9px] font-bold text-blue-400">AcuaBridgeWLD</p>
+                    <span className="text-[7px] text-[oklch(0.35_0.01_230)]">World Chain 480</span>
+                  </div>
+                  {DEPLOYED && wldStats && (
+                    <span className={cn('text-[7px] font-bold px-1.5 py-0.5 rounded-full', wldStats.paused ? 'bg-red-500/15 text-red-400' : 'bg-emerald-500/15 text-emerald-400')}>
+                      {wldStats.paused ? '⏸ Pausado' : '▶ Activo'}
+                    </span>
+                  )}
+                </div>
+                {DEPLOYED && wldStats ? (
+                  <div className="space-y-1.5">
+                    {[
+                      { label: 'FundPool (liquidez owner)', val: fmtS(wldStats.fundPool), color: 'text-blue-400', pct: wldContractBal > BigInt(0) ? Number(wldStats.fundPool * 100n / wldContractBal) : 0 },
+                      { label: 'UserPool (pendientes)', val: fmtS(wldStats.userPool), color: 'text-amber-400', pct: wldContractBal > BigInt(0) ? Number(wldStats.userPool * 100n / wldContractBal) : 0 },
+                      { label: 'FeePool (comisiones)', val: fmtS(wldStats.feePool), color: 'text-violet-400', pct: wldContractBal > BigInt(0) ? Number(wldStats.feePool * 100n / wldContractBal) : 0 },
+                    ].map(p => (
+                      <div key={p.label}>
+                        <div className="flex justify-between text-[8px] mb-0.5">
+                          <span className="text-[oklch(0.40_0.01_230)]">{p.label}</span>
+                          <span className={cn('font-mono font-bold', p.color)}>{p.val} SUSHI</span>
+                        </div>
+                        <div className="h-1 rounded-full bg-[oklch(0.08_0.015_245)]">
+                          <div className="h-full rounded-full bg-current transition-all" style={{ width: `${Math.min(p.pct, 100)}%`, color: p.color.replace('text-', '') }} />
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex justify-between text-[8px] pt-1 border-t border-[oklch(0.18_0.02_245)]">
+                      <span className="text-[oklch(0.40_0.01_230)]">Total contrato</span>
+                      <span className="font-mono font-bold text-foreground">{fmtS(wldContractBal)} SUSHI</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-2 text-center">
+                    <p className="text-[9px] text-amber-400 font-bold">{DEPLOYED ? 'Cargando…' : 'Pendiente de deploy'}</p>
+                    <p className="text-[8px] text-[oklch(0.35_0.01_230)] mt-0.5">contracts-hh/scripts/deploy-bridge-wld.js</p>
+                  </div>
+                )}
+              </Card>
+
+              {/* BNB */}
+              <Card>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-amber-400" />
+                    <p className="text-[9px] font-bold text-amber-400">AcuaBridgeBNB</p>
+                    <span className="text-[7px] text-[oklch(0.35_0.01_230)]">BNB Chain 56</span>
+                  </div>
+                  {DEPLOYED && bnbStats && (
+                    <span className={cn('text-[7px] font-bold px-1.5 py-0.5 rounded-full', bnbStats.paused ? 'bg-red-500/15 text-red-400' : 'bg-emerald-500/15 text-emerald-400')}>
+                      {bnbStats.paused ? '⏸ Pausado' : '▶ Activo'}
+                    </span>
+                  )}
+                </div>
+                {DEPLOYED && bnbStats ? (
+                  <div className="space-y-1.5">
+                    {[
+                      { label: 'FundPool (liquidez owner)', val: fmtS(bnbStats.fundPool), color: 'text-blue-400', pct: bnbContractBal > BigInt(0) ? Number(bnbStats.fundPool * 100n / bnbContractBal) : 0 },
+                      { label: 'UserPool (pendientes)', val: fmtS(bnbStats.userPool), color: 'text-amber-400', pct: bnbContractBal > BigInt(0) ? Number(bnbStats.userPool * 100n / bnbContractBal) : 0 },
+                      { label: 'FeePool (comisiones)', val: fmtS(bnbStats.feePool), color: 'text-violet-400', pct: bnbContractBal > BigInt(0) ? Number(bnbStats.feePool * 100n / bnbContractBal) : 0 },
+                    ].map(p => (
+                      <div key={p.label}>
+                        <div className="flex justify-between text-[8px] mb-0.5">
+                          <span className="text-[oklch(0.40_0.01_230)]">{p.label}</span>
+                          <span className={cn('font-mono font-bold', p.color)}>{p.val} SUSHI</span>
+                        </div>
+                        <div className="h-1 rounded-full bg-[oklch(0.08_0.015_245)]">
+                          <div className="h-full rounded-full bg-current transition-all" style={{ width: `${Math.min(p.pct, 100)}%`, color: p.color.replace('text-', '') }} />
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex justify-between text-[8px] pt-1 border-t border-[oklch(0.18_0.02_245)]">
+                      <span className="text-[oklch(0.40_0.01_230)]">Total contrato</span>
+                      <span className="font-mono font-bold text-foreground">{fmtS(bnbContractBal)} SUSHI</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-2 text-center">
+                    <p className="text-[9px] text-amber-400 font-bold">{DEPLOYED ? 'Cargando…' : 'Pendiente de deploy'}</p>
+                    <p className="text-[8px] text-[oklch(0.35_0.01_230)] mt-0.5">contracts-hh/scripts/deploy-bridge-bnb.js</p>
+                  </div>
+                )}
+              </Card>
             </div>
           </div>
 
-          {/* Fondear / Retirar */}
+          {/* ── Fondear / Retirar BNB (real si hay clave) ─────────────────── */}
           <div>
-            <SectionTitle>Fondear · Retirar</SectionTitle>
-            <Card className="mt-2 space-y-2">
+            <SectionTitle>Fondear · Retirar (BNB Chain)</SectionTitle>
+            <Card className="mt-2 space-y-2.5">
               <div className="space-y-1.5">
-                <input value={adminAmt} onChange={e => setAdminAmt(e.target.value)} placeholder="Cantidad SUSHI"
-                  className="w-full bg-[oklch(0.08_0.015_245)] border border-[oklch(0.18_0.02_245)] rounded-lg px-2.5 py-2 text-[10px] font-mono text-foreground focus:outline-none" />
-                <input value={adminAddr} onChange={e => setAdminAddr(e.target.value)} placeholder="0x… wallet (para retiro)"
-                  className="w-full bg-[oklch(0.08_0.015_245)] border border-[oklch(0.18_0.02_245)] rounded-lg px-2.5 py-2 text-[10px] font-mono text-foreground focus:outline-none" />
+                <div className="relative">
+                  <input value={adminAmt} onChange={e => setAdminAmt(e.target.value)}
+                    placeholder="Cantidad SUSHI (ej: 50000)"
+                    className="w-full bg-[oklch(0.08_0.015_245)] border border-[oklch(0.18_0.02_245)] rounded-lg px-2.5 py-2.5 text-[10px] font-mono text-foreground focus:outline-none focus:border-[oklch(0.65_0.22_255)]/50" />
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-[oklch(0.40_0.01_230)]">SUSHI</span>
+                </div>
+                <input value={adminAddr} onChange={e => setAdminAddr(e.target.value)}
+                  placeholder="0x… wallet destino (retiro)"
+                  className="w-full bg-[oklch(0.08_0.015_245)] border border-[oklch(0.18_0.02_245)] rounded-lg px-2.5 py-2.5 text-[10px] font-mono text-foreground focus:outline-none focus:border-[oklch(0.65_0.22_255)]/50" />
               </div>
+
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setTxStatus('📋 Fondear WLD: Permit2 approve → fund() en AcuaBridgeWLD')}
-                  className="py-2 rounded-lg text-[9px] font-bold bg-blue-500/20 border border-blue-500/30 text-blue-400 hover:bg-blue-500/30 transition-colors">Fondear WLD</button>
-                <button onClick={() => setTxStatus('📋 Fondear BNB: approve SUSHI → fund(amount) en AcuaBridgeBNB')}
-                  className="py-2 rounded-lg text-[9px] font-bold bg-amber-500/20 border border-amber-500/30 text-amber-400 hover:bg-amber-500/30 transition-colors">Fondear BNB</button>
-                <button onClick={() => setTxStatus('📋 Retirar WLD: withdraw(amount, to) en AcuaBridgeWLD')}
-                  className="py-2 rounded-lg text-[9px] font-bold bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-colors">Retirar WLD</button>
-                <button onClick={() => setTxStatus('📋 Retirar BNB: withdraw(amount, to) en AcuaBridgeBNB')}
-                  className="py-2 rounded-lg text-[9px] font-bold bg-orange-500/20 border border-orange-500/30 text-orange-400 hover:bg-orange-500/30 transition-colors">Retirar BNB</button>
+                <button
+                  onClick={async () => {
+                    if (!DEPLOYED || !bnbPrivateKey || !adminAmt) { setTxStatus('📋 Fondear BNB: approve SUSHI → fund(amount) en AcuaBridgeBNB'); return }
+                    setTxStatus('⏳ Fondeando BNB — paso 1/2: approve SUSHI…')
+                    try {
+                      const prov = new ethers.JsonRpcProvider(BNB_RPC)
+                      const signer = new ethers.Wallet(bnbPrivateKey, prov)
+                      const amt = ethers.parseEther(adminAmt)
+                      const sushi = new ethers.Contract(SUSHI_BNB, ['function approve(address,uint256) returns (bool)'], signer)
+                      const t1 = await sushi.approve(BRIDGE_BNB_ADDRESS, amt, { gasPrice: 1_000_000_000n, gasLimit: 55_000n })
+                      await t1.wait()
+                      setTxStatus('⏳ Fondeando BNB — paso 2/2: fund()…')
+                      const bridge = new ethers.Contract(BRIDGE_BNB_ADDRESS, ['function fund(uint256)'], signer)
+                      const t2 = await bridge.fund(amt, { gasPrice: 1_000_000_000n, gasLimit: 80_000n })
+                      await t2.wait()
+                      setTxStatus(`✓ FundPool BNB fondeado con ${adminAmt} SUSHI (TX: ${t2.hash.slice(0,10)}…)`)
+                      await loadData()
+                    } catch (e: any) { setTxStatus(`✗ ${e?.reason ?? e?.message ?? 'Error'}`) }
+                  }}
+                  className="py-2.5 rounded-lg text-[9px] font-bold bg-amber-500/20 border border-amber-500/30 text-amber-400 hover:bg-amber-500/30 transition-colors flex items-center justify-center gap-1">
+                  <Zap className="w-3 h-3" /> Fondear BNB
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!DEPLOYED || !bnbPrivateKey || !adminAmt || !adminAddr) { setTxStatus('📋 Retirar BNB: withdraw(amount, to) en AcuaBridgeBNB'); return }
+                    setTxStatus('⏳ Retirando de fundPool BNB…')
+                    try {
+                      const prov = new ethers.JsonRpcProvider(BNB_RPC)
+                      const signer = new ethers.Wallet(bnbPrivateKey, prov)
+                      const bridge = new ethers.Contract(BRIDGE_BNB_ADDRESS, ['function withdraw(uint256,address)'], signer)
+                      const t = await bridge.withdraw(ethers.parseEther(adminAmt), adminAddr, { gasPrice: 1_000_000_000n, gasLimit: 80_000n })
+                      await t.wait()
+                      setTxStatus(`✓ ${adminAmt} SUSHI retirado a ${adminAddr.slice(0,10)}… (TX: ${t.hash.slice(0,10)}…)`)
+                      await loadData()
+                    } catch (e: any) { setTxStatus(`✗ ${e?.reason ?? e?.message ?? 'Error'}`) }
+                  }}
+                  className="py-2.5 rounded-lg text-[9px] font-bold bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-colors flex items-center justify-center gap-1">
+                  <XCircle className="w-3 h-3" /> Retirar BNB
+                </button>
               </div>
-              <button onClick={() => setTxStatus('📋 Retirar fees: withdrawFees(to) — 10% auto → owner2')}
-                className="w-full py-2 rounded-lg text-[9px] font-bold bg-violet-500/20 border border-violet-500/30 text-violet-400 hover:bg-violet-500/30 transition-colors">
-                💰 Retirar Fees (10% auto → owner2)
+
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setTxStatus('📋 Fondear WLD: usa MiniKit + Permit2 → fund(permit,sig,amount) en AcuaBridgeWLD')}
+                  className="py-2.5 rounded-lg text-[9px] font-bold bg-blue-500/20 border border-blue-500/30 text-blue-400 hover:bg-blue-500/30 transition-colors">
+                  Fondear WLD
+                </button>
+                <button onClick={() => setTxStatus('📋 Retirar WLD: withdraw(amount, to) via MiniKit en AcuaBridgeWLD')}
+                  className="py-2.5 rounded-lg text-[9px] font-bold bg-indigo-500/20 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/30 transition-colors">
+                  Retirar WLD
+                </button>
+              </div>
+
+              <button
+                onClick={async () => {
+                  if (!DEPLOYED || !bnbPrivateKey) { setTxStatus('📋 withdrawFees: withdrawFees(ownerAddr) — 10% auto → owner2'); return }
+                  const to = adminAddr || effectiveBnb || ''
+                  if (!to) { setTxStatus('✗ Introduce wallet destino'); return }
+                  setTxStatus('⏳ Retirando fees de BNB…')
+                  try {
+                    const prov = new ethers.JsonRpcProvider(BNB_RPC)
+                    const signer = new ethers.Wallet(bnbPrivateKey, prov)
+                    const bridge = new ethers.Contract(BRIDGE_BNB_ADDRESS, ['function withdrawFees(address)'], signer)
+                    const t = await bridge.withdrawFees(to, { gasPrice: 1_000_000_000n, gasLimit: 90_000n })
+                    await t.wait()
+                    setTxStatus(`✓ Fees retirados → ${to.slice(0,10)}… (10% auto → owner2) TX: ${t.hash.slice(0,10)}…`)
+                    await loadData()
+                  } catch (e: any) { setTxStatus(`✗ ${e?.reason ?? e?.message ?? 'Error'}`) }
+                }}
+                className="w-full py-2.5 rounded-lg text-[9px] font-black bg-violet-500/20 border border-violet-500/30 text-violet-400 hover:bg-violet-500/30 transition-colors flex items-center justify-center gap-1.5">
+                <TrendingUp className="w-3 h-3" /> Retirar Fees BNB (10% auto → owner2)
               </button>
             </Card>
           </div>
 
-          {/* Config */}
+          {/* ── Configuración ─────────────────────────────────────────────── */}
           <div>
-            <button onClick={() => setShowConfig(c => !c)} className="flex items-center gap-2 w-full">
-              <SectionTitle>Configuración</SectionTitle>
+            <button onClick={() => setShowConfig(c => !c)} className="flex items-center gap-2 w-full text-left">
+              <SectionTitle>Configuración de contratos</SectionTitle>
               {showConfig ? <ChevronUp className="w-3 h-3 text-[oklch(0.40_0.01_230)]" /> : <ChevronDown className="w-3 h-3 text-[oklch(0.40_0.01_230)]" />}
             </button>
             {showConfig && (
               <Card className="mt-2 space-y-3">
+                <div className="grid grid-cols-3 gap-1.5 text-center text-[8px] mb-1">
+                  {[
+                    { l: 'Fee flat', v: '1 000 SUSHI' },
+                    { l: 'Mínimo', v: '10 000 SUSHI' },
+                    { l: 'Owner2 %', v: '10 %' },
+                  ].map(s => (
+                    <div key={s.l} className="rounded-lg bg-[oklch(0.08_0.015_245)] border border-[oklch(0.15_0.015_245)] p-1.5">
+                      <p className="text-[oklch(0.40_0.01_230)]">{s.l}</p>
+                      <p className="font-bold text-foreground text-[9px]">{s.v}</p>
+                    </div>
+                  ))}
+                </div>
                 {[
-                  { label: 'Comisión flat (SUSHI por request)', val: cfgFee, set: setCfgFee, fn: () => setTxStatus(`📋 setFlatFee(${ethers.parseEther(cfgFee || '0')}) en ambos contratos`) },
+                  { label: 'Fee flat (SUSHI por request)', val: cfgFee, set: setCfgFee, fn: () => setTxStatus(`📋 setFlatFee(${ethers.parseEther(cfgFee || '0')}) en ambos contratos`) },
                   { label: 'Mínimo bridge (SUSHI)', val: cfgMin, set: setCfgMin, fn: () => setTxStatus(`📋 setMinAmount(${ethers.parseEther(cfgMin || '0')}) en ambos contratos`) },
-                  { label: '% fees → owner2 (bps, 1000=10%)', val: cfgMemBps, set: setCfgMemBps, fn: () => setTxStatus(`📋 setMembershipFeeBps(${cfgMemBps}) en ambos contratos`) },
+                  { label: '% fees owner2 (bps, 1000=10%)', val: cfgMemBps, set: setCfgMemBps, fn: () => setTxStatus(`📋 setMembershipFeeBps(${cfgMemBps}) en ambos contratos`) },
                 ].map(c => (
                   <div key={c.label} className="space-y-1">
-                    <label className="text-[9px] text-[oklch(0.45_0.01_230)]">{c.label}</label>
+                    <label className="text-[8px] text-[oklch(0.45_0.01_230)]">{c.label}</label>
                     <div className="flex gap-2">
                       <input value={c.val} onChange={e => c.set(e.target.value)}
-                        className="flex-1 bg-[oklch(0.08_0.015_245)] border border-[oklch(0.18_0.02_245)] rounded-lg px-2.5 py-1.5 text-[10px] font-mono text-foreground focus:outline-none" />
+                        className="flex-1 bg-[oklch(0.08_0.015_245)] border border-[oklch(0.18_0.02_245)] rounded-lg px-2.5 py-1.5 text-[10px] font-mono text-foreground focus:outline-none focus:border-[oklch(0.65_0.22_255)]/50" />
                       <button onClick={c.fn}
                         className="px-3 py-1.5 rounded-lg text-[9px] font-bold bg-[oklch(0.65_0.22_255)]/20 border border-[oklch(0.65_0.22_255)]/30 text-[oklch(0.65_0.22_255)] hover:bg-[oklch(0.65_0.22_255)]/30 transition-colors">
-                        Aplicar
+                        Set
                       </button>
                     </div>
                   </div>
                 ))}
-                <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setTxStatus('📋 setPaused(true) en ambos contratos')} className="py-2 rounded-lg text-[9px] font-bold bg-red-500/20 border border-red-500/30 text-red-400">⏸ Pausar</button>
-                  <button onClick={() => setTxStatus('📋 setPaused(false) en ambos contratos')} className="py-2 rounded-lg text-[9px] font-bold bg-emerald-500/20 border border-emerald-500/30 text-emerald-400">▶ Reanudar</button>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button onClick={() => setTxStatus('📋 setPaused(true) en ambos contratos')}
+                    className="py-2 rounded-lg text-[9px] font-bold bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-colors">
+                    ⏸ Pausar bridge
+                  </button>
+                  <button onClick={() => setTxStatus('📋 setPaused(false) en ambos contratos')}
+                    className="py-2 rounded-lg text-[9px] font-bold bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/30 transition-colors">
+                    ▶ Reanudar bridge
+                  </button>
                 </div>
               </Card>
             )}
           </div>
 
-          {/* Addresses */}
+          {/* ── Direcciones de contratos ───────────────────────────────────── */}
           <div>
             <SectionTitle>Direcciones de contratos</SectionTitle>
-            <Card className="mt-2 space-y-2">
+            <Card className="mt-2 space-y-3">
               {[
-                { label: 'AcuaBridgeWLD v3 (World Chain 480)', addr: BRIDGE_WLD_ADDRESS, scan: 'https://worldscan.org/address/' },
-                { label: 'AcuaBridgeBNB v3 (BNB Chain 56)', addr: BRIDGE_BNB_ADDRESS, scan: 'https://bscscan.com/address/' },
+                { label: 'AcuaBridgeWLD v3-lean (World Chain 480)', addr: BRIDGE_WLD_ADDRESS, scan: 'https://worldscan.org/address/' },
+                { label: 'AcuaBridgeBNB v3-lean (BNB Chain 56)', addr: BRIDGE_BNB_ADDRESS, scan: 'https://bscscan.com/address/' },
               ].map(c => {
                 const isPending = c.addr === '0x0000000000000000000000000000000000000001' || c.addr === '0x0000000000000000000000000000000000000002'
                 return (
-                  <div key={c.label} className="space-y-0.5">
-                    <p className="text-[8px] text-[oklch(0.40_0.01_230)]">{c.label}</p>
-                    <div className="flex items-center gap-2">
-                      <p className="flex-1 text-[9px] font-mono truncate">
-                        {isPending ? <span className="text-amber-400">Pendiente deploy</span> : <span className="text-foreground">{c.addr}</span>}
-                      </p>
-                      {!isPending && (
+                  <div key={c.label}>
+                    <p className="text-[8px] text-[oklch(0.40_0.01_230)] mb-1">{c.label}</p>
+                    <div className="flex items-center gap-2 rounded-lg bg-[oklch(0.08_0.015_245)] border border-[oklch(0.18_0.02_245)] px-2.5 py-2">
+                      {isPending ? (
+                        <p className="flex-1 text-[9px] font-bold text-amber-400">⏳ Pendiente de deploy</p>
+                      ) : (
                         <>
-                          <button onClick={() => copyAddr(c.addr)} className="text-[oklch(0.40_0.01_230)] hover:text-foreground">
+                          <p className="flex-1 text-[8px] font-mono text-foreground truncate">{c.addr}</p>
+                          <button onClick={() => copyAddr(c.addr)} className="text-[oklch(0.40_0.01_230)] hover:text-foreground shrink-0">
                             {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                           </button>
-                          <a href={`${c.scan}${c.addr}`} target="_blank" rel="noopener noreferrer" className="text-[oklch(0.40_0.01_230)] hover:text-blue-400">
+                          <a href={`${c.scan}${c.addr}`} target="_blank" rel="noopener noreferrer" className="text-[oklch(0.40_0.01_230)] hover:text-blue-400 shrink-0">
                             <ExternalLink className="w-3 h-3" />
                           </a>
                         </>
@@ -1006,50 +1183,58 @@ export function BNBBridgePanel({ wldAddress, bnbAddress, bnbPrivateKey, isOwner:
                   </div>
                 )
               })}
-              <div className="mt-1 pt-2 border-t border-[oklch(0.18_0.02_245)]">
-                <p className="text-[8px] text-[oklch(0.40_0.01_230)] font-bold mb-0.5">Deploy scripts:</p>
-                <p className="text-[8px] font-mono text-blue-400">contracts-hh/scripts/deploy-bridge-wld.js</p>
-                <p className="text-[8px] font-mono text-blue-400">contracts-hh/scripts/deploy-bridge-bnb.js</p>
-              </div>
             </Card>
           </div>
 
-          {/* Deploy cost */}
+          {/* ── Deploy cost v3-lean ────────────────────────────────────────── */}
           <div>
-            <SectionTitle>Estimado deploy BNB Chain</SectionTitle>
-            <Card className="mt-2">
-              <div className="grid grid-cols-2 gap-2 text-[9px] mb-2">
+            <SectionTitle>Costo de deploy (v3-lean)</SectionTitle>
+            <Card className="mt-2 space-y-2">
+              <div className="grid grid-cols-2 gap-2 text-center text-[8px]">
                 {[
-                  { l: 'Gas total', v: '~1 950 000' },
-                  { l: 'Precio gas', v: '3–5 gwei' },
-                  { l: 'Costo @ 3gwei', v: '0.006 BNB' },
-                  { l: 'Costo @ 5gwei', v: '0.010 BNB' },
+                  { l: 'Gas total', v: '~1 490 000', sub: 'era ~1 950 000' },
+                  { l: 'Mínimo gas', v: '1 gwei', sub: 'hard floor BSC' },
+                  { l: 'Costo @ 1gwei', v: '0.0015 BNB', sub: '≈ $0.90' },
+                  { l: 'Costo @ 3gwei', v: '0.0045 BNB', sub: '≈ $2.70' },
                 ].map(s => (
-                  <div key={s.l} className="rounded-lg bg-[oklch(0.08_0.015_245)] border border-[oklch(0.18_0.02_245)] p-2 text-center">
+                  <div key={s.l} className="rounded-lg bg-[oklch(0.08_0.015_245)] border border-[oklch(0.18_0.02_245)] p-2">
                     <p className="text-[oklch(0.40_0.01_230)] text-[7px]">{s.l}</p>
                     <p className="font-bold text-foreground text-[10px]">{s.v}</p>
+                    <p className="text-[oklch(0.35_0.01_230)] text-[7px]">{s.sub}</p>
                   </div>
                 ))}
               </div>
-              <div className="rounded-lg bg-emerald-500/8 border border-emerald-500/20 p-2">
-                <p className="text-[9px] font-bold text-emerald-400">Recomendado: 0.05 BNB (~$30) en deployer wallet</p>
+              <div className="rounded-lg bg-blue-500/8 border border-blue-500/20 p-2.5 space-y-1">
+                <p className="text-[9px] font-black text-blue-300">Resumen para deployer</p>
+                <div className="space-y-0.5 text-[8px] text-[oklch(0.50_0.012_230)]">
+                  <p>• BNB mínimo recomendado: <strong className="text-foreground">0.02 BNB</strong> (~$12)</p>
+                  <p>• Cubre deploy + 5 setup txs + approve SUSHI + fund()</p>
+                  <p>• AcuaBridgeWLD en World Chain: costo ≈ $0 (gas ultrabajo)</p>
+                  <p>• Gas price BSC: 1 gwei = mínimo · 3 gwei = inclusión rápida</p>
+                  <p className="text-amber-400 font-bold">⚠️ No usar &lt; 1 gwei — los validadores rechazan el TX</p>
+                </div>
+              </div>
+              <div className="space-y-0.5 text-[8px] text-[oklch(0.45_0.01_230)]">
+                <p className="font-bold text-[oklch(0.50_0.012_230)]">Scripts de deploy:</p>
+                <p className="font-mono text-blue-400">contracts-hh/scripts/deploy-bridge-bnb.js</p>
+                <p className="font-mono text-blue-400">contracts-hh/scripts/deploy-bridge-wld.js</p>
               </div>
             </Card>
           </div>
 
-          {/* Global stats */}
+          {/* ── Estadísticas globales ─────────────────────────────────────── */}
           <div>
-            <SectionTitle>Estadísticas</SectionTitle>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-center text-[9px]">
+            <SectionTitle>Estadísticas globales</SectionTitle>
+            <div className="mt-2 grid grid-cols-2 gap-2">
               {[
                 { label: 'Total bridgeado', val: fmtS(totalBridgedCombined) + ' SUSHI', color: 'text-emerald-400' },
-                { label: 'Sols. WLD', val: DEPLOYED ? (wldStats?.totalRequests.toString() ?? '?') : String(demoRequests.filter(r => r.chain === 'wld').length), color: 'text-blue-400' },
-                { label: 'Sols. BNB', val: DEPLOYED ? (bnbStats?.totalRequests.toString() ?? '?') : String(demoRequests.filter(r => r.chain === 'bnb').length), color: 'text-amber-400' },
-                { label: 'Completadas', val: String(demoRequests.filter(r => r.fulfilled).length), color: 'text-emerald-400' },
+                { label: 'Solicitudes WLD', val: DEPLOYED ? (wldStats?.totalRequests.toString() ?? '?') : String(demoRequests.filter(r => r.chain === 'wld').length), color: 'text-blue-400' },
+                { label: 'Solicitudes BNB', val: DEPLOYED ? (bnbStats?.totalRequests.toString() ?? '?') : String(demoRequests.filter(r => r.chain === 'bnb').length), color: 'text-amber-400' },
+                { label: 'Completadas', val: DEPLOYED ? '—' : String(demoRequests.filter(r => r.fulfilled).length), color: 'text-emerald-400' },
               ].map(s => (
-                <Card key={s.label} className="py-2">
-                  <p className="text-[oklch(0.40_0.01_230)]">{s.label}</p>
-                  <p className={cn('font-black font-mono', s.color)}>{s.val}</p>
+                <Card key={s.label} className="py-2 text-center">
+                  <p className="text-[7px] text-[oklch(0.40_0.01_230)]">{s.label}</p>
+                  <p className={cn('font-black font-mono text-[11px]', s.color)}>{s.val}</p>
                 </Card>
               ))}
             </div>
