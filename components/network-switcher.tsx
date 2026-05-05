@@ -14,12 +14,13 @@ interface NetworkSwitcherProps {
   onSwitch: (n: NetworkId) => void
   bnbAddress: string | null
   onBnbAddressChange?: (addr: string | null) => void
+  onBnbKeyChange?: (key: string | null) => void
 }
 
 interface NetBalance { loading: boolean; value: bigint | null }
 
 export function NetworkSwitcher({
-  address, activeNetwork, onSwitch, bnbAddress, onBnbAddressChange,
+  address, activeNetwork, onSwitch, bnbAddress, onBnbAddressChange, onBnbKeyChange,
 }: NetworkSwitcherProps) {
   const [open, setOpen]             = useState(false)
   const [balances, setBalances]     = useState<Record<NetworkId, NetBalance>>({
@@ -61,6 +62,7 @@ export function NetworkSwitcher({
 
   const handleDeleteImported = () => {
     onBnbAddressChange?.(null)
+    onBnbKeyChange?.(null)
     setConfirmDelete(false)
     setOpen(false)
     showToast('✓ Wallet importada eliminada')
@@ -275,8 +277,9 @@ export function NetworkSwitcher({
 
               {/* Import / manage wallet */}
               <WalletManager
-                onImport={(addr, _key) => {
+                onImport={(addr, key) => {
                   onBnbAddressChange?.(addr)
+                  onBnbKeyChange?.(key)
                   setOpen(false)
                   onSwitch('bnb')
                   showToast(`✓ Wallet importada: ${addr.slice(0,8)}…${addr.slice(-4)}`)

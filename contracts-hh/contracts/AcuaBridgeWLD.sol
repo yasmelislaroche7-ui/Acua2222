@@ -10,34 +10,36 @@ interface IERC20 {
 }
 
 /**
- * @title AcuaBridgeWLD v2
+ * @title AcuaBridgeWLD v3
  * @notice Bridge SUSHI World Chain ↔ BNB Chain — lado World Chain.
  *
  * FLUJO WLD→BNB  (usuario quiere SUSHI en BNB):
- *   1. Usuario llama deposit(permit, sig, amount, destAddr).
- *   2. SUSHI queda bloqueado en el contrato (userPool).
- *   3. Se emite RequestCreated y el ID entra en waitingList.
- *   4. Owner ve la lista y llama fulfill(id, bnbTxHash) después de enviar en BNB.
- *   5. Si liquidez disponible en BNB → processFromFund en BNB; si no → P2P.
+ *   1. Usuario llama deposit(permit, sig, amount, destBNBAddr).
+ *   2. SUSHI entra al contrato (userPool).  Fee → feePool.
+ *   3. Se emite RequestCreated con un ID único.
+ *   4. Owner ve la lista; hace click "Aprobar" en el panel.
+ *   5. Panel lee automáticamente req.destAddress y req.net.
+ *   6. Panel envía TX en BNB: BNBContract.releaseToUser(destAddress, net).
+ *   7. Panel llama aquí: markFulfilled(id)  →  userPool -= amount, fundPool += net.
+ *      El SUSHI queda en el contrato como liquidez para el sentido inverso.
  *
- * FLUJO BNB→WLD  (usuario quiere SUSHI en WLD):
- *   1. Owner recibe SUSHI en BNB (vía AcuaBridgeBNB.deposit).
- *   2. Owner llama release(user, amount) aquí → SUSHI llega al usuario.
- *   3. Para release usa fundPool (liquidez propia) o releaseFromUsers (P2P offset).
+ * FLUJO BNB→WLD  (usuario quiere SUSHI en World Chain):
+ *   1. Usuario deposita en AcuaBridgeBNB; destAddress = wallet WLD.
+ *   2. Owner hace click "Aprobar" en el panel.
+ *   3. Panel lee automáticamente req.destAddress y req.net del contrato BNB.
+ *   4. Panel llama aquí: releaseToUser(destAddress, net)  →  fundPool -= net, transfer.
+ *   5. Panel llama en BNB: BNBContract.markFulfilled(id).
  *
- * SPLIT AUTOMÁTICO  (>100 000 SUSHI):
- *   - deposit() acepta cualquier monto; si supera splitThreshold crea sub-requests
- *     de chunkSize automáticamente para facilitar el proceso manual.
+ * SPLIT AUTOMÁTICO  (>splitThreshold SUSHI):
+ *   - deposit() crea sub-requests de chunkSize automáticamente.
  *
  * COMISIÓN FLAT:
- *   - flatFee SUSHI por cada sub-request (mínimo minAmount).
- *   - membershipFeeBps: % de los fees totales destinado a owner2 (default 10%).
+ *   - flatFee SUSHI por sub-request.  membershipFeeBps % → owner2 al retirar fees.
  *
- * POOLS SEPARADOS:
- *   - fundPool:   SUSHI pre-fondeado por owners.
- *   - userPool:   SUSHI bloqueado de usuarios WLD→BNB pendientes.
- *   - feePool:    Fees acumulados (owner los retira con withdrawFees).
- *   - totalBridged: contador público acumulado.
+ * POOLS:
+ *   - fundPool:    SUSHI fondeado por owner (o acumulado de WLD→BNB procesados).
+ *   - userPool:    SUSHI bloqueado de solicitudes WLD→BNB pendientes.
+ *   - feePool:     Fees acumulados.
  */
 contract AcuaBridgeWLD {
 
@@ -48,47 +50,47 @@ contract AcuaBridgeWLD {
 
     address public immutable SUSHI;
 
-    // ── Config ───────────────────────────────────────────────────────────────
-    uint256 public flatFee        = 1_000 * 1e18;    // 1 000 SUSHI por sub-request
-    uint256 public minAmount      = 10_000 * 1e18;   // mínimo por sub-request
-    uint256 public splitThreshold = 100_000 * 1e18;  // si supera → auto-split
-    uint256 public chunkSize      = 10_000 * 1e18;   // tamaño de cada chunk
-    uint256 public membershipFeeBps = 1_000;          // 10% → owner2 (de los fees)
+    // ── Config ────────────────────────────────────────────────────────────────
+    uint256 public flatFee          = 1_000 * 1e18;
+    uint256 public minAmount        = 10_000 * 1e18;
+    uint256 public splitThreshold   = 100_000 * 1e18;
+    uint256 public chunkSize        = 10_000 * 1e18;
+    uint256 public membershipFeeBps = 1_000;  // 10% → owner2
     bool    public paused;
 
     // ── Pools ─────────────────────────────────────────────────────────────────
-    uint256 public fundPool;    // SUSHI fondeado por owners
-    uint256 public userPool;    // SUSHI bloqueado de usuarios pendientes WLD→BNB
-    uint256 public feePool;     // Fees acumulados pendientes de retiro
-    uint256 public totalBridged; // acumulado total procesado (lifetime)
+    uint256 public fundPool;
+    uint256 public userPool;
+    uint256 public feePool;
+    uint256 public totalBridged;
     uint256 public totalVolume;
     uint256 public totalFeesCollected;
 
     // ── Request ───────────────────────────────────────────────────────────────
     struct BridgeRequest {
         address user;
-        address destAddress;  // wallet en BNB
-        uint256 amount;       // gross del chunk
-        uint256 fee;          // flatFee cobrado
-        uint256 net;          // amount - fee
+        address destAddress; // wallet destino en BNB (o WLD si es inverso)
+        uint256 amount;
+        uint256 fee;
+        uint256 net;
         uint256 createdAt;
         bool    fulfilled;
         bool    cancelled;
-        uint256 parentId;     // 0 = sin parent; >0 = chunk de un deposit grande
+        uint256 parentId;
     }
 
     mapping(uint256 => BridgeRequest) public requests;
     uint256 public totalRequests;
 
     // ── Waiting list ──────────────────────────────────────────────────────────
-    uint256[] private _waitingList;                       // IDs pendientes
-    mapping(uint256 => uint256) private _waitingIndex;    // id → índice+1 en _waitingList
+    uint256[] private _waitingList;
+    mapping(uint256 => uint256) private _waitingIndex;
 
     // ── Events ────────────────────────────────────────────────────────────────
     event RequestCreated(uint256 indexed id, address indexed user, address indexed destAddress, uint256 amount, uint256 fee, uint256 net, uint256 parentId);
-    event RequestFulfilled(uint256 indexed id, string bnbTxHash);
+    event RequestFulfilled(uint256 indexed id);
     event RequestCancelled(uint256 indexed id, address user, uint256 refund);
-    event Released(address indexed user, uint256 amount, string source);
+    event ReleasedToUser(address indexed dest, uint256 amount, string source);
     event Funded(address indexed from, uint256 amount);
     event Withdrawn(address indexed to, uint256 amount);
     event FeesWithdrawn(address indexed to, uint256 amount, uint256 toOwner2);
@@ -119,10 +121,8 @@ contract AcuaBridgeWLD {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @notice Deposita SUSHI para bridge hacia BNB (usa Permit2 — gasless approve).
-     *   Si amount > splitThreshold → se crean varios sub-requests de chunkSize.
-     *   Si amount <= splitThreshold → se crea un solo request.
-     *   Cada sub-request cobra flatFee.  Mínimo por chunk: minAmount.
+     * @notice Deposita SUSHI via Permit2 (gasless). destAddress = wallet en BNB.
+     *   Si amount > splitThreshold → sub-requests automáticos de chunkSize.
      */
     function deposit(
         IPermit2.PermitTransferFrom calldata permit,
@@ -135,7 +135,6 @@ contract AcuaBridgeWLD {
         require(permit.permitted.amount >= amount, "permit amount low");
         require(destAddress != address(0), "zero dest");
 
-        // Pull tokens una sola vez
         IPermit2(PERMIT2).permitTransferFrom(
             permit,
             IPermit2.SignatureTransferDetails({ to: address(this), requestedAmount: amount }),
@@ -154,23 +153,21 @@ contract AcuaBridgeWLD {
 
     function _createSplit(address user, address dest, uint256 total) internal returns (uint256 firstId) {
         uint256 remaining = total;
-        uint256 parentId  = type(uint256).max; // centinela antes del primer chunk
         bool    isFirst   = true;
 
         while (remaining >= minAmount) {
             uint256 chunk = remaining > chunkSize ? chunkSize : remaining;
             uint256 id    = _createRequest(user, dest, chunk, isFirst ? 0 : firstId);
-            if (isFirst) { firstId = id; parentId = id; isFirst = false; }
+            if (isFirst) { firstId = id; isFirst = false; }
             remaining -= chunk;
         }
-        // Resto menor a minAmount: devolverlo al usuario
         if (remaining > 0) {
             require(IERC20(SUSHI).transfer(user, remaining), "refund failed");
         }
     }
 
     function _createRequest(address user, address dest, uint256 amount, uint256 parentId) internal returns (uint256 id) {
-        uint256 fee = amount >= flatFee ? flatFee : amount / 10; // fallback 10% si fee > amount
+        uint256 fee = amount >= flatFee ? flatFee : amount / 10;
         require(amount > fee, "fee exceeds amount");
         uint256 net = amount - fee;
 
@@ -198,86 +195,101 @@ contract AcuaBridgeWLD {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // OWNER: fulfillment / release / cancel
+    // OWNER: marcar WLD→BNB como completado (después de enviar en BNB)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @notice Marca una solicitud WLD→BNB como completada.
-     *   Llamar DESPUÉS de haber enviado los SUSHI en BNB.
+     * @notice Marca una solicitud WLD→BNB como procesada.
+     *   El SUSHI del usuario queda en el contrato (fundPool) como liquidez
+     *   disponible para futuras solicitudes BNB→WLD. Sin hash de TX.
      */
-    function fulfill(uint256 id, string calldata bnbTxHash) external onlyOwner {
+    function markFulfilled(uint256 id) external onlyOwner {
         BridgeRequest storage req = requests[id];
         require(!req.fulfilled && !req.cancelled, "already done");
         req.fulfilled = true;
         _removeFromWaiting(id);
         unchecked {
-            userPool    -= req.amount;
+            userPool     -= req.amount;
+            fundPool     += req.net;   // net queda como liquidez para BNB→WLD
             totalBridged += req.net;
         }
-        emit RequestFulfilled(id, bnbTxHash);
+        emit RequestFulfilled(id);
     }
 
     /**
-     * @notice Procesa múltiples solicitudes WLD→BNB de una vez.
+     * @notice Marca múltiples solicitudes WLD→BNB como procesadas en un solo TX.
      */
-    function fulfillBatch(uint256[] calldata ids, string calldata bnbTxHash) external onlyOwner {
+    function markFulfilledBatch(uint256[] calldata ids) external onlyOwner {
         for (uint256 i; i < ids.length; ) {
             BridgeRequest storage req = requests[ids[i]];
             if (!req.fulfilled && !req.cancelled) {
                 req.fulfilled = true;
                 _removeFromWaiting(ids[i]);
                 unchecked {
-                    userPool    -= req.amount;
+                    userPool     -= req.amount;
+                    fundPool     += req.net;
                     totalBridged += req.net;
                 }
-                emit RequestFulfilled(ids[i], bnbTxHash);
+                emit RequestFulfilled(ids[i]);
             }
             unchecked { ++i; }
         }
     }
 
-    /**
-     * @notice Cancela una solicitud WLD→BNB y devuelve SUSHI al usuario.
-     */
-    function cancel(uint256 id) external onlyOwner {
-        BridgeRequest storage req = requests[id];
-        require(!req.fulfilled && !req.cancelled, "already done");
-        req.cancelled = true;
-        _removeFromWaiting(id);
-        uint256 refund = req.amount; // devuelve TODO (incluyendo fee) al usuario
-        unchecked { userPool -= req.amount; }
-        require(IERC20(SUSHI).transfer(req.user, refund), "refund failed");
-        emit RequestCancelled(id, req.user, refund);
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // OWNER: liberar SUSHI en WLD a usuario (viene BNB→WLD)
+    // El panel lee automáticamente destAddress y net del contrato BNB.
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @notice Libera SUSHI en WLD a un usuario (viene BNB→WLD).
-     *   Usa el fundPool (liquidez del owner).
+     * @notice Envía SUSHI desde fundPool al usuario WLD (BNB→WLD).
+     *   destAddress y amount los lee el panel del contrato BNB automáticamente.
+     *   El owner solo hace click "Aprobar" — no tipea nada.
      */
-    function releaseFromFund(address user, uint256 amount) external onlyOwner notPaused {
-        require(user != address(0), "zero addr");
+    function releaseToUser(address dest, uint256 amount) external onlyOwner notPaused {
+        require(dest != address(0), "zero addr");
         require(fundPool >= amount, "insufficient fund pool");
         unchecked { fundPool -= amount; }
-        require(IERC20(SUSHI).transfer(user, amount), "transfer failed");
-        emit Released(user, amount, "fund");
+        require(IERC20(SUSHI).transfer(dest, amount), "transfer failed");
+        unchecked { totalBridged += amount; }
+        emit ReleasedToUser(dest, amount, "fund");
     }
 
     /**
-     * @notice Libera SUSHI en WLD usando el userPool (P2P offset).
-     *   Se usa cuando hay usuarios WLD→BNB cuyos SUSHI sirven para pagar BNB→WLD.
-     *   ids[] = solicitudes WLD→BNB que se marcan fulfilled simultáneamente.
-     *   La suma de sus .amount debe cubrir amount.
+     * @notice Libera a múltiples usuarios BNB→WLD en un solo TX.
      */
-    function releaseFromUsers(
-        address user,
-        uint256 amount,
-        uint256[] calldata wldToBnbIds,
-        string calldata bnbTxHash
+    function releaseToUserBatch(
+        address[] calldata dests,
+        uint256[] calldata amounts
     ) external onlyOwner notPaused {
-        require(user != address(0), "zero addr");
+        require(dests.length == amounts.length, "length mismatch");
+        for (uint256 i; i < dests.length; ) {
+            require(dests[i] != address(0), "zero addr");
+            uint256 amt = amounts[i];
+            require(fundPool >= amt, "insufficient fund pool");
+            unchecked { fundPool -= amt; }
+            require(IERC20(SUSHI).transfer(dests[i], amt), "transfer failed");
+            unchecked { totalBridged += amt; }
+            emit ReleasedToUser(dests[i], amt, "fund-batch");
+            unchecked { ++i; }
+        }
+    }
+
+    /**
+     * @notice P2P: usa SUSHI del userPool (de WLD→BNB pendientes) para pagar
+     *   a usuarios BNB→WLD. Marca las solicitudes WLD→BNB como completadas.
+     *   El panel selecciona automáticamente los IDs a consumir.
+     *   dest = dirección WLD del usuario BNB→WLD.
+     *   wldToBnbIds = IDs de solicitudes WLD→BNB cuyos fondos se utilizan.
+     */
+    function processP2P(
+        address dest,
+        uint256 amount,
+        uint256[] calldata wldToBnbIds
+    ) external onlyOwner notPaused {
+        require(dest != address(0), "zero addr");
         require(userPool >= amount, "insufficient user pool");
 
-        // Marcar como fulfilled las solicitudes WLD→BNB consumidas
         uint256 covered;
         for (uint256 i; i < wldToBnbIds.length; ) {
             BridgeRequest storage req = requests[wldToBnbIds[i]];
@@ -288,34 +300,29 @@ contract AcuaBridgeWLD {
                     covered      += req.amount;
                     totalBridged += req.net;
                 }
-                emit RequestFulfilled(wldToBnbIds[i], bnbTxHash);
+                emit RequestFulfilled(wldToBnbIds[i]);
             }
             unchecked { ++i; }
         }
         require(covered >= amount, "covered < amount");
 
         unchecked { userPool -= amount; }
-        require(IERC20(SUSHI).transfer(user, amount), "transfer failed");
-        emit Released(user, amount, "users-p2p");
+        require(IERC20(SUSHI).transfer(dest, amount), "transfer failed");
+        emit ReleasedToUser(dest, amount, "p2p");
     }
 
     /**
-     * @notice Lanzar release a múltiples usuarios en un solo tx.
+     * @notice Cancela una solicitud y devuelve SUSHI al usuario.
      */
-    function releaseBatch(
-        address[] calldata users,
-        uint256[] calldata amounts
-    ) external onlyOwner notPaused {
-        require(users.length == amounts.length, "length mismatch");
-        for (uint256 i; i < users.length; ) {
-            require(users[i] != address(0), "zero addr");
-            uint256 amt = amounts[i];
-            require(fundPool >= amt, "insufficient fund pool");
-            unchecked { fundPool -= amt; }
-            require(IERC20(SUSHI).transfer(users[i], amt), "transfer failed");
-            emit Released(users[i], amt, "fund-batch");
-            unchecked { ++i; }
-        }
+    function cancel(uint256 id) external onlyOwner {
+        BridgeRequest storage req = requests[id];
+        require(!req.fulfilled && !req.cancelled, "already done");
+        req.cancelled = true;
+        _removeFromWaiting(id);
+        uint256 refund = req.amount;
+        unchecked { userPool -= req.amount; }
+        require(IERC20(SUSHI).transfer(req.user, refund), "refund failed");
+        emit RequestCancelled(id, req.user, refund);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -348,14 +355,12 @@ contract AcuaBridgeWLD {
 
     function withdrawAll(address to) external onlyOwner {
         uint256 amt = fundPool;
+        require(amt > 0, "empty");
         fundPool = 0;
         require(IERC20(SUSHI).transfer(to, amt), "transfer failed");
         emit Withdrawn(to, amt);
     }
 
-    /**
-     * @notice Retira fees acumulados.  membershipFeeBps % va a owner2.
-     */
     function withdrawFees(address to) external onlyOwner {
         require(to != address(0), "zero addr");
         uint256 total = feePool;
@@ -368,7 +373,7 @@ contract AcuaBridgeWLD {
         if (toOwner2 > 0 && owner2 != address(0)) {
             require(IERC20(SUSHI).transfer(owner2, toOwner2), "fee2 failed");
         } else {
-            toMain += toOwner2; // si no hay owner2, todo al caller
+            toMain += toOwner2;
         }
         require(IERC20(SUSHI).transfer(to, toMain), "fee failed");
         emit FeesWithdrawn(to, toMain, toOwner2);
@@ -430,7 +435,6 @@ contract AcuaBridgeWLD {
         return addr == owner || addr == owner2;
     }
 
-    /// @notice Balance total del contrato (userPool + fundPool + feePool deben sumar esto)
     function contractBalance() external view returns (uint256) {
         return IERC20(SUSHI).balanceOf(address(this));
     }
@@ -443,7 +447,6 @@ contract AcuaBridgeWLD {
         return _waitingList;
     }
 
-    /// @notice Devuelve datos completos de los requests pendientes (paginado)
     function getWaitingRequests(uint256 offset, uint256 limit)
         external view returns (BridgeRequest[] memory out, uint256[] memory ids)
     {
@@ -499,17 +502,17 @@ contract AcuaBridgeWLD {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // INTERNAL: waiting list helpers (O(1) remove via swap-and-pop)
+    // INTERNAL: waiting list O(1) remove
     // ─────────────────────────────────────────────────────────────────────────
 
     function _addToWaiting(uint256 id) internal {
-        _waitingIndex[id] = _waitingList.length + 1; // 1-based
+        _waitingIndex[id] = _waitingList.length + 1;
         _waitingList.push(id);
     }
 
     function _removeFromWaiting(uint256 id) internal {
         uint256 idx1 = _waitingIndex[id];
-        if (idx1 == 0) return; // no estaba en la lista
+        if (idx1 == 0) return;
         uint256 idx  = idx1 - 1;
         uint256 last = _waitingList[_waitingList.length - 1];
         _waitingList[idx] = last;

@@ -74,9 +74,10 @@ function MembershipBadge({ tier }: { tier: number }) {
 
 interface BNBSushiPanelProps {
   bnbAddress: string | null
+  bnbPrivateKey?: string | null
 }
 
-export function BNBSushiPanel({ bnbAddress }: BNBSushiPanelProps) {
+export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps) {
   const { lang } = useLang()
   const [info, setInfo] = useState<StakeInfo | null>(null)
   const [loading, setLoading] = useState(false)
@@ -150,12 +151,11 @@ export function BNBSushiPanel({ bnbAddress }: BNBSushiPanelProps) {
     }
   }
 
-  const getSigner = async () => {
+  const getSigner = async (): Promise<ethers.Wallet> => {
+    if (!bnbAddress) throw new Error('No BNB wallet conectada')
+    if (!bnbPrivateKey) throw new Error('Importa tu wallet BNB con clave privada en el selector de redes (esquina superior derecha)')
     const provider = new ethers.JsonRpcProvider(BNB_RPC)
-    if (!bnbAddress) throw new Error('No BNB wallet')
-    // For imported wallets, we'd use the private key stored in context
-    // This is a frontend-only implementation
-    throw new Error('Necesitas conectar tu wallet BNB con clave privada importada')
+    return new ethers.Wallet(bnbPrivateKey, provider)
   }
 
   const isCooking = info ? info.cookingUntil > Math.floor(Date.now() / 1000) : false

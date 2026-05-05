@@ -454,6 +454,7 @@ export default function AcuaApp() {
   const [isNewOwner, setIsNewOwner]   = useState(false)
   const [activeNetwork, setActiveNetwork] = useState<NetworkId>('wld')
   const [bnbAddress, setBnbAddress]   = useState<string | null>(null)
+  const [bnbPrivateKey, setBnbPrivateKey] = useState<string | null>(null)
 
   const wallet = useWallet(config?.owner ?? null, isInstalled === true)
 
@@ -588,6 +589,7 @@ export default function AcuaApp() {
               onSwitch={setActiveNetwork}
               bnbAddress={bnbAddress}
               onBnbAddressChange={setBnbAddress}
+              onBnbKeyChange={setBnbPrivateKey}
             />
           </div>
         </div>
@@ -647,7 +649,7 @@ export default function AcuaApp() {
 
           {/* ── BNB panels ──────────────────────────────────────────── */}
           {activeNetwork === 'bnb' && activeBNBTab === 'bnb-stake' && (
-            <BNBSushiPanel bnbAddress={bnbAddress ?? addr} />
+            <BNBSushiPanel bnbAddress={bnbAddress ?? addr} bnbPrivateKey={bnbPrivateKey} />
           )}
           {activeNetwork === 'bnb' && activeBNBTab === 'bnb-wallet' && (
             <BNBWalletPanel bnbAddress={bnbAddress ?? addr} />
@@ -656,6 +658,7 @@ export default function AcuaApp() {
             <BNBBridgePanel
               wldAddress={addr}
               bnbAddress={bnbAddress}
+              bnbPrivateKey={bnbPrivateKey}
               isOwner={isMainOwner}
             />
           )}
