@@ -1,245 +1,59 @@
 # ACUA MINIEXCHANGE — World Chain DeFi Mini App
 
 ## Overview
-**ACUA MINIEXCHANGE** is a full exchange-style DeFi mini app for the **World Chain** ecosystem running inside **World App**. Uses MiniKit + Permit2 for gasless transactions. Features: staking (H2O, multi-token, V2, V3), mining (UTH2→H2O, WLD→7tokens, TIME→WLD), integrated swap, platform monitor, and H2O 2.0 with referrals + donations.
+ACUA MINIEXCHANGE is a full exchange-style DeFi mini app designed for the World Chain ecosystem, operating within the World App. It leverages MiniKit and Permit2 for gasless transactions. The platform offers a comprehensive suite of DeFi functionalities including staking (H2O, multi-token, V2, V3), mining (UTH2→H2O, WLD→7tokens, TIME→WLD), an integrated swap, a platform monitor, and an enhanced H2O 2.0 system featuring referrals and donations. The project aims to provide a robust and user-friendly decentralized finance experience within the World Chain.
 
-### SUSHI 2.0 — New Module (May 2026)
-- **Contract** `SushiStakeV2` deployed on World Chain at `0x29F93B534c86a1B1A5923645878b93a3F46b08f9`
-- **Token**: SUSHI `0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38` (18 decimals)
-- **Mechanics**: Deposits go directly to owner2 (`0x5474c309e985c6b4fc623acf01ade604da781e52`); contract only tracks virtual balances
-- **APR**: 300% fixed (configurable up to 5000%). Fees: 5% on deposit, withdrawal, claim (configurable)
-- **Withdrawal queue**: 48h wait, 1 per user per day, 1 pending at a time. FIFO auto-paid when funded
-- **Claim queue**: 24h wait, 1 per user per day, 1 pending at a time. FIFO auto-paid when funded
-- **Funding**: owner/owner2 fund the contract via Permit2 from World App (same flow as stake)
-- **Auto-pay**: `_processQueues()` runs on every state-change (stake/withdraw/claim/fund) — pays ready items automatically
-- **Frontend**: `components/sushi-v2-panel.tsx` — full panel with hero banner, stake form, withdrawal/claim forms, owner funding panel, two queue lists with status/countdown
-- **Library**: `lib/sushi-v2.ts` — typed fetch helpers, ABI fragments, formatting utilities
-- **Navigation**: Added to NavDrawer (Staking section, badge "300% APR") and Tab system as `sushi-v2`
-- **Owner panel**: Visible only to owner2 — shows fund balance vs pending, fund form (Permit2), manual queue trigger, APR & fee config
+## User Preferences
+I want iterative development.
+Ask before making major changes.
+Do not modify `components/stake-panel.tsx`.
 
-### H2O v3 Panel — Updates (May 2026)
-- **PVO Token** (`0xE977de70dd1F571Aa563E41525C28b4F1eDB69ba`, 18 dec) added to token catalog (`lib/h2o-v3.ts`), swap DEFAULT_TOKENS, and H2O V3 pool JSON (ids 71, 72 — PVO/WLD at 0.3% and 1%, needsInit).
-- **APR Hero Banner**: Big APR display always visible at top of H2O v3 panel — shows best APR without requiring a stake. Color-coded: yellow (>100%), green (>30%), cyan (<30%).
-- **Activity Feed**: Live-feel scrollable feed showing recent pool activity (based on on-chain data, auto-refreshing). Collapsed by default to save space.
-- **APR-sorted pools**: Pools now sorted by APR by default (highest first). Pool cards show large prominent APR with glow — yellow for >50% APR, green for >15%.
-- **Improved price chart**: Better SVG chart with gridlines, Y-axis price labels, volume bars at base, "NOW" badge, glowing current-price dot.
-- **Stable pool display**: Removed strict live-data filter — all active contract pools always shown (no more pools disappearing on RPC blips).
-- **Position stability**: Positions always initialized (even zeros) so UI never shows "undefined" state after reconnect.
-- **ClaimAll fix**: Split into batches of max 5 txs to respect World App per-batch limit. Shows batch progress.
-
-### New UI (May 2026)
-- **Exchange shell** (`components/acua-app.tsx`): Binance-style dark theme, electric blue (`oklch(0.65 0.22 255)`), floating flame-logo menu button triggering side NavDrawer, scrolling stats ticker, H2O candlestick chart header, bottom quick-nav tabs.
-- **Market Ticker** (`components/market-ticker.tsx`): `CandlestickChart` SVG (deterministic candles by hour), `StatsTicker` horizontal scroll, `MarketMiniCard` price + chart header.
-- **Platform Monitor** (`components/platform-monitor.tsx`): Live on-chain stats — user wallet/staked/pending, platform totals, active contracts table.
-- **H2O 2.0 Donation Card** (`components/new-h2o-panel.tsx`): Amber donation card with address `0xc2ef127734f296952de75c1b58a6cec605cc2e59`, copy-to-clipboard, WLD/World Chain metadata.
-
-## Architecture
+## System Architecture
 
 ### Frontend Stack
-- **Next.js 16** (App Router) with TypeScript
-- **Tailwind CSS v4** + Radix UI (Shadcn UI components)
-- **ethers.js v6** for blockchain reads
-- **@worldcoin/minikit-js** for wallet auth + transactions
+- **Framework**: Next.js 16 (App Router) with TypeScript
+- **Styling**: Tailwind CSS v4 + Radix UI (Shadcn UI components)
+- **Blockchain Interaction**: ethers.js v6 for blockchain reads, @worldcoin/minikit-js for wallet authentication and transactions.
+- **UI/UX**: Binance-style dark theme with an electric blue color scheme (oklch(0.65 0.22 255)). Features include a floating flame-logo menu button for the side NavDrawer, a scrolling stats ticker, an H2O candlestick chart header, and bottom quick-nav tabs.
+- **Components**:
+    - `AcuaApp`: Manages main app routing, tab navigation, and ownership detection.
+    - `MiniKitProvider`: Handles MiniKit initialization with a safe Replit preview fallback.
+    - `MarketTicker`: Displays `CandlestickChart` (SVG with deterministic candles by hour), `StatsTicker` (horizontal scroll), and `MarketMiniCard` (price + chart header).
+    - `PlatformMonitor`: Shows live on-chain statistics including user wallet/staked/pending balances, platform totals, and an active contracts table.
+    - `H2O 2.0 Donation Card`: An amber-themed donation card for H2O 2.0, including copy-to-clipboard functionality and WLD/World Chain metadata.
+    - `SushiStakeV2 Panel`: A full panel with hero banner, stake/withdrawal/claim forms, owner funding panel, and two queue lists with status/countdown.
+    - `H2O v3 Panel`: Features a prominent APR hero banner (color-coded), an activity feed, APR-sorted pools (highest first), an improved SVG price chart with gridlines, Y-axis labels, volume bars, and a "NOW" badge. Ensures stable pool and position displays.
 
 ### Blockchain
 - **Network**: World Chain (Chain ID 480)
-- **RPC**: Alchemy World Chain mainnet (`/v2/<key>`) — H2O v3 panel uses a single shared `JsonRpcProvider` con `staticNetwork: true` y `batchMaxCount: 8` para evitar rate limits y latencia (`lib/h2o-v3.ts → getProvider()`).
-- **Pattern**: All writes go through MiniKit `sendTransaction` + Permit2
+- **RPC**: Alchemy World Chain mainnet (`/v2/<key>`). H2O v3 panel uses a single shared `JsonRpcProvider` with `staticNetwork: true` and `batchMaxCount: 8` for efficient data fetching.
+- **Transaction Pattern**: All write operations utilize MiniKit `sendTransaction` with Permit2 for gasless transactions.
 
----
+### Core Features
+- **Staking**:
+    - **H2O Staking (Legacy)**: Standard H2O staking with a 12% APY.
+    - **Multi-Token Staking**: Supports staking for 8 additional tokens (WLD, FIRE, SUSHI, USDC, wCOP, wARS, BTCH2O, AIR).
+    - **Sushi V2 Staking**: Deposits SUSHI tokens, tracking virtual balances. Features a 300% fixed APR (configurable up to 5000%), with 5% fees on deposit, withdrawal, and claim. Includes 48-hour withdrawal and 24-hour claim queues with FIFO auto-payment.
+- **Mining**:
+    - **UTH2 Mining**: Pay UTH2 to mine H2O.
+    - **WLD Mining**: Pay WLD to mine 7 different tokens.
+    - **TIME Mining**.
+- **Swap (Acua Swap V2)**: Integrates Uniswap V3 direct pools (World Chain factory) and includes a Uniswap V2 fallback. Supports single and multi-hop swaps. Features a 2% swap fee + 0.1% H2O buyback (configurable). Utilizes Permit2 AllowanceTransfer.
+- **Volume Rewards**: `AcuaVolumeRewardsV2` tracks USDC-equivalent swap volume per user over 30-day periods. Configurable tiers offer UTH2 rewards claimable mid-month.
+- **Claim Management**: `AcuaClaimManager` allows for wrapping external claim contracts (e.g., Thirdweb TokenStake) and collecting a configurable fee (default 30%) in the reward token, paid directly to the owner via Permit2.
+- **H2O VIP Standalone**: A separate system for UTH2 subscriptions where the owner funds H2O rewards, and users can claim linearly over 365 days.
+- **Ownership Logic**: Differentiates between `isMainOwner` (sees Admin tab) and `isAirFunder` (sees AIR tab for depositing rewards only).
 
-## App Structure
+### Navigation
+- **Public Tabs**: H2O (Stake H2O), Stake+ (Multi-Stake), UTH₂ (Minera UTH₂), WLD (Minera WLD), TIME (Minera TIME), Tokens (Directorio), Swap (DEX Swap), Admin (Panel Admin - visible based on ownership), Info (Guía).
+- **Conditional Tabs**: Admin (for `isMainOwner`), AIR (for `isAirFunder`).
 
-### Main Navigation (all users see full public tabs)
-| Tab | Label | Component |
-|-----|-------|-----------|
-| H2O | Stake H2O | `stake-panel.tsx` — H2O staking, swap, 12% APY |
-| Stake+ | Multi-Stake | `multi-staking-panel.tsx` — 8 new tokens |
-| UTH₂ | Minería UTH₂ | `mining-uth2-panel.tsx` — pay UTH2, mine H2O permanently |
-| WLD | Minería WLD | `mining-wld-panel.tsx` — pay WLD, mine 7 tokens |
-| TIME | Minería TIME | `mining-time-panel.tsx` |
-| Tokens | Directorio | `token-directory-panel.tsx` |
-| Swap | DEX Swap | `swap-panel.tsx` — Uniswap V3 + SushiSwap V2 |
-| Admin | Panel Admin | Only for owners & AIR funder |
-| Info | Guía | `info-panel.tsx` — token utilities + how-to |
+## External Dependencies
 
-### Conditional Tabs (owner-only)
-| Tab | Condition | Component |
-|-----|-----------|-----------|
-| Admin | isMainOwner | `contracts-owner-panel.tsx` + `owner-panel.tsx` |
-| AIR | isAirFunder | `air-funder-panel.tsx` — deposit rewards only |
-
----
-
-## Ownership Logic
-
-### isMainOwner
-User is an owner of ANY new staking contract (WLD, FIRE, SUSHI, USDC, wCOP, wARS, BTCH2O, AIR) OR the H2O Acua staking contract owner — **AND** is NOT the AIR secondary funder.  
-→ Sees: **Admin** tab (ContractsOwnerPanel + OwnerPanel for H2O)
-
-### isAirFunder
-User is `owners[1]` (index 1, second owner) of the AIR staking contract.  
-→ Sees: **AIR** tab only. Does NOT see Admin tab.  
-→ Can only: view AIR contract balance + deposit rewards (approve + depositRewards in one batch)
-
----
-
-## Contracts
-
-### H2O Acua Staking (legacy)
-- Address: `0xabbD2D0360bA25FBb82a6f7574a150F1AEAc2e04`
-- Token: H2O `0x17392e5483983945dEB92e0518a8F2C4eB6bA59d`
-- Owner: single address via `owner()`
-
-### New Universal Staking Contracts
-- WLD: `0x224C31214989F8F22E036c4a8Ae294B9Ce339f74`
-- FIRE: `0xC799a6D13735bAc407183e0d8Acb6F07dfF072DD`
-- SUSHI: `0x31c25e2E5331F02F15fD43340079303EfE02625c`
-- USDC: `0x21075B62a6459D76534938BAD4EE7146a5AF1c1a`
-- wCOP: `0x68E3EcF55DFE392D7A9D8D8aB129A20D52A2bB70`
-- wARS: `0xf3b9162726D2034af1677bAbD1D667c2c4A0A46A`
-- BTCH2O: `0x965934aE4b292816a694e7b9cDd41E873AeC32A0`
-- AIR: `0xfc548193a52cCF151cD2BE34D59a14Be119c5cE1`
-- All have: `getOwners() → address[3]`, addOwner/removeOwner, pause/unpause, depositRewards, emergencyWithdraw
-
-### Mining Contracts
-- MiningUTH2: `0xbCF03E16F9114396A849053cb1555aAE744522e6` — pay UTH2, earn H2O
-- MiningWLD: `0xD2E227D30bC94D6FfD4eCf6b56141429C801E228` — pay WLD, earn 7 tokens
-
-### Acua Swap (v2 — World Chain V3 direct pool)
-- **AcuaSwapRouter**: `0xa45d469F28509aD5c6C6e99b14b2E65B6ab0E60A`
-  - Calls Uniswap V3 pools DIRECTLY (World Chain factory `0x7a5028...`, init code hash matches standard)
-  - Implements `IUniswapV3SwapCallback` for push-token model
-  - `swapV3Single(tokenIn, tokenOut, fee, amountIn, minOut, usdcEquiv)` — single hop
-  - `swapV3Multi(tokenIn, hopToken, tokenOut, fee1, fee2, ...)` — two-hop via WLD
-  - `swapV2(...)` — Uniswap V2 fallback
-  - `quoteSingle(tokenIn, tokenOut, fee, amountIn)` — spot price from pool.slot0()
-  - Fees: 2% swap + 0.1% H2O buyback (configurable, total max 10%)
-  - Uses Permit2 AllowanceTransfer
-- **AcuaVolumeRewardsV2**: `0xc74D6B65f8E30E040CE744117228118d107f77f1` (active)
-  - Wired to current AcuaSwapRouter `0xA2FD6cd36a661E270FC7AdaA82D0d22f4660706d`
-  - Multi-router support via `setRouter(addr, bool)` mapping (future-proof)
-  - Records USDC-equiv volume per user per 30-day period
-  - Records every swap event (`SwapTracked`) even when usdcAmount==0
-  - Configurable tiers 1-8: setTiers(numTiers, thresholds[], rewards[])
-  - UTH2 rewards claimable mid-month (no waiting), one tx, no Permit2
-  - `getPeriodInfo()` — countdown for frontend
-  - `getAllTiers()` — thresholds + rewards arrays
-- AcuaVolumeRewards V1 (deprecated): `0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48`
-  - Was wired to a stale router; left in place for any pre-existing claims
-
-### World Chain Uniswap V3 Key Pools
-| Pair | Fee | Address |
-|------|-----|---------|
-| WLD/USDC | 10000 | `0x610E319b3A3Ab56A0eD5562927D37c233774ba39` |
-| WLD/USDC | 3000  | `0xC19BC89ac024426F5A23c5bb8bc91D8017c90684` |
-| WLD/USDC | 500   | `0x02371da6173CF95623Da4189E68912233cc7107C` |
-| H2O/WLD  | 3000  | `0x1b538b52cc4a767280D1E5a3EfaBD91984FE58a8` |
-- Factory: `0x7a5028BDa40e7B173C278C5342087826455ea25a`
-- Init code hash: `0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54` (same as standard V3)
-
-### AcuaClaimManager (registro extensible de claims externos)
-- **Address**: `0x3BbA82736226104B53A58C02C759A9438ab8A42C` (deployer/owner: `0x54F0...e5F4`)
-- **Source**: `contracts-hh/contracts/AcuaClaimManager.sol`
-- **Propósito**: envolver contratos de claim externos (ej. Thirdweb TokenStake) y cobrar
-  una comisión configurable (default 30%) en el reward token, pagada DIRECTO al owner vía Permit2.
-  El contrato no guarda fondos en ningún momento.
-- **Admin**: `addClaim`, `updateClaim`, `setClaimActive`, `setClaimFeeBps`, `removeClaim`, `setOwner`.
-- **User**: `collectFee(claimId, permit, signature)` — pulls fee→owner.
-- **Views**: `previewFee(claimId, user)`, `claims(id)`, `claimCount()`, `allClaims()`.
-- **Claims registrados**:
-  - id 0: WDD (claim contract `0x52DFEe61180A0BCEBe007E5a9Cfd466948aCCA46`, reward token WDD `0xEdE5...ac9B`, feeBps 3000)
-- **Frontend helper**: `lib/claim-manager.ts` — `fetchWDDClaimInfo`, `projectedRewards` (tick local por segundo replicando fórmula Thirdweb), `buildWDDClaimBatch`, `fmtWDD`.
-- **MiniKit batch (una sola firma del usuario)**:
-  ```
-  permit2:     [{ permitted:{token:WDD, amount:fee}, spender:MANAGER, nonce, deadline }]
-  transaction: [
-    claimContract.claimRewards(),                        // user recibe rewards
-    manager.collectFee(0, permit, 'PERMIT2_SIG_..._0'),  // manager hala fee→owner
-  ]
-  ```
-
-### H2OVIPStandalone (nuevo — independiente del stake)
-- Dirección: `0x4cA4073b15177A5c84635158Bc9D8B9698115184`
-- UTH2 de suscripciones queda en el contrato; owner retira con `withdrawUTH2()`
-- Owner fondea H2O via `depositRewards()` → rewards lineales a 365 días
-- Usuarios reclaman 24/7 con `claimOwnerVip()`
-- Sin conexión al contrato de stake de H2O
-- Owner: `0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4`
-
----
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `lib/contract.ts` | H2O Acua staking ABI, address, fetchers |
-| `lib/new-contracts.ts` | New staking + mining ABIs, addresses, fetchers |
-| `components/acua-app.tsx` | Main app: routing, tab navigation, ownership detection |
-| `components/minikit-provider.tsx` | MiniKit initialization with safe Replit preview fallback |
-| `components/stake-panel.tsx` | H2O staking (DO NOT MODIFY) |
-| `components/owner-panel.tsx` | H2O admin panel |
-| `components/multi-staking-panel.tsx` | 8-token staking panel |
-| `components/mining-uth2-panel.tsx` | UTH2 → H2O mining |
-| `components/mining-wld-panel.tsx` | WLD → 7 tokens mining |
-| `components/contracts-owner-panel.tsx` | Admin for all new contracts |
-| `components/air-funder-panel.tsx` | AIR funder: deposit rewards only |
-| `components/info-panel.tsx` | Token utilities + how-to guide |
-| `hooks/use-wallet.ts` | MiniKit wallet auth, isOwner for H2O contract |
-
----
-
-## Migración H2O 2.0 — Preparación (NO DESPLEGADO AÚN)
-
-### Nueva Sección UI
-- Botón **H2O 2.0** agregado al lado de "Stake H2O" en la barra de navegación prominente.
-- Componente: `components/new-h2o-panel.tsx`
-  - Hero card con gradiente cyan/teal animado
-  - Contador regresivo hasta **1 Junio 2026** (lanzamiento en Puff)
-  - Stats: comisión depósito 5%, retiro 7%, referidos 10%
-  - Botones Stake/Unstake/Claim deshabilitados con badge "PRÓXIMAMENTE"
-  - Sección de referidos con link copiable e instrucciones
-
-### Nuevos Contratos Solidity (compilados, SIN deploy)
-Ubicados en `contracts-hh/contracts/`:
-
-| Contrato | Descripción |
-|----------|-------------|
-| `NewH2OStaking.sol` | Staking H2O nuevo: fees 5%/7%, Permit2, multi-owner (5), cualquiera puede fondear, connect/disconnect contratos, auto-distribución de fees |
-| `ReferralSystemV2.sol` | Sistema de referidos: ambos ganan al reclamar, split configurable (10% visible, 5% usuarios + 5% oculto al owner), wallets conectadas ganan simultáneamente |
-| `FundManager.sol` | Hub central de fondeo: cualquiera puede fondear, distribuye % a pool de recompensas + wallets de owners, conecta/desconecta contratos externos |
-| `CommissionManager.sol` | Comisión 1 H2O por tx (configurable), autoriza callers, distribuye % a pool + owners |
-| `NewAcuaSwapRouter.sol` | Swap universal: Uniswap v2 + v3 + v4, sin límites, fee configurable, Permit2, quoteV2 |
-
-### Arquitectura de contratos inter-conectados
-```
-FundManager ←── fees ─── NewH2OStaking ──→ ReferralSystemV2
-     │                         ↑
-     └─── depositRewards() ────┘
-CommissionManager ──authorizados──→ cualquier contrato del ecosistema
-NewAcuaSwapRouter ──fees──→ FundManager
-```
-
-### Parámetros configurables (todos)
-- Fees: depósito (default 5%), retiro (7%), claim (2%)
-- Distribución de fees: % al pool, % a wallets de owners
-- Referidos: % total (10%), % a usuarios vs oculto al owner
-- Comisión por tx: monto fijo (1 H2O) y distribución
-- Swap: fee de protocolo (0.3%), receptor de fees
-- Owners: hasta 5 por contrato, add/remove en tiempo real
-- Contratos: connect/disconnect sin redeployment
-
----
-
-## MiniKit Permit2 Pattern
-All token transfers use `sendTransaction` with Permit2:
-```
-permit2: [{ permitted: { token, amount }, spender: CONTRACT, nonce, deadline }]
-transaction: [{ address: CONTRACT, abi, functionName, args: [..., 'PERMIT2_SIGNATURE_PLACEHOLDER_0'] }]
-```
-
-## Development
-```bash
-npm run dev
-```
-Replit runs this app on port 5000 through the `Start application` workflow. MiniKit features require World App; outside World App, the app now displays the not-installed state cleanly without throwing preview errors.
+- **World Chain**: The primary blockchain network (Chain ID 480).
+- **Alchemy**: Provides RPC services for World Chain mainnet.
+- **@worldcoin/minikit-js**: Used for wallet authentication and transaction signing within the World App.
+- **Uniswap V3**: Integrated for decentralized exchange functionalities and liquidity pools on World Chain.
+- **SushiSwap V2**: Integrated for additional decentralized exchange capabilities.
+- **Permit2**: Utilized for gasless token approvals and transfers.
+- **Thirdweb**: Referenced for external claim contracts, specifically for WDD claims.
