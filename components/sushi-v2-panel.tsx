@@ -22,6 +22,14 @@ import {
   fmtSushi, fmtSushiShort, fmtCountdown, worldscanTx, randNonce, makeDeadline, todayDay,
   type UserSushiInfo, type GlobalSushiStats, type QueueEntry,
 } from '@/lib/sushi-v2'
+import {
+  WLD_CONTRACT, WLD_TOKEN, WLD_OWNER2,
+  WLD_STAKE_ABI, WLD_WITHDRAW_ABI, WLD_CLAIM_ABI, WLD_FUND_ABI, WLD_TRIGGER_ABI,
+  WLD_SET_APR_ABI, WLD_SET_FEE_ABI,
+  fetchUserWldInfo, fetchGlobalWldStats, fetchWldWithdrawQueue, fetchWldClaimQueue,
+  fmtWld, fmtWldShort,
+  type UserWldInfo, type GlobalWldStats, type WldQueueEntry,
+} from '@/lib/wld-stake-v2'
 
 const SUSHI_COLOR = '#e84142' // sushi red
 
@@ -166,6 +174,25 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
   const [busyApr, setBusyApr]     = useState(false)
   const [busyFeeSet, setBusyFeeSet] = useState(false)
 
+  // ── WLD 2.0 staking state ─────────────────────────────────────────────────
+  const [wldUserInfo, setWldUserInfo] = useState<UserWldInfo | null>(null)
+  const [wldStats, setWldStats]       = useState<GlobalWldStats | null>(null)
+  const [wldWQueue, setWldWQueue]     = useState<WldQueueEntry[]>([])
+  const [wldCQueue, setWldCQueue]     = useState<WldQueueEntry[]>([])
+  const [wldStakeAmt, setWldStakeAmt] = useState('')
+  const [wldWdAmt, setWldWdAmt]       = useState('')
+  const [wldFundAmt, setWldFundAmt]   = useState('')
+  const [busyWldStake,  setBusyWldStake]  = useState(false)
+  const [busyWldWd,     setBusyWldWd]     = useState(false)
+  const [busyWldClaim,  setBusyWldClaim]  = useState(false)
+  const [busyWldFund,   setBusyWldFund]   = useState(false)
+  const [busyWldTrig,   setBusyWldTrig]   = useState(false)
+  const [busyWldApr,    setBusyWldApr]    = useState(false)
+  const [busyWldFeeSet, setBusyWldFeeSet] = useState(false)
+  const [newWldApr, setNewWldApr]     = useState('')
+  const [newWldFee, setNewWldFee]     = useState('')
+  const [wldErr, setWldErr]           = useState('')
+
   const mountedRef = useRef(true)
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
 
@@ -189,6 +216,20 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
       if (mountedRef.current) setErr(e?.message ?? 'Error cargando datos')
     } finally {
       if (mountedRef.current) setLoading(false)
+    }
+    // WLD staking — independent, graceful degradation
+    if (WLD_CONTRACT) {
+      try {
+        const [wu, wg, wwq, wcq] = await Promise.all([
+          fetchUserWldInfo(userAddress),
+          fetchGlobalWldStats(),
+          fetchWldWithdrawQueue(0, 30),
+          fetchWldClaimQueue(0, 30),
+        ])
+        if (mountedRef.current) {
+          setWldUserInfo(wu); setWldStats(wg); setWldWQueue(wwq); setWldCQueue(wcq)
+        }
+      } catch { /* WLD not deployed yet */ }
     }
   }, [userAddress, isDeployed])
 
@@ -420,6 +461,184 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
     } finally { setBusyFeeSet(false) }
   }
 
+  // ── WLD action functions ─────────────────────────────────────────────────
+
+  async function doWldStake() {
+    const gross = parseWei(wldStakeAmt)
+    if (gross === 0n) return setWldErr('Ingresa un monto')
+    if (h2oBalance < feeAmount) return setWldErr(insufficientFeeMsg(feeAmount))
+    setBusyWldStake(true); setWldErr('')
+    try {
+      const nonce = randNonce(); const dl = makeDeadline()
+      const txFee = buildFeePayment(feeAmount, dl)
+      await sendTx(() => ({
+        transaction: [
+          txFee.tx,
+          {
+            address: WLD_CONTRACT,
+            abi: WLD_STAKE_ABI,
+            functionName: 'stake',
+            args: [
+              { permitted: { token: WLD_TOKEN, amount: gross.toString() }, nonce: nonce.toString(), deadline: dl.toString() },
+              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+              gross.toString(),
+            ],
+          },
+        ],
+        permit2: [
+          txFee.permit2,
+          {
+            permitted: { token: WLD_TOKEN, amount: gross.toString() },
+            spender: WLD_CONTRACT,
+            nonce: nonce.toString(),
+            deadline: dl.toString(),
+          },
+        ],
+      }))
+      setWldStakeAmt('')
+      await load()
+    } catch (e: any) {
+      setWldErr(e?.message ?? 'Error en stake WLD')
+    } finally { setBusyWldStake(false) }
+  }
+
+  async function doWldWithdraw() {
+    const gross = parseWei(wldWdAmt)
+    if (gross === 0n) return setWldErr('Ingresa un monto')
+    if (h2oBalance < feeAmount) return setWldErr(insufficientFeeMsg(feeAmount))
+    setBusyWldWd(true); setWldErr('')
+    try {
+      const dl = makeDeadline()
+      const txFee = buildFeePayment(feeAmount, dl)
+      await sendTx(() => ({
+        transaction: [
+          txFee.tx,
+          {
+            address: WLD_CONTRACT,
+            abi: WLD_WITHDRAW_ABI,
+            functionName: 'requestWithdrawal',
+            args: [gross.toString()],
+          },
+        ],
+        permit2: [txFee.permit2],
+      }))
+      setWldWdAmt('')
+      await load()
+    } catch (e: any) {
+      setWldErr(e?.message ?? 'Error en retiro WLD')
+    } finally { setBusyWldWd(false) }
+  }
+
+  async function doWldClaim() {
+    if (h2oBalance < feeAmount) return setWldErr(insufficientFeeMsg(feeAmount))
+    setBusyWldClaim(true); setWldErr('')
+    try {
+      const dl = makeDeadline()
+      const txFee = buildFeePayment(feeAmount, dl)
+      await sendTx(() => ({
+        transaction: [
+          txFee.tx,
+          { address: WLD_CONTRACT, abi: WLD_CLAIM_ABI, functionName: 'requestClaim', args: [] },
+        ],
+        permit2: [txFee.permit2],
+      }))
+      await load()
+    } catch (e: any) {
+      setWldErr(e?.message ?? 'Error en reclamo WLD')
+    } finally { setBusyWldClaim(false) }
+  }
+
+  async function doWldFund() {
+    const amount = parseWei(wldFundAmt)
+    if (amount === 0n) return setWldErr('Ingresa un monto')
+    setBusyWldFund(true); setWldErr('')
+    try {
+      const nonce = randNonce(); const dl = makeDeadline()
+      await sendTx(() => ({
+        transaction: [{
+          address: WLD_CONTRACT,
+          abi: WLD_FUND_ABI,
+          functionName: 'fund',
+          args: [
+            { permitted: { token: WLD_TOKEN, amount: amount.toString() }, nonce: nonce.toString(), deadline: dl.toString() },
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
+            amount.toString(),
+          ],
+        }],
+        permit2: [{
+          permitted: { token: WLD_TOKEN, amount: amount.toString() },
+          spender: WLD_CONTRACT,
+          nonce: nonce.toString(),
+          deadline: dl.toString(),
+        }],
+      }))
+      setWldFundAmt('')
+      await load()
+    } catch (e: any) {
+      setWldErr(e?.message ?? 'Error fondeando WLD')
+    } finally { setBusyWldFund(false) }
+  }
+
+  async function doWldTrigger() {
+    setBusyWldTrig(true); setWldErr('')
+    try {
+      await sendTx(() => ({
+        transaction: [{
+          address: WLD_CONTRACT,
+          abi: WLD_TRIGGER_ABI,
+          functionName: 'triggerQueue',
+          args: [],
+        }],
+        permit2: [],
+      }))
+      await load()
+    } catch (e: any) {
+      setWldErr(e?.message ?? 'Error procesando cola WLD')
+    } finally { setBusyWldTrig(false) }
+  }
+
+  async function doWldSetApr() {
+    const bps = Math.round(parseFloat(newWldApr) * 100)
+    if (isNaN(bps) || bps <= 0) return setWldErr('APR inválido')
+    setBusyWldApr(true); setWldErr('')
+    try {
+      await sendTx(() => ({
+        transaction: [{
+          address: WLD_CONTRACT,
+          abi: WLD_SET_APR_ABI,
+          functionName: 'setApr',
+          args: [bps.toString()],
+        }],
+        permit2: [],
+      }))
+      setNewWldApr('')
+      await load()
+    } catch (e: any) {
+      setWldErr(e?.message ?? 'Error cambiando APR WLD')
+    } finally { setBusyWldApr(false) }
+  }
+
+  async function doWldSetFee() {
+    const bps = Math.round(parseFloat(newWldFee) * 100)
+    if (isNaN(bps) || bps < 0) return setWldErr('Comisión inválida')
+    setBusyWldFeeSet(true); setWldErr('')
+    try {
+      await sendTx(() => ({
+        transaction: [{
+          address: WLD_CONTRACT,
+          abi: WLD_SET_FEE_ABI,
+          functionName: 'setFee',
+          args: [bps.toString()],
+        }],
+        permit2: [],
+      }))
+      setNewWldFee('')
+      await load()
+    } catch (e: any) {
+      setWldErr(e?.message ?? 'Error cambiando comisión WLD')
+    } finally { setBusyWldFeeSet(false) }
+  }
+
   // ── Derived values ───────────────────────────────────────────────────────
 
   const aprPct  = ((stats?.aprBps ?? 30000) / 100).toFixed(0)
@@ -445,6 +664,31 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
   const pendingWithdraw = stats?.totalPendingWithdrawals ?? 0n
   const pendingClaim    = stats?.totalPendingClaims ?? 0n
   const fundPool        = stats?.fundPool ?? 0n
+
+  // ── WLD derived values ───────────────────────────────────────────────────
+
+  const wldAprPct   = ((wldStats?.aprBps ?? 10000) / 100).toFixed(0)
+  const wldFeePct   = ((wldStats?.feeBps ?? 500) / 100).toFixed(1)
+  const wldStaked   = wldUserInfo?.staked ?? 0n
+  const wldRewards  = wldUserInfo?.rewards ?? 0n
+  const wldBal      = wldUserInfo?.wldBal ?? 0n
+  const isWldOwner2 = userAddress?.toLowerCase() === WLD_OWNER2.toLowerCase()
+
+  const wldCanWithdraw = wldStaked > 0n && !wldUserInfo?.hasWithdraw && today > (wldUserInfo?.lastWithdrawDay ?? 0)
+  const wldCanClaim    = wldRewards > 0n && !wldUserInfo?.hasClaim   && today > (wldUserInfo?.lastClaimDay ?? 0)
+
+  const wldWdLastDay = wldUserInfo?.lastWithdrawDay ?? 0
+  const wldClLastDay = wldUserInfo?.lastClaimDay    ?? 0
+  const wldWithdrawUnlockTs = wldWdLastDay > 0 ? (wldWdLastDay + 1) * 86400 : null
+  const wldClaimUnlockTs    = wldClLastDay > 0 ? (wldClLastDay + 1) * 86400 : null
+
+  // WLD countdowns — hooks must be unconditional at component top level
+  const wldWdCd = useCountdown(wldWithdrawUnlockTs, 86400)
+  const wldClCd = useCountdown(wldClaimUnlockTs,    86400)
+
+  const wldFundPool       = wldStats?.fundPool ?? 0n
+  const wldPendingWithdraw = wldStats?.totalPendingWithdrawals ?? 0n
+  const wldPendingClaim    = wldStats?.totalPendingClaims ?? 0n
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -489,9 +733,15 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
                 </p>
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-2xl font-black leading-none" style={{ color: SUSHI_COLOR }}>{aprPct}%</p>
-              <p className="text-[9px] font-bold text-[oklch(0.50_0.01_230)] uppercase tracking-wider">APR</p>
+            <div className="text-right flex items-end gap-3">
+              <div className="text-center">
+                <p className="text-2xl font-black leading-none" style={{ color: SUSHI_COLOR }}>{aprPct}%</p>
+                <p className="text-[8px] font-bold text-[oklch(0.50_0.01_230)] uppercase tracking-wider">🍣 SUSHI</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-black leading-none text-blue-400">{wldAprPct}%</p>
+                <p className="text-[8px] font-bold text-[oklch(0.50_0.01_230)] uppercase tracking-wider">🌍 WLD</p>
+              </div>
             </div>
           </div>
 
@@ -904,6 +1154,363 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
           </button>
         </div>
       </SectionCard>
+
+      {/* ════════════════════════════════════════════════════════════════════
+           WLD 2.0 STAKING SECTION
+          ════════════════════════════════════════════════════════════════════ */}
+
+      {/* ── WLD Divider ──────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 py-1">
+        <div className="flex-1 h-px bg-[oklch(0.22_0.025_245)]" />
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/30">
+          <span className="text-base">🌍</span>
+          <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">WLD 2.0 Staking</span>
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300">{wldAprPct}% APR</span>
+        </div>
+        <div className="flex-1 h-px bg-[oklch(0.22_0.025_245)]" />
+      </div>
+
+      {/* ── WLD not deployed notice ───────────────────────────────────────── */}
+      {!WLD_CONTRACT && (
+        <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 px-4 py-3 flex items-center gap-3">
+          <span className="text-2xl">🌍</span>
+          <div>
+            <p className="text-xs font-bold text-blue-300">WLD 2.0 — En preparación</p>
+            <p className="text-[10px] text-[oklch(0.45_0.01_230)] mt-0.5">Contrato desplegándose en World Chain · {wldAprPct}% APR fijo</p>
+            <p className="text-[9px] font-mono text-[oklch(0.40_0.01_230)] mt-0.5">{WLD_TOKEN.slice(0, 12)}…{WLD_TOKEN.slice(-6)}</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── WLD error banner ─────────────────────────────────────────────── */}
+      {wldErr && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5">
+          <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-red-300">{wldErr}</p>
+          <button onClick={() => setWldErr('')} className="ml-auto text-red-400 text-[10px] shrink-0">✕</button>
+        </div>
+      )}
+
+      {WLD_CONTRACT && (
+        <>
+          {/* ── WLD Global stats ───────────────────────────────────────────── */}
+          <div className="flex gap-2">
+            <StatCard
+              label="WLD Staked"
+              value={fmtWldShort(wldStats?.totalStaked ?? 0n)}
+              sub={`${wldStats?.stakerCount ?? 0} usuarios`}
+              color="text-foreground"
+              icon={<Users className="w-3 h-3" />}
+            />
+            <StatCard
+              label="Fondo WLD"
+              value={fmtWldShort(wldFundPool)}
+              sub="disponible pagos"
+              color={wldFundPool >= wldPendingWithdraw + wldPendingClaim ? 'text-green-400' : 'text-amber-400'}
+              icon={<CircleDollarSign className="w-3 h-3" />}
+            />
+            <StatCard
+              label="Cola WLD"
+              value={fmtWldShort(wldPendingWithdraw + wldPendingClaim)}
+              sub={`${(wldStats?.withdrawQueueLen ?? 0) - (wldStats?.nextWithdrawIdx ?? 0) + (wldStats?.claimQueueLen ?? 0) - (wldStats?.nextClaimIdx ?? 0)} solicitudes`}
+              color="text-amber-400"
+              icon={<Clock className="w-3 h-3" />}
+            />
+          </div>
+
+          {/* ── WLD User pending requests ──────────────────────────────────── */}
+          {wldUserInfo && (wldUserInfo.hasWithdraw || wldUserInfo.hasClaim) && (
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 divide-y divide-blue-500/15">
+              {wldUserInfo.hasWithdraw && wldUserInfo.withdrawReq && (
+                <div className="px-4 py-3 flex items-center gap-3">
+                  <div className={cn('w-8 h-8 rounded-full flex items-center justify-center shrink-0', wldUserInfo.withdrawReq.paid ? 'bg-green-500/15 text-green-400' : 'bg-amber-500/15 text-amber-400')}>
+                    <ArrowDownToLine className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-foreground">Retiro WLD en cola</p>
+                    <p className="text-[10px] text-[oklch(0.45_0.01_230)] font-mono">{fmtWld(wldUserInfo.withdrawReq.netAmount, 4)} WLD neto</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    {wldUserInfo.withdrawReq.paid
+                      ? <span className="text-[10px] font-bold text-green-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Pagado</span>
+                      : <div>
+                          <p className="text-[10px] font-bold text-amber-400">{fmtCountdown(wldUserInfo.withdrawReq.readyAt)}</p>
+                          <p className="text-[8px] text-[oklch(0.40_0.01_230)]">Posición #{wldUserInfo.withdrawPos}</p>
+                        </div>
+                    }
+                  </div>
+                </div>
+              )}
+              {wldUserInfo.hasClaim && wldUserInfo.claimReq && (
+                <div className="px-4 py-3 flex items-center gap-3">
+                  <div className={cn('w-8 h-8 rounded-full flex items-center justify-center shrink-0', wldUserInfo.claimReq.paid ? 'bg-green-500/15 text-green-400' : 'bg-purple-500/15 text-purple-400')}>
+                    <Gift className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-foreground">Reclamo WLD en cola</p>
+                    <p className="text-[10px] text-[oklch(0.45_0.01_230)] font-mono">{fmtWld(wldUserInfo.claimReq.netAmount, 4)} WLD neto</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    {wldUserInfo.claimReq.paid
+                      ? <span className="text-[10px] font-bold text-green-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Pagado</span>
+                      : <div>
+                          <p className="text-[10px] font-bold text-purple-400">{fmtCountdown(wldUserInfo.claimReq.readyAt)}</p>
+                          <p className="text-[8px] text-[oklch(0.40_0.01_230)]">Posición #{wldUserInfo.claimPos}</p>
+                        </div>
+                    }
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── WLD Stake Form ─────────────────────────────────────────────── */}
+          <SectionCard title="Depositar WLD" badge={`APR ${wldAprPct}%`}>
+            <div className="flex flex-col gap-3">
+              <InputRow
+                label={`Cantidad a depositar (comisión ${wldFeePct}%)`}
+                value={wldStakeAmt}
+                onChange={setWldStakeAmt}
+                max={wldBal > 0n ? fmtWld(wldBal, 6) : undefined}
+                hint={wldStakeAmt && parseWei(wldStakeAmt) > 0n
+                  ? `Recibirás ${fmtWld(parseWei(wldStakeAmt) - parseWei(wldStakeAmt) * BigInt(wldStats?.feeBps ?? 500) / 10_000n, 4)} WLD en stake · APR ${wldAprPct}%`
+                  : 'Los tokens van directo a custodia segura'}
+              />
+              <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 flex items-center gap-2">
+                <Info className="w-3 h-3 text-blue-400 shrink-0" />
+                <p className="text-[9px] text-blue-300">
+                  Tus WLD generan <strong className="text-foreground">{wldAprPct}% APR</strong> anual. Retiros después de 48h · Reclamos después de 24h.
+                </p>
+              </div>
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-[oklch(0.45_0.01_230)]">Comisión de red</span>
+                <span className={cn('font-mono font-bold', h2oBalance >= feeAmount ? 'text-cyan-400' : 'text-red-400')}>
+                  {feeLabel(feeAmount)} H2O · saldo: {parseFloat(ethers.formatUnits(h2oBalance, 18)).toFixed(2)}
+                </span>
+              </div>
+              <button
+                onClick={doWldStake}
+                disabled={busyWldStake || !wldStakeAmt || h2oBalance < feeAmount}
+                className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                style={{ background: busyWldStake ? 'rgba(59,130,246,0.3)' : '#2563eb', color: 'white', boxShadow: busyWldStake ? 'none' : '0 0 18px rgba(37,99,235,0.55)' }}
+              >
+                {busyWldStake ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUpFromLine className="w-4 h-4" />}
+                {busyWldStake ? 'Procesando…' : 'Depositar WLD'}
+              </button>
+            </div>
+          </SectionCard>
+
+          {/* ── WLD Withdrawal Request ─────────────────────────────────────── */}
+          <SectionCard title="Solicitar Retiro WLD" collapsible defaultOpen={wldStaked > 0n}>
+            <div className="flex flex-col gap-3">
+              {!wldCanWithdraw && wldStaked > 0n && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/25 bg-amber-500/8 px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Clock className="w-3 h-3 text-amber-400 shrink-0 animate-pulse" />
+                    <p className="text-[9px] text-amber-300">
+                      {wldUserInfo?.hasWithdraw ? 'Retiro ya en cola de espera.' : 'Un retiro por día.'}
+                    </p>
+                  </div>
+                  {!wldUserInfo?.hasWithdraw && !wldWdCd.ready && (
+                    <span className="text-[10px] font-mono font-bold text-amber-400 shrink-0">{wldWdCd.label}</span>
+                  )}
+                </div>
+              )}
+              {wldStaked === 0n && (
+                <p className="text-[10px] text-[oklch(0.40_0.01_230)] text-center py-2">Sin saldo WLD stakeado</p>
+              )}
+              {wldStaked > 0n && (
+                <InputRow
+                  label={`Cantidad a retirar (comisión ${wldFeePct}%)`}
+                  value={wldWdAmt}
+                  onChange={setWldWdAmt}
+                  max={fmtWld(wldStaked, 6)}
+                  hint={wldWdAmt && parseWei(wldWdAmt) > 0n
+                    ? `Recibirás ${fmtWld(parseWei(wldWdAmt) - parseWei(wldWdAmt) * BigInt(wldStats?.feeBps ?? 500) / 10_000n, 4)} WLD · Espera: 48h`
+                    : 'El retiro se pone en la cola de espera de 48 horas'}
+                />
+              )}
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-[oklch(0.45_0.01_230)]">Comisión de red</span>
+                <span className={cn('font-mono font-bold', h2oBalance >= feeAmount ? 'text-cyan-400' : 'text-red-400')}>
+                  {feeLabel(feeAmount)} H2O
+                </span>
+              </div>
+              <button
+                onClick={doWldWithdraw}
+                disabled={busyWldWd || !wldCanWithdraw || !wldWdAmt || h2oBalance < feeAmount}
+                className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 border"
+                style={{ borderColor: 'rgba(59,130,246,0.50)', color: '#60a5fa', background: 'rgba(59,130,246,0.10)' }}
+              >
+                {busyWldWd
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Procesando…</>
+                  : !wldCanWithdraw && !wldWdCd.ready && wldStaked > 0n && !wldUserInfo?.hasWithdraw
+                    ? <><Clock className="w-4 h-4 animate-pulse" /> Disponible en {wldWdCd.label}</>
+                    : <><ArrowDownToLine className="w-4 h-4" /> Solicitar Retiro WLD (48h)</>
+                }
+              </button>
+            </div>
+          </SectionCard>
+
+          {/* ── WLD Claim Request ──────────────────────────────────────────── */}
+          <SectionCard title="Solicitar Reclamo WLD" collapsible defaultOpen={wldRewards > 0n}>
+            <div className="flex flex-col gap-3">
+              {!wldCanClaim && wldRewards > 0n && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-purple-500/25 bg-purple-500/8 px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Lock className="w-3 h-3 text-purple-400 shrink-0 animate-pulse" />
+                    <p className="text-[9px] text-purple-300">
+                      {wldUserInfo?.hasClaim ? 'Reclamo ya en cola de espera.' : 'Un reclamo por día.'}
+                    </p>
+                  </div>
+                  {!wldUserInfo?.hasClaim && !wldClCd.ready && (
+                    <span className="text-[10px] font-mono font-bold text-purple-400 shrink-0">{wldClCd.label}</span>
+                  )}
+                </div>
+              )}
+              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-green-500/15 border border-green-500/25 flex items-center justify-center shrink-0">
+                  <Gift className="w-4 h-4 text-green-400" />
+                </div>
+                <div>
+                  <p className="text-[10px] text-[oklch(0.45_0.01_230)]">Recompensas WLD acumuladas</p>
+                  <p className="text-base font-black font-mono text-green-400">{fmtWld(wldRewards, 6)} WLD</p>
+                  {wldRewards > 0n && wldStats && (
+                    <p className="text-[9px] text-[oklch(0.40_0.01_230)]">
+                      Neto: {fmtWld(wldRewards - wldRewards * BigInt(wldStats.feeBps) / 10_000n, 4)} WLD
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-[oklch(0.45_0.01_230)]">Comisión de red</span>
+                <span className={cn('font-mono font-bold', h2oBalance >= feeAmount ? 'text-cyan-400' : 'text-red-400')}>
+                  {feeLabel(feeAmount)} H2O
+                </span>
+              </div>
+              <button
+                onClick={doWldClaim}
+                disabled={busyWldClaim || !wldCanClaim || h2oBalance < feeAmount}
+                className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 border"
+                style={{ borderColor: 'rgba(34,197,94,0.40)', color: '#22c55e', background: 'rgba(34,197,94,0.10)' }}
+              >
+                {busyWldClaim
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Procesando…</>
+                  : !wldCanClaim && !wldClCd.ready && wldRewards > 0n && !wldUserInfo?.hasClaim
+                    ? <><Clock className="w-4 h-4 animate-pulse" /> Disponible en {wldClCd.label}</>
+                    : <><Gift className="w-4 h-4" /> Solicitar Reclamo WLD (24h) · {fmtWld(wldRewards, 2)} WLD</>
+                }
+              </button>
+            </div>
+          </SectionCard>
+
+          {/* ── WLD Owner Panel ────────────────────────────────────────────── */}
+          {isWldOwner2 && (
+            <SectionCard title="Panel Owner — Fondear WLD" badge="OWNER">
+              <div className="flex flex-col gap-3">
+                <div className="rounded-lg border border-blue-500/25 bg-blue-500/8 px-3 py-2 text-[10px] text-blue-300 flex items-start gap-2">
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>Fondo WLD:</strong> {fmtWld(wldFundPool, 4)} WLD<br/>
+                    <strong>Pendiente retiros:</strong> {fmtWld(wldPendingWithdraw, 4)} WLD<br/>
+                    <strong>Pendiente reclamos:</strong> {fmtWld(wldPendingClaim, 4)} WLD
+                  </div>
+                </div>
+                <InputRow label="Cantidad a fondear WLD (via Permit2)" value={wldFundAmt} onChange={setWldFundAmt} hint="Los WLD se transfieren al contrato para pagar la cola" />
+                <button
+                  onClick={doWldFund}
+                  disabled={busyWldFund || !wldFundAmt}
+                  className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                  style={{ background: 'rgba(37,99,235,0.85)', color: 'white', boxShadow: '0 0 14px rgba(37,99,235,0.40)' }}
+                >
+                  {busyWldFund ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
+                  {busyWldFund ? 'Fondeando…' : 'Fondear Contrato WLD'}
+                </button>
+                <button
+                  onClick={doWldTrigger}
+                  disabled={busyWldTrig}
+                  className="w-full h-9 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50 border border-[oklch(0.30_0.025_245)]"
+                  style={{ color: 'oklch(0.70 0.01 230)', background: 'oklch(0.14 0.018 245)' }}
+                >
+                  {busyWldTrig ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                  {busyWldTrig ? 'Procesando cola…' : 'Procesar Cola WLD'}
+                </button>
+              </div>
+            </SectionCard>
+          )}
+
+          {/* ── WLD Config ─────────────────────────────────────────────────── */}
+          {isWldOwner2 && (
+            <SectionCard title="Configurar APR & Comisiones WLD" collapsible defaultOpen={false} badge="OWNER">
+              <div className="flex flex-col gap-3">
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <InputRow label={`APR actual: ${wldAprPct}%`} value={newWldApr} onChange={setNewWldApr} symbol="%" hint="Ej: 100 para 100% APR" />
+                  </div>
+                  <button
+                    onClick={doWldSetApr}
+                    disabled={busyWldApr || !newWldApr}
+                    className="self-end h-10 px-3 rounded-xl font-bold text-xs flex items-center gap-1 disabled:opacity-50 transition-all"
+                    style={{ background: 'rgba(37,99,235,0.20)', color: '#60a5fa', border: '1px solid rgba(37,99,235,0.40)' }}
+                  >
+                    {busyWldApr ? <Loader2 className="w-3 h-3 animate-spin" /> : <BarChart3 className="w-3 h-3" />}
+                    Guardar
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <InputRow label={`Comisión actual: ${wldFeePct}%`} value={newWldFee} onChange={setNewWldFee} symbol="%" hint="Ej: 5 para 5% comisión" />
+                  </div>
+                  <button
+                    onClick={doWldSetFee}
+                    disabled={busyWldFeeSet || !newWldFee}
+                    className="self-end h-10 px-3 rounded-xl font-bold text-xs flex items-center gap-1 disabled:opacity-50 transition-all"
+                    style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.35)' }}
+                  >
+                    {busyWldFeeSet ? <Loader2 className="w-3 h-3 animate-spin" /> : <TrendingUp className="w-3 h-3" />}
+                    Guardar
+                  </button>
+                </div>
+              </div>
+            </SectionCard>
+          )}
+
+          {/* ── WLD Queues ─────────────────────────────────────────────────── */}
+          <SectionCard title="Cola de Retiros WLD" collapsible defaultOpen={false}>
+            <div className="flex flex-col">
+              {wldWQueue.length === 0
+                ? <p className="text-[10px] text-[oklch(0.40_0.01_230)] text-center py-2">Sin retiros WLD en cola</p>
+                : wldWQueue.map((entry, i) => <QueueRow key={i} entry={entry} idx={i} type="withdraw" />)
+              }
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <p className="text-[9px] text-[oklch(0.40_0.01_230)]">
+                {wldStats?.withdrawQueueLen ?? 0} total · {Math.max(0, (wldStats?.withdrawQueueLen ?? 0) - (wldStats?.nextWithdrawIdx ?? 0))} pendientes
+              </p>
+              <button onClick={load} className="flex items-center gap-1 text-[9px] text-[oklch(0.45_0.01_230)] hover:text-foreground transition-colors">
+                <RefreshCw className="w-2.5 h-2.5" /> Actualizar
+              </button>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Cola de Reclamos WLD" collapsible defaultOpen={false}>
+            <div className="flex flex-col">
+              {wldCQueue.length === 0
+                ? <p className="text-[10px] text-[oklch(0.40_0.01_230)] text-center py-2">Sin reclamos WLD en cola</p>
+                : wldCQueue.map((entry, i) => <QueueRow key={i} entry={entry} idx={i} type="claim" />)
+              }
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <p className="text-[9px] text-[oklch(0.40_0.01_230)]">
+                {wldStats?.claimQueueLen ?? 0} total · {Math.max(0, (wldStats?.claimQueueLen ?? 0) - (wldStats?.nextClaimIdx ?? 0))} pendientes
+              </p>
+              <button onClick={load} className="flex items-center gap-1 text-[9px] text-[oklch(0.45_0.01_230)] hover:text-foreground transition-colors">
+                <RefreshCw className="w-2.5 h-2.5" /> Actualizar
+              </button>
+            </div>
+          </SectionCard>
+        </>
+      )}
 
       {/* ── Info Footer ──────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] px-4 py-3 flex flex-col gap-1.5">

@@ -158,6 +158,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey }: BNBWalletPanelProp
   const [swapOut, setSwapOut]             = useState<string | null>(null)
   const [swapStep, setSwapStep]           = useState<TxStep | null>(null)
   const [swapPending, setSwapPending]     = useState(false)
+  const [swapOutRaw, setSwapOutRaw]       = useState<bigint | null>(null)
   const [quoteLoading, setQuoteLoading]   = useState(false)
 
   // History
@@ -250,12 +251,15 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey }: BNBWalletPanelProp
       const router   = new ethers.Contract(PANCAKE_V2, ROUTER_ABI, provider)
       const fromAddr = getToken(fromSym).address === NATIVE ? WBNB : getToken(fromSym).address
       const toAddr   = getToken(toSym).address   === NATIVE ? WBNB : getToken(toSym).address
-      if (fromAddr === toAddr) { setSwapOut(null); return }
+      if (fromAddr === toAddr) { setSwapOut(null); setSwapOutRaw(null); return }
+      const path = (fromAddr === WBNB || toAddr === WBNB) ? [fromAddr, toAddr] : [fromAddr, WBNB, toAddr]
       const amounts = await router.getAmountsOut(
-        ethers.parseUnits(amtIn, getToken(fromSym).decimals), [fromAddr, toAddr]
+        ethers.parseUnits(amtIn, getToken(fromSym).decimals), path
       )
-      setSwapOut(parseFloat(ethers.formatUnits(amounts[1], getToken(toSym).decimals)).toFixed(6))
-    } catch { setSwapOut(null) }
+      const outRaw = BigInt(amounts[amounts.length - 1])
+      setSwapOutRaw(outRaw)
+      setSwapOut(parseFloat(ethers.formatUnits(outRaw, getToken(toSym).decimals)).toFixed(6))
+    } catch { setSwapOut(null); setSwapOutRaw(null) }
     finally { setQuoteLoading(false) }
   }, [])
 
@@ -275,10 +279,11 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey }: BNBWalletPanelProp
       const toTk     = getToken(swapTo)
       const fromAddr = fromTk.address === NATIVE ? WBNB : fromTk.address
       const toAddr   = toTk.address   === NATIVE ? WBNB : toTk.address
-      const path     = [fromAddr, toAddr]
+      const path     = (fromAddr === WBNB || toAddr === WBNB) ? [fromAddr, toAddr] : [fromAddr, WBNB, toAddr]
       const deadline = Math.floor(Date.now() / 1000) + 1200
       const amtIn    = ethers.parseUnits(swapAmt, fromTk.decimals)
-      const amtOutMin = ethers.parseUnits((parseFloat(swapOut) * 0.98).toFixed(18), toTk.decimals)
+      const rawOut   = swapOutRaw ?? ethers.parseUnits(parseFloat(swapOut ?? '0').toFixed(6), toTk.decimals)
+      const amtOutMin = rawOut * 98n / 100n
       const router   = new ethers.Contract(PANCAKE_V2, ROUTER_ABI, signer)
       const dest     = await signer.getAddress()
 
@@ -300,12 +305,12 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey }: BNBWalletPanelProp
       } else if (toTk.address === NATIVE) {
         tx = await router.swapExactTokensForETH(amtIn, amtOutMin, path, dest, deadline, { gasLimit: 200_000n, gasPrice: GAS_WEI })
       } else {
-        tx = await router.swapExactTokensForTokens(amtIn, amtOutMin, path, dest, deadline, { gasLimit: 250_000n, gasPrice: GAS_WEI })
+        tx = await router.swapExactTokensForTokens(amtIn, amtOutMin, path, dest, deadline, { gasLimit: 350_000n, gasPrice: GAS_WEI })
       }
       setSwapStep({ label: 'Confirmando swap…', hash: tx.hash })
       await tx.wait()
       setSwapStep({ label: `✓ Swap: ${swapAmt} ${fromTk.symbol} → ~${swapOut} ${toTk.symbol}`, done: true })
-      setSwapAmt(''); setSwapOut(null)
+      setSwapAmt(''); setSwapOut(null); setSwapOutRaw(null)
       if (bnbAddress) loadBalances(bnbAddress)
     } catch (e: any) {
       const msg = (e?.message ?? 'Error').slice(0, 160)
@@ -665,7 +670,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey }: BNBWalletPanelProp
                 </span>
               </div>
               <div className="flex items-center gap-3">
-                <TokenSelect value={swapFrom} onChange={t => { setSwapFrom(t); setSwapOut(null); setSwapStep(null) }} exclude={swapTo} />
+                <TokenSelect value={swapFrom} onChange={t => { setSwapFrom(t); setSwapOut(null); setSwapOutRaw(null); setSwapStep(null) }} exclude={swapTo} />
                 <div className="flex-1 relative">
                   <input value={swapAmt} onChange={e => setSwapAmt(e.target.value)} type="number" placeholder="0.0"
                     className="w-full bg-transparent text-lg font-bold font-mono text-foreground focus:outline-none placeholder:text-[oklch(0.30_0.01_230)]" />
@@ -679,7 +684,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey }: BNBWalletPanelProp
             <div className="flex justify-center">
               <button onClick={() => {
                 const t = swapFrom; setSwapFrom(swapTo); setSwapTo(t)
-                setSwapOut(null); setSwapStep(null)
+                setSwapOut(null); setSwapOutRaw(null); setSwapStep(null)
               }}
                 className="w-9 h-9 rounded-xl bg-[oklch(0.14_0.02_245)] border border-[oklch(0.22_0.025_245)] flex items-center justify-center hover:bg-[oklch(0.18_0.025_245)] hover:border-[#f0b90b]/40 transition-all">
                 <ArrowLeftRight className="w-4 h-4 text-[#f0b90b]" />
@@ -690,7 +695,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey }: BNBWalletPanelProp
             <div className="rounded-xl bg-[oklch(0.14_0.02_245)] border border-[oklch(0.22_0.025_245)] p-3 space-y-2">
               <p className="text-[9px] text-[oklch(0.45_0.01_230)]">A</p>
               <div className="flex items-center gap-3">
-                <TokenSelect value={swapTo} onChange={t => { setSwapTo(t); setSwapOut(null); setSwapStep(null) }} exclude={swapFrom} />
+                <TokenSelect value={swapTo} onChange={t => { setSwapTo(t); setSwapOut(null); setSwapOutRaw(null); setSwapStep(null) }} exclude={swapFrom} />
                 <div className="text-lg font-bold font-mono text-emerald-400 min-h-[28px] flex items-center">
                   {quoteLoading
                     ? <Loader2 className="w-4 h-4 animate-spin text-[oklch(0.45_0.01_230)]" />

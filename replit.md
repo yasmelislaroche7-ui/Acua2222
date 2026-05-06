@@ -42,9 +42,9 @@ ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain eco
 - **AI agent draggable**: pointer capture API (`setPointerCapture`) on the button, snaps to nearest screen corner on release, position persisted in localStorage `acua_agent_pos`
 
 ## Product
-- **Staking**: H2O (12% APY), H2O 2.0, H2O v3, StakeV2, Stake+ (8 tokens), SUSHI 2.0 (300% APR)
+- **Staking**: H2O (12% APY), H2O 2.0, H2O v3, StakeV2, Stake+ (8 tokens), SUSHI 2.0 (300% APR), WLD 2.0 (100% APR)
 - **Mining**: UTH2→H2O, WLD→7 tokens, TIME→WLD
-- **BNB Exchange**: Send / Receive (QR) / TX History / Swap (PancakeSwap V2) / Balances
+- **BNB Exchange**: Send / Receive (QR) / TX History / Swap (PancakeSwap V2 w/ WBNB 3-hop) / Balances
 - **Bridge**: SUSHI WLD↔BNB, cancel/refund, configurable peerContract, receiveFee() for stake routing
 - **AI Agent H2O**: 24-topic local KB, 16-language, draggable button, snap-to-corner, 6 quick questions
 
@@ -52,6 +52,8 @@ ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain eco
 - **H2OFeeCollector**: `0xB58B80EF6db1B508A0241ac4565fe7c29F299d60` on World Chain — fee 0.001 H2O
 - **SUSHI Staking BNB**: `0x945B4b199Baf8F41E11E79df32D9919bd1fd1c08` — withdraw() NO PARAM (withdraws all)
 - **SUSHI token**: `0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38` (same address on both chains)
+- **WLD token**: `0x2cFc85d8E48F8EAB294be644d9E25C3030863003` on World Chain
+- **WLDStakeV2**: NOT DEPLOYED — `contracts-hh/contracts/WLDStakeV2.sol` — 100% APR default, Permit2 deposits, same queue structure as SushiStakeV2. Deploy and set address in `contracts-hh/deployed-wld-v2.json`
 - **Bridge contracts**: NOT DEPLOYED — placeholder addresses, flip DEPLOYED=false→true after deploy
 
 ## User Preferences
@@ -66,3 +68,5 @@ ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain eco
 - Bridge contracts: `cancel(uint256 id)` already refunds 100% SUSHI to user — both contracts have it
 - `receiveFee(uint256)` in both bridge contracts lets anyone route stake fees to fundPool (2% stake routing)
 - BNB wallet panel requires `bnbPrivateKey` prop for signing — read-only mode shows balances only
+- BNB swap: token-to-token uses 3-hop path [token→WBNB→token]; slippage uses bigint `rawOut * 98n / 100n` to avoid float precision issues
+- WLDStakeV2: deploy to World Chain, then put address in `contracts-hh/deployed-wld-v2.json` as `{ "contract": "0x..." }`
