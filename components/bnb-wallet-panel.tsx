@@ -509,7 +509,6 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey }: BNBWalletPanelProp
               ENVIAR {sendToken}
             </button>
 
-            {noKey && <p className="text-[8px] text-amber-300 text-center">⚠ Importa tu clave privada BNB para enviar</p>}
           </div>
         </div>
       )}
@@ -732,7 +731,6 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey }: BNBWalletPanelProp
               SWAP {swapFrom} → {swapTo}
             </button>
 
-            {noKey && <p className="text-[8px] text-amber-300 text-center">⚠ Importa tu clave privada BNB para hacer swap</p>}
           </div>
 
           <div className="flex items-start gap-2 p-3 rounded-xl bg-[#f0b90b]/8 border border-[#f0b90b]/25">

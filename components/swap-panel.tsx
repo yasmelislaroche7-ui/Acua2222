@@ -831,6 +831,10 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   // Slippage warning: shown when impact is high before executing swap
   const [slipWarning, setSlipWarning] = useState<{ bps: number; level: 'warn' | 'high' } | null>(null)
 
+  // Slippage mode: auto (adaptive), custom (user sets %), none (0 protection)
+  const [slippageMode, setSlippageMode]   = useState<'auto' | 'custom' | 'none'>('auto')
+  const [customSlipPct, setCustomSlipPct] = useState('5')
+
   const [addAddr,    setAddAddr]    = useState('')
   const [addLoading, setAddLoading] = useState(false)
   const [addMsg,     setAddMsg]     = useState('')
@@ -1195,9 +1199,17 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
         activeQuote = fresh
       }
 
-      // Adaptive slippage: tight for liquid pairs, wider only for exotic ones
-      const adaptiveSlipBps = getAdaptiveSlippageBps(fromToken.address, toToken.address)
-      const minOut = activeQuote.amountOut * BigInt(10000 - adaptiveSlipBps) / 10000n
+      // Slippage: auto (adaptive), custom (user-set %) or none (minOut = 0)
+      let effectiveSlipBps: number
+      if (slippageMode === 'none') {
+        effectiveSlipBps = 0
+      } else if (slippageMode === 'custom') {
+        const pct = parseFloat(customSlipPct)
+        effectiveSlipBps = isNaN(pct) ? 100 : Math.min(Math.max(Math.round(pct * 100), 1), 4999)
+      } else {
+        effectiveSlipBps = getAdaptiveSlippageBps(fromToken.address, toToken.address)
+      }
+      const minOut = effectiveSlipBps === 0 ? 0n : activeQuote.amountOut * BigInt(10000 - effectiveSlipBps) / 10000n
 
       // ── USDC equivalent for volume tracking ───────────────────────────────
       // Fetch fresh price from DexScreener at swap time so volume is always
@@ -1303,19 +1315,20 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       setSwapping(false)
       setSwapStep('')
     }
-  }, [fromAmt, quote, fromToken, toToken, prices, wldPrices, balances, maxRawAmt, loadBalances, loadVolume]) // eslint-disable-line
+  }, [fromAmt, quote, fromToken, toToken, prices, wldPrices, balances, maxRawAmt, loadBalances, loadVolume, slippageMode, customSlipPct]) // eslint-disable-line
 
   // ── doSwap: check slippage warning first ─────────────────────────────────────
   const doSwap = useCallback(() => {
     if (!quote || !fromAmt) return
     const impBps = impact ?? null
-    if (impBps !== null && impBps > IMPACT_WARN_BPS && !slipWarning) {
+    // Skip warning when user explicitly chose no-protection mode
+    if (slippageMode !== 'none' && impBps !== null && impBps > IMPACT_WARN_BPS && !slipWarning) {
       // Show warning and wait for user confirmation
       setSlipWarning({ bps: impBps, level: impBps > IMPACT_HIGH_BPS ? 'high' : 'warn' })
       return
     }
     executeSwap()
-  }, [quote, fromAmt, impact, slipWarning, executeSwap])
+  }, [quote, fromAmt, impact, slipWarning, slippageMode, executeSwap])
 
   // ── Add custom token ──────────────────────────────────────────────────────────
   const addToken = useCallback(async () => {
@@ -1797,9 +1810,12 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
               <div className="flex items-center justify-between rounded-lg px-3 py-2 text-[10px]" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
                 <span className="text-white/40 flex items-center gap-1">
                   <Coins className="w-3 h-3" /> 2.1% fee · Slippage:{' '}
-                  <strong className="text-green-400/80">
-                    {slippageLabel(getAdaptiveSlippageBps(fromToken.address, toToken.address))}
-                  </strong>
+                  {slippageMode === 'none'
+                    ? <strong className="text-red-400">Sin límite</strong>
+                    : slippageMode === 'custom'
+                      ? <strong className="text-yellow-400/90">{customSlipPct}%</strong>
+                      : <strong className="text-green-400/80">{slippageLabel(getAdaptiveSlippageBps(fromToken.address, toToken.address))}</strong>
+                  }
                 </span>
                 {quote && (
                   <span className={cn('px-1.5 py-0.5 rounded font-mono font-bold text-[9px]',
@@ -1915,9 +1931,12 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                   </div>
                   <div className="flex justify-between text-white/40">
                     <span className="flex items-center gap-1"><Zap className="w-2.5 h-2.5 text-green-400" /> Slippage máx.</span>
-                    <span className="font-mono text-green-400/80">
-                      {slippageLabel(getAdaptiveSlippageBps(fromToken.address, toToken.address))}
-                    </span>
+                    {slippageMode === 'none'
+                      ? <span className="font-mono text-red-400 font-semibold">Sin límite (0%)</span>
+                      : slippageMode === 'custom'
+                        ? <span className="font-mono text-yellow-400 font-semibold">{customSlipPct}%</span>
+                        : <span className="font-mono text-green-400/80">{slippageLabel(getAdaptiveSlippageBps(fromToken.address, toToken.address))}</span>
+                    }
                   </div>
                   {impactBps !== null && (
                     <div className="flex justify-between">
@@ -1932,7 +1951,15 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                     </div>
                   )}
                   {quote && (() => {
-                    const slipBps = getAdaptiveSlippageBps(fromToken.address, toToken.address)
+                    if (slippageMode === 'none') return (
+                      <div className="flex justify-between text-white/40">
+                        <span>Mínimo a recibir</span>
+                        <span className="font-mono text-red-400 font-semibold">Sin límite</span>
+                      </div>
+                    )
+                    const slipBps = slippageMode === 'custom'
+                      ? Math.min(Math.max(Math.round((parseFloat(customSlipPct) || 5) * 100), 1), 4999)
+                      : getAdaptiveSlippageBps(fromToken.address, toToken.address)
                     const minReceive = quote.amountOut * BigInt(10000 - slipBps) / 10000n
                     return (
                       <div className="flex justify-between text-white/40">
@@ -1951,6 +1978,44 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
                   )}
                 </div>
               )}
+
+              {/* ── Slippage mode control ─────────────────────────────────── */}
+              <div className="flex items-center gap-2 rounded-xl px-3 py-2"
+                style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <span className="text-[9px] text-white/40 shrink-0">Slippage</span>
+                <div className="flex gap-1">
+                  {([
+                    { key: 'auto'   as const, label: 'Auto'       },
+                    { key: 'custom' as const, label: 'Manual'     },
+                    { key: 'none'   as const, label: 'Sin límite' },
+                  ]).map(opt => (
+                    <button key={opt.key} onClick={() => setSlippageMode(opt.key)}
+                      className={cn('px-2.5 py-1 rounded-lg text-[9px] font-bold transition-colors',
+                        slippageMode === opt.key ? 'text-white' : 'text-white/35 hover:text-white/60')}
+                      style={slippageMode === opt.key
+                        ? { background: opt.key === 'none' ? 'rgba(239,68,68,0.55)' : 'rgba(99,102,241,0.5)' }
+                        : {}}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {slippageMode === 'custom' && (
+                  <div className="flex items-center gap-1 ml-auto">
+                    <input type="number" min="0.1" max="49" step="0.5" value={customSlipPct}
+                      onChange={e => setCustomSlipPct(e.target.value)}
+                      className="w-14 bg-white/8 border border-white/15 rounded-lg px-2 py-1 text-[10px] font-mono text-white text-right outline-none focus:border-indigo-500/50" />
+                    <span className="text-[9px] text-white/40">%</span>
+                  </div>
+                )}
+                {slippageMode === 'none' && (
+                  <span className="text-[9px] text-red-400 font-bold ml-auto">⚠ sin protección</span>
+                )}
+                {slippageMode === 'auto' && (
+                  <span className="text-[9px] text-green-400/60 ml-auto">
+                    {slippageLabel(getAdaptiveSlippageBps(fromToken.address, toToken.address))}
+                  </span>
+                )}
+              </div>
 
               {/* ── Slippage warning card (replaces hard block) ─────────────── */}
               {slipWarning && (
