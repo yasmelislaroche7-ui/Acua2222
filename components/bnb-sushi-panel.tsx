@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import { ethers } from 'ethers'
+import { MiniKit } from '@worldcoin/minikit-js'
 import {
   TrendingUp, Clock, RefreshCw, Loader2, ChevronDown, AlertCircle,
   Wallet, Crown, ExternalLink, Info, Users, Gift, Zap, Lock,
@@ -15,6 +16,17 @@ import {
   SUSHI_BNB_CONTRACT, SUSHI_BNB_TOKEN, BNB_RPC, BNB_USD_APPROX,
   SUSHI_BNB_ABI, ERC20_ABI, MEMBERSHIP_TIERS,
 } from '@/lib/sushibnb-abi'
+import type { WalletMode } from '@/lib/tx-signer'
+
+// ─── MiniKit JSON ABIs (for BNB Chain signing via World Wallet) ───────────────
+const MK_APPROVE     = [{ name: 'approve',            type: 'function', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ type: 'bool' }] }]
+const MK_DEPOSIT     = [{ name: 'deposit',            type: 'function', inputs: [{ name: 'amount',  type: 'uint256' }], outputs: [] }]
+const MK_WITHDRAW    = [{ name: 'withdraw',           type: 'function', inputs: [], outputs: [] }]
+const MK_CLAIM       = [{ name: 'claimRewards',       type: 'function', inputs: [], outputs: [] }]
+const MK_COOK        = [{ name: 'cook',               type: 'function', inputs: [{ name: 'duration', type: 'uint256' }], outputs: [] }]
+const MK_SUBSCRIBE   = [{ name: 'subscribeMembership',type: 'function', stateMutability: 'payable', inputs: [{ name: 'tier', type: 'uint256' }], outputs: [] }]
+const MK_APPLY_REF   = [{ name: 'applyReferral',      type: 'function', inputs: [{ name: 'code', type: 'string' }], outputs: [] }]
+const MK_CREATE_CODE = [{ name: 'createReferralCode', type: 'function', inputs: [{ name: 'code', type: 'string' }], outputs: [] }]
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SUSHI_COLOR = '#e84142'
@@ -228,12 +240,13 @@ function TxProgress({ step }: { step: TxStep | null }) {
 interface BNBSushiPanelProps {
   bnbAddress:    string | null
   bnbPrivateKey?: string | null
+  walletMode?:   WalletMode
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
-export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps) {
+export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSushiPanelProps) {
   const { lang } = useLang()
   const [info, setInfo]           = useState<StakeInfo | null>(null)
   const [totalStaked, setTotalStaked] = useState<bigint | null>(null)
@@ -310,13 +323,47 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
 
   useEffect(() => { if (bnbAddress) load(bnbAddress) }, [bnbAddress, load])
 
+  // ─── MiniKit helper for BNB transactions ─────────────────────────────────────
+  const runMiniKitTx = async (
+    label: string,
+    txList: object[],
+    successLabel: string,
+  ) => {
+    setTxPending(true)
+    setTxStep({ step: 1, total: 1, label })
+    try {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: txList as any,
+      })
+      if ((finalPayload as any).status === 'success') {
+        const txId = (finalPayload as any).transaction_id ?? ''
+        const hashes = txId ? [txId] : []
+        setTxStep({ step: 1, total: 1, label: `✓ ${successLabel}`, done: true })
+        if (hashes.length > 0) {
+          const rec = { id: Date.now().toString(), op: successLabel, hashes, ts: Date.now() }
+          const updated = [rec, ...loadHistory()]
+          saveHistory(updated)
+          setTxHistory(updated)
+        }
+        if (bnbAddress) await load(bnbAddress)
+      } else {
+        const msg = (finalPayload as any).message ?? 'Transacción rechazada en World App'
+        setTxStep({ step: 1, total: 1, label: 'Error', error: msg })
+      }
+    } catch (e: any) {
+      setTxStep({ step: 1, total: 1, label: 'Error', error: e?.message ?? 'Error inesperado' })
+    } finally {
+      setTxPending(false)
+    }
+  }
+
   // ─── Signer with capped gas price ────────────────────────────────────────────
   // BNB Chain has had a 1 gwei floor since the Feb-2024 hard-fork.
   // The RPC sometimes returns inflated estimates (3-10 gwei) which drives
   // costs to 0.0008 BNB+. We override getFeeData so every tx through this
   // signer is capped at 1.1 gwei regardless of what the RPC returns.
   const getSigner = (): ethers.Wallet => {
-    if (!bnbPrivateKey) throw new Error('Para firmar en BNB Chain necesitas importar tu wallet con clave privada. Toca el selector de redes (arriba a la derecha) e importa tu clave.')
+    if (!bnbPrivateKey) throw new Error('Para firmar en BNB Chain importa tu wallet con clave privada en el selector de redes.')
     const provider = new ethers.JsonRpcProvider(BNB_RPC)
     const origGetFeeData = provider.getFeeData.bind(provider)
     provider.getFeeData = async () => {
@@ -390,6 +437,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
   }
 
   // ─── Actions ─────────────────────────────────────────────────────────────────
+  const isMiniKit = walletMode === 'minikit'
 
   // Deposit
   const doDeposit = () => {
@@ -403,6 +451,20 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
       `Stakearás ${depositAmt} SUSHI en el contrato de BNB Chain. Primero se aprobará el token SUSHI, luego se ejecutará el depósito. En total son 2 transacciones.`,
       'Asegúrate de tener BNB en tu wallet para pagar el gas de ambas transacciones.',
       async () => {
+        if (isMiniKit) {
+          // Check allowance first (read-only, no signing needed)
+          const provider = new ethers.JsonRpcProvider(BNB_RPC)
+          const token = new ethers.Contract(SUSHI_BNB_TOKEN, ERC20_ABI, provider)
+          const allowance: bigint = await token.allowance(bnbAddress!, SUSHI_BNB_CONTRACT)
+          const txList: object[] = []
+          if (allowance < amount) {
+            txList.push({ address: SUSHI_BNB_TOKEN, abi: MK_APPROVE, functionName: 'approve', args: [SUSHI_BNB_CONTRACT, ethers.MaxUint256.toString()] })
+          }
+          txList.push({ address: SUSHI_BNB_CONTRACT, abi: MK_DEPOSIT, functionName: 'deposit', args: [amount.toString()] })
+          await runMiniKitTx(`Depositando ${depositAmt} SUSHI…`, txList, `${depositAmt} SUSHI stakeados correctamente`)
+          setDepositAmt('')
+          return
+        }
         await runTx([
           {
             label: `Paso 1/2 — Aprobando ${depositAmt} SUSHI para el contrato…`,
@@ -410,7 +472,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
               const signer = getSigner()
               const token  = new ethers.Contract(SUSHI_BNB_TOKEN, ERC20_ABI, signer)
               const allowance = await token.allowance(bnbAddress!, SUSHI_BNB_CONTRACT)
-              if (allowance >= amount) return null  // ya aprobado
+              if (allowance >= amount) return null
               return token.approve(SUSHI_BNB_CONTRACT, ethers.MaxUint256,
                 { gasLimit: GAS_LIMITS.approve, gasPrice: GAS_PRICE_WEI })
             },
@@ -438,6 +500,12 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
       `Se retirarán TODOS tus tokens stakeados (${fmtSushi(info.staked)} SUSHI). Las recompensas pendientes (${fmtSushi(info.pendingRewards)} SUSHI) también se cobrarán automáticamente.`,
       'El retiro es total — no hay retiro parcial en este contrato.',
       async () => {
+        if (isMiniKit) {
+          await runMiniKitTx(`Retirando ${fmtSushi(info.staked)} SUSHI…`,
+            [{ address: SUSHI_BNB_CONTRACT, abi: MK_WITHDRAW, functionName: 'withdraw', args: [] }],
+            `${fmtSushi(info.staked)} SUSHI retirados a tu wallet`)
+          return
+        }
         await runTx([
           {
             label: `Retirando ${fmtSushi(info.staked)} SUSHI del staking…`,
@@ -460,6 +528,12 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
       `Recibirás ${fmtSushi(info.pendingRewards, 6)} SUSHI de recompensas en tu wallet BNB. Tu stake permanece intacto.`,
       '',
       async () => {
+        if (isMiniKit) {
+          await runMiniKitTx(`Cobrando recompensas SUSHI…`,
+            [{ address: SUSHI_BNB_CONTRACT, abi: MK_CLAIM, functionName: 'claimRewards', args: [] }],
+            `${fmtSushi(info.pendingRewards, 6)} SUSHI cobrados`)
+          return
+        }
         await runTx([
           {
             label: `Cobrando ${fmtSushi(info.pendingRewards, 6)} SUSHI de recompensas…`,
@@ -483,6 +557,12 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
       `Activarás el boost de cocción por ${opt.label}. Durante este período tus recompensas se multiplican según tu racha. Necesitas SUSHI stakeado.`,
       'La cocción genera recompensas adicionales sobre tu stake. Función avanzada del contrato.',
       async () => {
+        if (isMiniKit) {
+          await runMiniKitTx(`Iniciando cocción por ${opt.label}…`,
+            [{ address: SUSHI_BNB_CONTRACT, abi: MK_COOK, functionName: 'cook', args: [opt.seconds.toString()] }],
+            `¡Cocción iniciada por ${opt.label}!`)
+          return
+        }
         await runTx([
           {
             label: `Iniciando cocción por ${opt.label}…`,
@@ -506,6 +586,12 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
       `Pagarás ${ethers.formatEther(priceBNB)} BNB para activar la membresía ${meta.name}. Esta membresía te permite tiempos de cocción de hasta ${meta.cookMinutes < 60 ? meta.cookMinutes + ' minutos' : meta.cookMinutes / 60 + ' horas'}.`,
       `Pago en BNB: ${ethers.formatEther(priceBNB)} BNB + gas (~${GAS_ESTIMATE_BNB} BNB). Asegúrate de tener suficiente saldo BNB.`,
       async () => {
+        if (isMiniKit) {
+          await runMiniKitTx(`Activando membresía ${meta.name}…`,
+            [{ address: SUSHI_BNB_CONTRACT, abi: MK_SUBSCRIBE, functionName: 'subscribeMembership', args: [tier.toString()], value: priceBNB.toString() }],
+            `Membresía ${meta.name} activada`)
+          return
+        }
         await runTx([
           {
             label: `Activando membresía ${meta.name}…`,
@@ -529,6 +615,13 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
       `Aplicarás el código "${referralCode.trim()}". Esto puede darte un descuento en membresías.`,
       '',
       async () => {
+        if (isMiniKit) {
+          await runMiniKitTx(`Aplicando código "${referralCode}"…`,
+            [{ address: SUSHI_BNB_CONTRACT, abi: MK_APPLY_REF, functionName: 'applyReferral', args: [referralCode.trim()] }],
+            `Código "${referralCode}" aplicado`)
+          setReferralCode('')
+          return
+        }
         await runTx([
           {
             label: `Aplicando código "${referralCode}"…`,
@@ -552,6 +645,12 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
       `Crearás el código "${code}" vinculado a tu wallet. Compártelo y gana el 10% de las membresías que tus amigos compren.`,
       '',
       async () => {
+        if (isMiniKit) {
+          await runMiniKitTx(`Creando código de referido "${code}"…`,
+            [{ address: SUSHI_BNB_CONTRACT, abi: MK_CREATE_CODE, functionName: 'createReferralCode', args: [code] }],
+            `Código "${code}" creado`)
+          return
+        }
         await runTx([
           {
             label: `Creando código de referido "${code}"…`,
@@ -582,7 +681,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
     : null
 
   // ─── No wallet ───────────────────────────────────────────────────────────────
-  if (!bnbAddress) {
+  if (!bnbAddress && walletMode !== 'minikit') {
     return (
       <div className="space-y-4 pb-24">
         <div className="relative rounded-2xl overflow-hidden p-5" style={{ background: 'linear-gradient(135deg,#7c1d1d,#e8414210,#0a0a14)' }}>
@@ -600,7 +699,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
           <div>
             <p className="text-xs font-bold text-amber-400">Wallet BNB requerida</p>
             <p className="text-[10px] text-[oklch(0.50_0.012_230)] leading-relaxed">
-              Importa una wallet con clave privada en el selector de redes (esquina superior derecha) para stakear SUSHI en BNB Chain.
+              Conecta tu World Wallet o importa una wallet BNB con clave privada en el selector de redes (esquina superior derecha).
             </p>
           </div>
         </div>
@@ -609,7 +708,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
   }
 
   // ─── No private key warning ───────────────────────────────────────────────────
-  const noKey = !bnbPrivateKey
+  const noKey = !bnbPrivateKey && walletMode !== 'minikit'
 
   // ─── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -635,11 +734,11 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
           <div className="flex-1 min-w-0">
             <p className="text-[9px] font-bold text-[#e84142]/80 uppercase tracking-wider">SUSHI Staking · BNB Chain</p>
             <h2 className="text-lg font-black text-foreground leading-tight">SUSHI Staking</h2>
-            <p className="text-[8px] text-[oklch(0.45_0.01_230)] truncate font-mono">{bnbAddress.slice(0,10)}…{bnbAddress.slice(-6)}</p>
+            <p className="text-[8px] text-[oklch(0.45_0.01_230)] truncate font-mono">{bnbAddress?.slice(0,10)}…{bnbAddress?.slice(-6)}</p>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {info && <MembershipBadge tier={info.membership} />}
-            <button onClick={() => load(bnbAddress)} disabled={loading}
+            <button onClick={() => bnbAddress && load(bnbAddress)} disabled={loading}
               className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
               <RefreshCw className={cn('w-3.5 h-3.5 text-[oklch(0.45_0.01_230)]', loading && 'animate-spin')} />
             </button>
@@ -665,7 +764,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey }: BNBSushiPanelProps)
         {/* Account change hint */}
         <div className="relative mt-2 flex items-center justify-between gap-2 px-2.5 py-1 rounded-xl bg-white/4 border border-white/8">
           <p className="text-[8px] text-[oklch(0.45_0.01_230)]">
-            {noKey ? '👁 Solo lectura · sin clave privada BNB' : '🔑 Wallet con firma activa'}
+            {isMiniKit ? '🌐 World Wallet · MiniKit' : noKey ? '👁 Solo lectura · sin clave privada BNB' : '🔑 Clave privada BNB activa'}
           </p>
           <button
             onClick={() => {
