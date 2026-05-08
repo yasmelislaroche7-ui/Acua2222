@@ -25,6 +25,9 @@ import { cn } from '@/lib/utils'
 import {
   buildFeePayment, fetchFeeInfo, insufficientFeeMsg, feeLabel,
 } from '@/lib/feeCollector'
+import {
+  type WalletMode, stakeEthers, unstakeEthers, claimEthers,
+} from '@/lib/tx-signer'
 
 // ─── MiniKit ABI fragments ────────────────────────────────────────────────────
 const STAKE_ABI = [{
@@ -49,7 +52,6 @@ function useRealtimePending(base: bigint, apyBps: bigint, staked: bigint, decima
   useEffect(() => { setRaw(parseFloat(ethers.formatUnits(base, decimals))) }, [base, decimals])
   useEffect(() => {
     if (staked === 0n || apyBps === 0n) return
-    // APY bps → per second rate
     const apyFloat = Number(apyBps) / 10000
     const stakedFloat = parseFloat(ethers.formatUnits(staked, decimals))
     const perSecond = (apyFloat * stakedFloat) / (365 * 24 * 3600)
@@ -89,15 +91,18 @@ interface StakeDialogProps {
   token: typeof STAKING_TOKENS[0]
   info: StakingInfo | null
   userAddress: string
+  walletMode: WalletMode
+  importedSigner: ethers.Wallet | null
   onClose: () => void
   onRefresh: () => void
 }
 
-function StakeDialog({ token, info, userAddress, onClose, onRefresh }: StakeDialogProps) {
+function StakeDialog({ token, info, userAddress, walletMode, importedSigner, onClose, onRefresh }: StakeDialogProps) {
   const [tab, setTab] = useState<'stake' | 'unstake' | 'claim'>('stake')
   const [amount, setAmount] = useState('')
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
+  const [step, setStep] = useState('')
   const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
   const [h2oBalance, setH2oBalance] = useState<bigint>(0n)
 
@@ -120,9 +125,19 @@ function StakeDialog({ token, info, userAddress, onClose, onRefresh }: StakeDial
   async function doStake() {
     if (!amount || parseFloat(amount) <= 0) return setMsg('Enter a valid amount')
     if (!requireFee()) return
-    setLoading(true); setMsg('')
+    setLoading(true); setMsg(''); setStep('')
     try {
       const amtWei = ethers.parseUnits(amount, decimals)
+
+      if (walletMode === 'imported' && importedSigner) {
+        await stakeEthers(importedSigner, token.stakingContract, token.address, amtWei, feeAmount, setStep)
+        setMsg('✓ Staked! Refreshing...')
+        setAmount('')
+        setTimeout(onRefresh, 2000)
+        return
+      }
+
+      // MiniKit path
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
       const nonce = randomNonce()
       const fee = buildFeePayment(feeAmount, deadline)
@@ -156,14 +171,21 @@ function StakeDialog({ token, info, userAddress, onClose, onRefresh }: StakeDial
       } else {
         setMsg('Transaction rejected')
       }
-    } catch (e: any) { setMsg(e.message || 'Error') }
-    finally { setLoading(false) }
+    } catch (e: any) { setMsg(e.shortMessage ?? e.reason ?? e.message ?? 'Error') }
+    finally { setLoading(false); setStep('') }
   }
 
   async function doUnstake() {
     if (!requireFee()) return
-    setLoading(true); setMsg('')
+    setLoading(true); setMsg(''); setStep('')
     try {
+      if (walletMode === 'imported' && importedSigner) {
+        await unstakeEthers(importedSigner, token.stakingContract, feeAmount, setStep)
+        setMsg('✓ Unstaked! Refreshing...')
+        setTimeout(onRefresh, 2000)
+        return
+      }
+
       const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
@@ -183,14 +205,21 @@ function StakeDialog({ token, info, userAddress, onClose, onRefresh }: StakeDial
       } else {
         setMsg('Transaction rejected')
       }
-    } catch (e: any) { setMsg(e.message || 'Error') }
-    finally { setLoading(false) }
+    } catch (e: any) { setMsg(e.shortMessage ?? e.reason ?? e.message ?? 'Error') }
+    finally { setLoading(false); setStep('') }
   }
 
   async function doClaim() {
     if (!requireFee()) return
-    setLoading(true); setMsg('')
+    setLoading(true); setMsg(''); setStep('')
     try {
+      if (walletMode === 'imported' && importedSigner) {
+        await claimEthers(importedSigner, token.stakingContract, feeAmount, setStep)
+        setMsg('✓ Claimed! Refreshing...')
+        setTimeout(onRefresh, 2000)
+        return
+      }
+
       const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
@@ -210,8 +239,8 @@ function StakeDialog({ token, info, userAddress, onClose, onRefresh }: StakeDial
       } else {
         setMsg('Transaction rejected')
       }
-    } catch (e: any) { setMsg(e.message || 'Error') }
-    finally { setLoading(false) }
+    } catch (e: any) { setMsg(e.shortMessage ?? e.reason ?? e.message ?? 'Error') }
+    finally { setLoading(false); setStep('') }
   }
 
   const pending = info?.pendingRewards ?? 0n
@@ -234,6 +263,13 @@ function StakeDialog({ token, info, userAddress, onClose, onRefresh }: StakeDial
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xs">✕ Cerrar</button>
         </div>
+
+        {/* Wallet mode badge */}
+        {walletMode === 'imported' && (
+          <div className="mb-3 text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
+            <span>🔑</span> Wallet importada · ethers.js · pagas gas en ETH
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-2 mb-4">
@@ -316,6 +352,11 @@ function StakeDialog({ token, info, userAddress, onClose, onRefresh }: StakeDial
           </div>
         )}
 
+        {step && (
+          <p className="text-xs mt-2 text-center text-[oklch(0.65_0.22_255)] flex items-center justify-center gap-1.5">
+            <Loader2 className="w-3 h-3 animate-spin" /> {step}
+          </p>
+        )}
         {msg && (
           <p className={cn('text-xs mt-3 text-center', msg.startsWith('✓') ? 'text-green-400' : 'text-red-400')}>
             {msg}
@@ -391,9 +432,11 @@ function TokenCard({ token, info, onClick }: {
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 interface MultiStakingPanelProps {
   userAddress: string
+  walletMode: WalletMode
+  importedSigner: ethers.Wallet | null
 }
 
-export function MultiStakingPanel({ userAddress }: MultiStakingPanelProps) {
+export function MultiStakingPanel({ userAddress, walletMode, importedSigner }: MultiStakingPanelProps) {
   const [selected, setSelected] = useState<typeof STAKING_TOKENS[0] | null>(null)
   const [infos, setInfos] = useState<Record<string, StakingInfo | null>>({})
   const [loading, setLoading] = useState(false)
@@ -429,6 +472,12 @@ export function MultiStakingPanel({ userAddress }: MultiStakingPanelProps) {
         </button>
       </div>
 
+      {walletMode === 'imported' && (
+        <div className="text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
+          🔑 Wallet importada · ethers.js · pagas gas en ETH (World Chain)
+        </div>
+      )}
+
       {/* Token list */}
       <div className="space-y-2">
         {STAKING_TOKENS.map(token => (
@@ -455,6 +504,8 @@ export function MultiStakingPanel({ userAddress }: MultiStakingPanelProps) {
           token={selected}
           info={infos[selected.symbol]}
           userAddress={userAddress}
+          walletMode={walletMode}
+          importedSigner={importedSigner}
           onClose={() => setSelected(null)}
           onRefresh={() => { loadInfos(); setSelected(null) }}
         />

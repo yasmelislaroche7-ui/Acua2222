@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import {
   TOKENS, getProvider, ERC20_ABI, formatToken, randomNonce,
 } from '@/lib/new-contracts'
+import { swapEthers } from '@/lib/tx-signer'
 import {
   fetchWDDClaimInfo, projectedRewards, buildWDDClaimBatch, fmtWDD,
   type ClaimInfo,
@@ -801,7 +802,12 @@ function impactColor(bps: number | null) {
 // ═════════════════════════════════════════════════════════════════════════════
 // ─── SwapPanel ────────────────────────────────────────────────────────────────
 // ═════════════════════════════════════════════════════════════════════════════
-export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: boolean }) {
+export function SwapPanel({ userAddress, walletMode, importedSigner }: {
+  userAddress: string
+  isAdmin?: boolean
+  walletMode?: import('@/lib/tx-signer').WalletMode
+  importedSigner?: import('ethers').Wallet | null
+}) {
   const [customTokens, setCustomTokens] = useState<TokenItem[]>(() => {
     try { return JSON.parse(lsGet(LS_CUSTOMS, '[]')) } catch { return [] }
   })
@@ -1157,7 +1163,9 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
   const executeSwap = useCallback(async () => {
     if (!fromAmt || !quote) return
 
-    if (!MiniKit.isInstalled()) {
+    const isImported = walletMode === 'imported' && !!importedSigner
+
+    if (!isImported && !MiniKit.isInstalled()) {
       setSwapMsg({ ok: false, text: 'Abre la app dentro de World App para hacer swaps.' })
       return
     }
@@ -1275,6 +1283,28 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
         }
       }
 
+      // ── Imported wallet path ─────────────────────────────────────────────
+      if (isImported) {
+        setSwapStep('Firmando con wallet importada...')
+        await swapEthers(
+          importedSigner!,
+          ACUA_SWAP_ROUTER,
+          fromToken.address,
+          toToken.address,
+          rawAmt,
+          minOut,
+          usdcEquiv,
+          activeQuote.fee,
+          activeQuote.multi ? activeQuote.fee2 : undefined,
+          activeQuote.multi ? activeQuote.hopToken : undefined,
+          m => setSwapStep(m),
+        )
+        setSwapMsg({ ok: true, text: '✓ Swap confirmado' })
+        setFromAmt(''); setQuote(null); setImpact(null)
+        setTimeout(() => { loadBalances(); loadVolume() }, 3000)
+        return
+      }
+
       setSwapStep('Confirma en World App...')
 
       let res: any
@@ -1315,7 +1345,7 @@ export function SwapPanel({ userAddress }: { userAddress: string; isAdmin?: bool
       setSwapping(false)
       setSwapStep('')
     }
-  }, [fromAmt, quote, fromToken, toToken, prices, wldPrices, balances, maxRawAmt, loadBalances, loadVolume, slippageMode, customSlipPct]) // eslint-disable-line
+  }, [fromAmt, quote, fromToken, toToken, prices, wldPrices, balances, maxRawAmt, loadBalances, loadVolume, slippageMode, customSlipPct, walletMode, importedSigner]) // eslint-disable-line
 
   // ── doSwap: check slippage warning first ─────────────────────────────────────
   const doSwap = useCallback(() => {

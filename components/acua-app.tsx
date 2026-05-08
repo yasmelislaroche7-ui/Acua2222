@@ -7,7 +7,7 @@ import { ethers } from 'ethers'
 import {
   Droplets, RefreshCw, Wallet, Shield, Loader2,
   TrendingUp, Pickaxe, Star, HelpCircle, Wind, Clock, BookOpen, Repeat2,
-  Sparkles, X, ChevronRight, Activity, ArrowLeftRight,
+  Sparkles, X, ChevronRight, Activity, ArrowLeftRight, KeyRound, Eye, EyeOff, LogOut,
 } from 'lucide-react'
 import { StakePanel }            from '@/components/stake-panel'
 import { OwnerPanel }            from '@/components/owner-panel'
@@ -101,72 +101,166 @@ const MENU_INFO: MenuEntry[] = [
 ]
 
 // ─── Screens ─────────────────────────────────────────────────────────────────
-function NotInstalled() {
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6 text-center">
-      <div className="relative flex items-center justify-center" style={{ width: 96, height: 96 }}>
-        <span className="absolute inset-0 rounded-3xl border-2 border-blue-500/60 heartbeat-ring" />
-        <span className="relative w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-600 to-blue-500 flex items-center justify-center shadow-[0_0_32px_rgba(59,130,246,0.55)] heartbeat-logo">
-          <div className="relative w-12 h-12 mt-1.5">
-            <Image src="/flame-logo.png" alt="Acua" fill loading="eager" className="object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.4)]" />
-          </div>
-        </span>
-      </div>
-      <div>
-        <h1 className="text-2xl font-black text-foreground tracking-tight">ACUA MINIEXCHANGE</h1>
-        <p className="text-[oklch(0.50_0.012_230)] text-sm mt-1.5">
-          Abre esta app dentro de <strong className="text-foreground">World App</strong> para continuar.
-        </p>
-      </div>
-      <div className="text-[10px] font-mono text-[oklch(0.50_0.025_255)] border border-[oklch(0.22_0.025_245)] rounded-md px-3 py-1.5 bg-[oklch(0.12_0.02_245)]">
-        World Chain · Chain ID 480
-      </div>
-    </div>
-  )
-}
+function ConnectScreen({
+  onConnect, loading, hasMiniKit, onImport,
+}: {
+  onConnect: () => void
+  loading: boolean
+  hasMiniKit: boolean
+  onImport: (pk: string) => { address: string } | { error: string }
+}) {
+  const [tab, setTab]         = useState<'world' | 'import'>('world')
+  const [pk, setPk]           = useState('')
+  const [showPk, setShowPk]   = useState(false)
+  const [importErr, setImportErr] = useState('')
+  const [importing, setImporting] = useState(false)
 
-function ConnectScreen({ onConnect, loading }: { onConnect: () => void; loading: boolean }) {
+  function handleImport() {
+    if (!pk.trim()) return setImportErr('Introduce tu clave privada.')
+    setImporting(true); setImportErr('')
+    const result = onImport(pk.trim())
+    if ('error' in result) {
+      setImportErr(result.error)
+      setImporting(false)
+    }
+    // On success the parent re-renders and this screen unmounts
+  }
+
+  const FEATURES = [
+    { dot: 'bg-blue-500',    label: 'Stake H2O',              val: '12% APY'   },
+    { dot: 'bg-emerald-500', label: 'Multi-Stake 8 tokens',   val: 'APY variable' },
+    { dot: 'bg-orange-500',  label: 'Minería UTH₂ → H2O',    val: 'Permanente' },
+    { dot: 'bg-yellow-500',  label: 'Minería WLD → 7 tokens', val: 'Simultáneo' },
+    { dot: 'bg-red-500',     label: 'SUSHI BNB Staking',      val: 'Cocción VIP' },
+    { dot: 'bg-cyan-500',    label: 'Bridge WLD ↔ BNB',       val: '1:1 SUSHI'  },
+  ]
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-6 px-5 py-8 overflow-y-auto">
+    <div className="flex-1 flex flex-col items-center gap-5 px-5 py-6 overflow-y-auto">
+      {/* Logo */}
       <div className="flex flex-col items-center gap-3">
-        <div className="relative flex items-center justify-center" style={{ width: 96, height: 96 }}>
+        <div className="relative flex items-center justify-center" style={{ width: 88, height: 88 }}>
           <span className="absolute inset-0 rounded-3xl border-2 border-blue-500/60 heartbeat-ring" />
-          <span className="relative w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-600 to-blue-500 flex items-center justify-center shadow-[0_0_32px_rgba(59,130,246,0.55)] heartbeat-logo">
-            <div className="relative w-12 h-12 mt-1.5">
+          <span className="relative w-18 h-18 rounded-3xl bg-gradient-to-br from-blue-600 to-blue-500 flex items-center justify-center shadow-[0_0_32px_rgba(59,130,246,0.55)] heartbeat-logo" style={{ width: 72, height: 72 }}>
+            <div className="relative" style={{ width: 44, height: 44, marginTop: 4 }}>
               <Image src="/flame-logo.png" alt="Acua" fill loading="eager" className="object-contain" />
             </div>
           </span>
         </div>
         <div className="text-center">
-          <h1 className="text-2xl font-black tracking-tight text-foreground">ACUA MINIEXCHANGE</h1>
-          <p className="text-[oklch(0.50_0.012_230)] text-xs mt-1 font-mono">World Chain · DeFi · 2026</p>
+          <h1 className="text-xl font-black tracking-tight text-foreground">ACUA MINIEXCHANGE</h1>
+          <p className="text-[oklch(0.50_0.012_230)] text-xs mt-0.5 font-mono">World Chain · DeFi · 2026</p>
         </div>
       </div>
+
+      {/* Features list */}
       <div className="w-full max-w-xs rounded-xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.12_0.02_245)] divide-y divide-[oklch(0.18_0.02_245)]">
-        {[
-          { dot: 'bg-blue-500',    label: 'Stake H2O',              val: '12% APY'   },
-          { dot: 'bg-emerald-500', label: 'Multi-Stake 8 tokens',   val: 'APY variable' },
-          { dot: 'bg-orange-500',  label: 'Minería UTH₂ → H2O',    val: 'Permanente' },
-          { dot: 'bg-yellow-500',  label: 'Minería WLD → 7 tokens', val: 'Simultáneo' },
-          { dot: 'bg-red-500',     label: 'SUSHI BNB Staking',      val: 'Cocción VIP' },
-          { dot: 'bg-cyan-500',    label: 'Bridge WLD ↔ BNB',       val: '1:1 SUSHI'  },
-        ].map(f => (
-          <div key={f.label} className="flex items-center gap-3 px-4 py-2.5">
+        {FEATURES.map(f => (
+          <div key={f.label} className="flex items-center gap-3 px-4 py-2">
             <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', f.dot)} />
             <span className="text-xs text-[oklch(0.60_0.01_230)] flex-1">{f.label}</span>
             <span className="text-xs font-bold text-foreground font-mono">{f.val}</span>
           </div>
         ))}
       </div>
-      <button
-        className="w-full max-w-xs h-12 rounded-xl bg-[oklch(0.65_0.22_255)] text-white font-bold text-base flex items-center justify-center gap-2 glow-blue hover:bg-[oklch(0.70_0.24_255)] transition-colors"
-        onClick={onConnect}
-        disabled={loading}
-      >
-        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wallet className="w-5 h-5" />}
-        Conectar World Wallet
-      </button>
-      <p className="text-[10px] text-center text-[oklch(0.40_0.01_230)]">Solo disponible dentro de World App</p>
+
+      {/* Tab switcher */}
+      <div className="w-full max-w-xs flex rounded-xl overflow-hidden border border-[oklch(0.22_0.025_245)]">
+        <button
+          onClick={() => setTab('world')}
+          className={cn(
+            'flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors',
+            tab === 'world'
+              ? 'bg-[oklch(0.65_0.22_255)] text-white'
+              : 'bg-[oklch(0.12_0.02_245)] text-[oklch(0.55_0.01_230)] hover:text-foreground',
+          )}
+        >
+          <Wallet className="w-3.5 h-3.5" /> World Wallet
+        </button>
+        <button
+          onClick={() => setTab('import')}
+          className={cn(
+            'flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors',
+            tab === 'import'
+              ? 'bg-[oklch(0.65_0.22_255)] text-white'
+              : 'bg-[oklch(0.12_0.02_245)] text-[oklch(0.55_0.01_230)] hover:text-foreground',
+          )}
+        >
+          <KeyRound className="w-3.5 h-3.5" /> Importar Wallet
+        </button>
+      </div>
+
+      {/* Tab content */}
+      <div className="w-full max-w-xs space-y-3">
+        {tab === 'world' ? (
+          <>
+            {hasMiniKit ? (
+              <>
+                <button
+                  className="w-full h-12 rounded-xl bg-[oklch(0.65_0.22_255)] text-white font-bold text-sm flex items-center justify-center gap-2 glow-blue hover:bg-[oklch(0.70_0.24_255)] transition-colors"
+                  onClick={onConnect}
+                  disabled={loading}
+                >
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wallet className="w-5 h-5" />}
+                  Conectar World Wallet
+                </button>
+                <p className="text-[10px] text-center text-[oklch(0.40_0.01_230)]">
+                  Gas patrocinado · Permit2 · World Chain
+                </p>
+              </>
+            ) : (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-4 text-center space-y-2">
+                <p className="text-xs font-semibold text-amber-400">Fuera de World App</p>
+                <p className="text-[11px] text-[oklch(0.55_0.01_230)] leading-relaxed">
+                  World Wallet solo funciona dentro de <strong className="text-foreground">World App</strong>.
+                  Usa la pestaña <strong className="text-foreground">Importar Wallet</strong> para conectar con clave privada.
+                </p>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+              <p className="text-[10px] text-amber-400 font-semibold mb-1">Aviso de seguridad</p>
+              <p className="text-[10px] text-[oklch(0.55_0.01_230)] leading-relaxed">
+                Tu clave privada nunca se almacena. Permanece en memoria y se borra al cerrar la app.
+                Usa solo en dispositivos de confianza.
+              </p>
+            </div>
+            <div className="relative">
+              <input
+                type={showPk ? 'text' : 'password'}
+                value={pk}
+                onChange={e => { setPk(e.target.value); setImportErr('') }}
+                placeholder="Clave privada (0x... o 64 hex)"
+                className="w-full bg-[oklch(0.10_0.018_245)] border border-[oklch(0.22_0.025_245)] rounded-xl px-3 py-3 pr-10 text-xs text-foreground placeholder:text-[oklch(0.40_0.01_230)] focus:outline-none focus:border-[oklch(0.65_0.22_255)] font-mono"
+                onKeyDown={e => e.key === 'Enter' && handleImport()}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPk(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[oklch(0.50_0.01_230)] hover:text-foreground"
+              >
+                {showPk ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            {importErr && (
+              <p className="text-[11px] text-red-400 text-center">{importErr}</p>
+            )}
+            <button
+              onClick={handleImport}
+              disabled={importing || !pk.trim()}
+              className="w-full h-11 rounded-xl bg-[oklch(0.65_0.22_255)] text-white font-bold text-sm flex items-center justify-center gap-2 hover:bg-[oklch(0.70_0.24_255)] transition-colors disabled:opacity-50"
+            >
+              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+              Conectar wallet
+            </button>
+            <p className="text-[10px] text-center text-[oklch(0.40_0.01_230)]">
+              Funciona en World Chain · ethers.js · Paga gas en ETH
+            </p>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -521,10 +615,15 @@ export default function AcuaApp() {
   const isMainOwner       = wallet.isOwner || isNewOwner || isSecondaryAdmin
 
   if (isInstalled === null) return <LoadingScreen />
-  if (!isInstalled || !wallet.address) {
+  if (!wallet.address) {
     return (
       <div className="h-dvh bg-background flex flex-col max-w-md mx-auto">
-        {!isInstalled ? <NotInstalled /> : <ConnectScreen onConnect={wallet.connect} loading={wallet.isConnecting} />}
+        <ConnectScreen
+          onConnect={wallet.connect}
+          loading={wallet.isConnecting}
+          hasMiniKit={isInstalled === true}
+          onImport={wallet.importWallet}
+        />
       </div>
     )
   }
@@ -581,6 +680,16 @@ export default function AcuaApp() {
           <div className="flex items-center gap-1.5">
             {loadingData && activeNetwork === 'wld' && (
               <Loader2 className="w-3 h-3 text-[oklch(0.50_0.012_230)] animate-spin" />
+            )}
+            {wallet.walletMode === 'imported' && (
+              <button
+                onClick={() => wallet.disconnect()}
+                title="Wallet importada — tap para desconectar"
+                className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/40 text-amber-400 hover:bg-amber-500/25 transition-colors"
+              >
+                <KeyRound className="w-2.5 h-2.5" />
+                <span className="text-[9px] font-bold tracking-wide">IMPORTADA</span>
+              </button>
             )}
             <LanguageSwitcher />
             <NetworkSwitcher
@@ -665,26 +774,19 @@ export default function AcuaApp() {
 
           {/* ── WLD / World Chain app ─────────────── */}
           {activeNetwork === 'wld' && activeTab === 'h2o' && (
-            <StakePanel
-              stakeInfo={stakeInfo}
-              config={config}
-              userAddress={addr}
-              h2oBalance={h2oBalance}
-              wldBalance={wldBalance}
-              onRefresh={loadData}
-            />
+            <StakePanel userAddress={addr} />
           )}
 
           {activeNetwork === 'wld' && activeTab === 'h2o-new'    && <NewH2OPanel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'stake-v2'   && <StakeV2Panel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'h2o-v3'     && <H2OV3Panel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'stake-plus'  && <MultiStakingPanel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'uth2'        && <MiningUTH2Panel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'wld'         && <MiningWLDPanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'stake-plus'  && <MultiStakingPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
+          {activeNetwork === 'wld' && activeTab === 'uth2'        && <MiningUTH2Panel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
+          {activeNetwork === 'wld' && activeTab === 'wld'         && <MiningWLDPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
           {activeNetwork === 'wld' && activeTab === 'time'        && <MiningTimePanel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'tokens'      && <TokenDirectoryPanel />}
           {activeNetwork === 'wld' && activeTab === 'sushi-v2'   && <SushiV2Panel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'swap'        && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
+          {activeNetwork === 'wld' && activeTab === 'swap'        && <SwapPanel userAddress={addr} isAdmin={isMainOwner} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
           {activeNetwork === 'wld' && activeTab === 'info'        && <InfoPanel />}
 
           {activeNetwork === 'wld' && activeTab === 'monitor' && (

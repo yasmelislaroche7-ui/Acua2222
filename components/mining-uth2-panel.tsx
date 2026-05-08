@@ -13,6 +13,9 @@ import { cn } from '@/lib/utils'
 import {
   buildFeePayment, fetchFeeInfo, insufficientFeeMsg, feeLabel,
 } from '@/lib/feeCollector'
+import {
+  type WalletMode, buyMiningEthers, claimUTH2Ethers,
+} from '@/lib/tx-signer'
 
 // ─── ABI ──────────────────────────────────────────────────────────────────────
 const BUY_PACKAGE_ABI = [{
@@ -210,11 +213,13 @@ interface BuyDialogProps {
   pkg: MiningPackage
   uth2Balance: bigint
   userAddress: string
+  walletMode: WalletMode
+  importedSigner: import('ethers').Wallet | null
   onClose: () => void
   onSuccess: () => void
 }
 
-function BuyDialog({ pkg, uth2Balance, userAddress, onClose, onSuccess }: BuyDialogProps) {
+function BuyDialog({ pkg, uth2Balance, userAddress, walletMode, importedSigner, onClose, onSuccess }: BuyDialogProps) {
   const cfg = PKG_CFG[pkg.id] || PKG_CFG[0]
   const [units, setUnits] = useState('1')
   const [loading, setLoading] = useState(false)
@@ -240,6 +245,14 @@ function BuyDialog({ pkg, uth2Balance, userAddress, onClose, onSuccess }: BuyDia
     if (h2oBalance < feeAmount) return setMsg(insufficientFeeMsg(feeAmount))
     setLoading(true); setMsg('')
     try {
+      if (walletMode === 'imported' && importedSigner) {
+        await buyMiningEthers(importedSigner, MINING_UTH2_CONTRACT, TOKENS.UTH2, pkg.id, u, totalCost, feeAmount,
+          m => setMsg(m))
+        setMsg('✓ ¡Paquete comprado! Minería activada permanentemente')
+        setTimeout(onSuccess, 2000)
+        return
+      }
+
       const nonce = randomNonce()
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
       const fee = buildFeePayment(feeAmount, deadline)
@@ -273,7 +286,7 @@ function BuyDialog({ pkg, uth2Balance, userAddress, onClose, onSuccess }: BuyDia
       } else {
         setMsg((finalPayload as any).message ?? 'Transacción rechazada')
       }
-    } catch (e: any) { setMsg(e.message || 'Error') }
+    } catch (e: any) { setMsg(e.shortMessage ?? e.reason ?? e.message ?? 'Error') }
     finally { setLoading(false) }
   }
 
@@ -349,7 +362,13 @@ function BuyDialog({ pkg, uth2Balance, userAddress, onClose, onSuccess }: BuyDia
 }
 
 // ─── Main Panel ───────────────────────────────────────────────────────────────
-export function MiningUTH2Panel({ userAddress }: { userAddress: string }) {
+interface MiningUTH2PanelProps {
+  userAddress: string
+  walletMode: WalletMode
+  importedSigner: import('ethers').Wallet | null
+}
+
+export function MiningUTH2Panel({ userAddress, walletMode, importedSigner }: MiningUTH2PanelProps) {
   const [info, setInfo] = useState<MiningUTH2Info | null>(null)
   const [loading, setLoading] = useState(false)
   const [buyingPkg, setBuyingPkg] = useState<MiningPackage | null>(null)
@@ -389,6 +408,13 @@ export function MiningUTH2Panel({ userAddress }: { userAddress: string }) {
     if (h2oBalance < feeAmount) return setMsg(insufficientFeeMsg(feeAmount))
     setClaiming(true); setMsg('')
     try {
+      if (walletMode === 'imported' && importedSigner) {
+        setMsg('Firmando claim...')
+        await claimUTH2Ethers(importedSigner, MINING_UTH2_CONTRACT, m => setMsg(m))
+        setMsg('✓ H2O reclamado exitosamente!')
+        setTimeout(load, 2000)
+        return
+      }
       const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
@@ -401,7 +427,7 @@ export function MiningUTH2Panel({ userAddress }: { userAddress: string }) {
         setMsg('✓ H2O reclamado exitosamente!')
         setTimeout(load, 2000)
       } else setMsg('Transacción rechazada')
-    } catch (e: any) { setMsg(e.message || 'Error') }
+    } catch (e: any) { setMsg(e.shortMessage ?? e.reason ?? e.message ?? 'Error') }
     finally { setClaiming(false) }
   }
 
@@ -511,6 +537,8 @@ export function MiningUTH2Panel({ userAddress }: { userAddress: string }) {
           pkg={buyingPkg}
           uth2Balance={info.uth2Balance}
           userAddress={userAddress}
+          walletMode={walletMode}
+          importedSigner={importedSigner}
           onClose={() => setBuyingPkg(null)}
           onSuccess={() => { setBuyingPkg(null); load() }}
         />

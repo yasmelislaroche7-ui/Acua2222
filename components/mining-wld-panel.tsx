@@ -13,6 +13,9 @@ import { cn } from '@/lib/utils'
 import {
   buildFeePayment, fetchFeeInfo, insufficientFeeMsg, feeLabel,
 } from '@/lib/feeCollector'
+import {
+  type WalletMode, buyMiningEthers, claimMiningPkgEthers, claimMiningAllEthers,
+} from '@/lib/tx-signer'
 
 // ─── ABIs ─────────────────────────────────────────────────────────────────────
 const BUY_PKG_ABI = [{
@@ -212,10 +215,12 @@ function WLDPackageCard({ pkg, userUnits, pendingRewards, userDailyYield, wldBal
 interface BuyDialogProps {
   pkgId: number; priceWLD: bigint; dailyYield: bigint; rewardSymbol: string; wldBalance: bigint
   userAddress: string
+  walletMode: WalletMode
+  importedSigner: import('ethers').Wallet | null
   onClose: () => void; onSuccess: () => void
 }
 
-function BuyDialog({ pkgId, priceWLD, dailyYield, rewardSymbol, wldBalance, userAddress, onClose, onSuccess }: BuyDialogProps) {
+function BuyDialog({ pkgId, priceWLD, dailyYield, rewardSymbol, wldBalance, userAddress, walletMode, importedSigner, onClose, onSuccess }: BuyDialogProps) {
   const cfg = PKG_CFG[pkgId] || { name: `Mine ${pkgId}`, color: '#6b7280', icon: '⛏', rarity: '' }
   const [units, setUnits] = useState('1')
   const [loading, setLoading] = useState(false)
@@ -241,6 +246,14 @@ function BuyDialog({ pkgId, priceWLD, dailyYield, rewardSymbol, wldBalance, user
     if (h2oBalance < feeAmount) return setMsg(insufficientFeeMsg(feeAmount))
     setLoading(true); setMsg('')
     try {
+      if (walletMode === 'imported' && importedSigner) {
+        await buyMiningEthers(importedSigner, MINING_WLD_CONTRACT, TOKENS.WLD, pkgId, u, totalCost, feeAmount,
+          m => setMsg(m))
+        setMsg('✓ ¡Paquete activado! Minería permanente')
+        setTimeout(onSuccess, 2000)
+        return
+      }
+
       const nonce = randomNonce()
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
       const fee = buildFeePayment(feeAmount, deadline)
@@ -270,7 +283,7 @@ function BuyDialog({ pkgId, priceWLD, dailyYield, rewardSymbol, wldBalance, user
         setMsg('✓ ¡Paquete activado! Minería permanente')
         setTimeout(onSuccess, 2000)
       } else setMsg((finalPayload as any).message ?? 'Transacción rechazada')
-    } catch (e: any) { setMsg(e.message || 'Error') }
+    } catch (e: any) { setMsg(e.shortMessage ?? e.reason ?? e.message ?? 'Error') }
     finally { setLoading(false) }
   }
 
@@ -341,7 +354,13 @@ function BuyDialog({ pkgId, priceWLD, dailyYield, rewardSymbol, wldBalance, user
 }
 
 // ─── Main Panel ───────────────────────────────────────────────────────────────
-export function MiningWLDPanel({ userAddress }: { userAddress: string }) {
+interface MiningWLDPanelProps {
+  userAddress: string
+  walletMode: WalletMode
+  importedSigner: import('ethers').Wallet | null
+}
+
+export function MiningWLDPanel({ userAddress, walletMode, importedSigner }: MiningWLDPanelProps) {
   const [info, setInfo] = useState<MiningWLDInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [buyingPkgId, setBuyingPkgId] = useState<number | null>(null)
@@ -382,6 +401,10 @@ export function MiningWLDPanel({ userAddress }: { userAddress: string }) {
     if (h2oBalance < feeAmount) return setMsg(insufficientFeeMsg(feeAmount))
     setClaimingPkgId(pkgId); setMsg('')
     try {
+      if (walletMode === 'imported' && importedSigner) {
+        await claimMiningPkgEthers(importedSigner, MINING_WLD_CONTRACT, pkgId, m => setMsg(m))
+        setMsg('✓ Rewards reclamadas!'); setTimeout(load, 2000); return
+      }
       const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
@@ -392,7 +415,7 @@ export function MiningWLDPanel({ userAddress }: { userAddress: string }) {
       })
       if (finalPayload.status === 'success') { setMsg('✓ Rewards reclamadas!'); setTimeout(load, 2000) }
       else setMsg('Transacción rechazada')
-    } catch (e: any) { setMsg(e.message || 'Error') }
+    } catch (e: any) { setMsg(e.shortMessage ?? e.reason ?? e.message ?? 'Error') }
     finally { setClaimingPkgId(null) }
   }
 
@@ -400,6 +423,10 @@ export function MiningWLDPanel({ userAddress }: { userAddress: string }) {
     if (h2oBalance < feeAmount) return setMsg(insufficientFeeMsg(feeAmount))
     setClaimingAll(true); setMsg('')
     try {
+      if (walletMode === 'imported' && importedSigner) {
+        await claimMiningAllEthers(importedSigner, MINING_WLD_CONTRACT, m => setMsg(m))
+        setMsg('✓ Todas las rewards reclamadas!'); setTimeout(load, 2000); return
+      }
       const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
@@ -410,7 +437,7 @@ export function MiningWLDPanel({ userAddress }: { userAddress: string }) {
       })
       if (finalPayload.status === 'success') { setMsg('✓ Todas las rewards reclamadas!'); setTimeout(load, 2000) }
       else setMsg('Transacción rechazada')
-    } catch (e: any) { setMsg(e.message || 'Error') }
+    } catch (e: any) { setMsg(e.shortMessage ?? e.reason ?? e.message ?? 'Error') }
     finally { setClaimingAll(false) }
   }
 
@@ -522,6 +549,8 @@ export function MiningWLDPanel({ userAddress }: { userAddress: string }) {
           rewardSymbol={info.packages[buyingPkgId].rewardSymbol}
           wldBalance={info.wldBalance}
           userAddress={userAddress}
+          walletMode={walletMode}
+          importedSigner={importedSigner}
           onClose={() => setBuyingPkgId(null)}
           onSuccess={() => { setBuyingPkgId(null); load() }}
         />
