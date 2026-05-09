@@ -845,7 +845,7 @@ export default function AcuaApp() {
       <AiAgent />
 
       {/* ── Global Chat flotante ──────────────────────────────────────── */}
-      <GlobalChat userAddress={addr} />
+      <GlobalChat userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />
 
     </div>
   )

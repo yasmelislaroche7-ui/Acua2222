@@ -564,6 +564,50 @@ function ChangeBadge({ pct, size = 'sm' }: { pct: number; size?: 'xs' | 'sm' }) 
   )
 }
 
+// ─── Mini SVG sparkline ───────────────────────────────────────────────────────
+function MiniSparkline({ change5m = 0, change1h = 0, change24h = 0, w = 72, h = 30 }: {
+  change5m?: number; change1h?: number; change24h?: number; w?: number; h?: number
+}) {
+  const c24 = change24h || 0; const c1h = change1h || 0; const c5m = change5m || 0
+  // 6 synthetic points: 24h ago → now (derived from change data)
+  const raw = [
+    0,
+    c24 * 0.2 - c1h * 0.05,
+    c24 * 0.55 - c1h * 0.15,
+    c24 - c1h,
+    c24 - c5m * 0.7,
+    c24,
+  ]
+  const min = Math.min(...raw); const max = Math.max(...raw)
+  const range = max - min || 1
+  const pts: [number, number][] = raw.map((v, i) => [
+    (i / (raw.length - 1)) * w,
+    h - 3 - ((v - min) / range) * (h - 6),
+  ])
+  let d = `M ${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1]; const [x1, y1] = pts[i]
+    const cx = (x0 + x1) / 2
+    d += ` C ${cx.toFixed(1)},${y0.toFixed(1)} ${cx.toFixed(1)},${y1.toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)}`
+  }
+  const up = c24 >= 0
+  const color = up ? '#22c55e' : '#ef4444'
+  const gId = `sp${(Math.abs(c24 * 10) | 0)}x${(Math.abs(c1h * 10) | 0)}`
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="shrink-0" style={{ overflow: 'visible' }}>
+      <defs>
+        <linearGradient id={gId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={`${d} L ${w},${h} L 0,${h} Z`} fill={`url(#${gId})`} />
+      <path d={d} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="2" fill={color} />
+    </svg>
+  )
+}
+
 // ─── APR badge for known staking pools ────────────────────────────────────────
 const TOKEN_APR: Record<string, string> = {
   H2O: '12% APY', WLD: '100% APR', SUSHI: '300% APR', FIRE: '~APR',
@@ -641,6 +685,10 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
   const [txHistory,   setTxHistory]   = useState<{ hash: string; from: string; to: string; value: string; token: string; time: number }[]>([])
   const [histLoading, setHistLoading] = useState(false)
   const [histLoaded,  setHistLoaded]  = useState(false)
+
+  // ── Selected token detail (wallet tab) ──────────────────────────────────────
+  const [selectedWalletToken, setSelectedWalletToken] = useState<TokenItem | null>(null)
+  const [detailChartInterval, setDetailChartInterval] = useState<'5' | '60' | '1D'>('60')
 
   // ── Add custom token ────────────────────────────────────────────────────────
   const [addAddr,    setAddAddr]    = useState('')
@@ -1360,193 +1408,340 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
 
         {/* ── WALLET TAB ─────────────────────────────────────────────────── */}
         {activeTab === 'wallet' && (
-          <div className="p-3 space-y-2">
-            {/* Summary bar */}
-            <div className="grid grid-cols-3 gap-2">
-              <StatCard label="Portfolio" value={totalPortfolioUsd > 0 ? `$${shortNum(totalPortfolioUsd)}` : '—'} sub="Total USD" color="#00a3ff" />
-              <StatCard label="24h Cambio" value={portfolio24hChange != null ? `${portfolio24hChange >= 0 ? '+' : ''}${portfolio24hChange.toFixed(2)}%` : '—'}
-                sub={portfolio24hChange != null ? (portfolio24hChange >= 0 ? '▲ ganando' : '▼ perdiendo') : 'sin datos'}
-                color={portfolio24hChange == null ? '#6b7280' : portfolio24hChange >= 0 ? '#22c55e' : '#ef4444'} />
-              <StatCard label="Tokens" value={allTokens.filter(t => getBal(t) > 0n).length.toString()} sub="con saldo" color="#8b5cf6" />
+          <div className="flex flex-col">
+
+            {/* ── Portfolio Header ─────────────────────────────────────── */}
+            <div className="px-4 pt-4 pb-3 text-center" style={{ borderBottom: '1px solid rgba(0,163,255,0.08)' }}>
+              <p className="text-[10px] text-white/35 uppercase tracking-wider font-semibold mb-1">Balance Total</p>
+              <p className="text-3xl font-black font-mono text-white leading-none">
+                {totalPortfolioUsd > 0 ? `$${shortNum(totalPortfolioUsd)}` : '—'}
+              </p>
+              <div className="flex items-center justify-center gap-2 mt-1.5">
+                {portfolio24hChange != null && (
+                  <ChangeBadge pct={portfolio24hChange} size="sm" />
+                )}
+                {totalPortfolioUsd > 0 && portfolio24hChange != null && (
+                  <span className={cn('text-[11px] font-mono font-bold', portfolio24hChange >= 0 ? 'text-green-400' : 'text-red-400')}>
+                    {portfolio24hChange >= 0 ? '+' : ''}{fmtUsd(totalPortfolioUsd * portfolio24hChange / 100)} 24h
+                  </span>
+                )}
+              </div>
+              {loadingBal && (
+                <div className="flex items-center justify-center gap-1 mt-2">
+                  <Loader2 className="w-3 h-3 animate-spin text-blue-400/60" />
+                  <span className="text-[9px] text-white/25">actualizando…</span>
+                </div>
+              )}
             </div>
 
-            {loadingBal && Object.keys(balances).length === 0 && (
-              <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-blue-400" /></div>
-            )}
+            {/* ── Quick Actions ────────────────────────────────────────── */}
+            <div className="grid grid-cols-4 gap-2 px-3 py-2.5" style={{ borderBottom: '1px solid rgba(0,163,255,0.08)' }}>
+              {([
+                { label: 'Enviar', icon: ArrowUpFromLine, tab: 'send',    color: '#ef4444' },
+                { label: 'Recibir', icon: ArrowDownToLine, tab: 'receive', color: '#22c55e' },
+                { label: 'Swap',   icon: Repeat2,         tab: 'swap',    color: '#00a3ff' },
+                { label: 'Mercado', icon: BarChart2,       tab: 'markets', color: '#a855f7' },
+              ] as const).map(a => (
+                <button key={a.tab} onClick={() => setActiveTab(a.tab as any)}
+                  className="flex flex-col items-center gap-1 py-2 rounded-xl transition-all hover:brightness-110 active:scale-95"
+                  style={{ background: `${a.color}15`, border: `1px solid ${a.color}28` }}>
+                  <a.icon className="w-4 h-4 shrink-0" style={{ color: a.color }} />
+                  <span className="text-[9px] font-bold" style={{ color: a.color }}>{a.label}</span>
+                </button>
+              ))}
+            </div>
 
-            {/* Token list */}
-            {allTokens.map(token => {
-              const tokenKey = token.address.toLowerCase()
-              const bal = getBal(token)
-              const usdVal = getUsdVal(token, bal)
-              const usdPrice = prices[tokenKey]
-              const ch24 = changes24h[tokenKey]
-              const vol24 = volumes24h[tokenKey]
-              const entry = entryPrices[tokenKey]
+            {/* ── Selected Token Detail Panel ───────────────────────────── */}
+            {selectedWalletToken && (() => {
+              const tk = selectedWalletToken
+              const key = tk.address.toLowerCase()
+              const bal = getBal(tk)
+              const usdPrice = prices[key]
+              const usdVal = getUsdVal(tk, bal)
+              const ch24 = changes24h[key]
+              const entry = entryPrices[key]
               const pnlPct = entry && usdPrice && entry > 0 ? ((usdPrice - entry) / entry) * 100 : null
-              const apr = TOKEN_APR[token.symbol]
-              const isExpanded = expandedToken === tokenKey
-              const stats = tokenStats[tokenKey]
-              if (bal === 0n && !isExpanded) {
-                return (
-                  <button key={token.address} onClick={() => toggleExpand(token.address)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left hover:bg-white/[0.03] transition-colors"
-                    style={{ background: 'rgba(0,50,100,0.03)', border: '1px solid rgba(0,163,255,0.06)' }}>
-                    <TokenLogo token={token} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[11px] font-semibold text-white/50">{token.symbol}</span>
-                    </div>
-                    {usdPrice && <span className="text-[10px] font-mono text-white/30">{fmtUsd(usdPrice)}</span>}
-                    {ch24 != null && <ChangeBadge pct={ch24} size="xs" />}
-                    {apr && <span className="text-[8px] font-bold px-1 py-0.5 rounded" style={{ background: 'rgba(0,122,255,0.15)', color: '#60a5fa' }}>{apr}</span>}
-                    <ChevronDown className="w-3 h-3 text-white/20 shrink-0" />
-                  </button>
-                )
+              const pnlUsd = entry && usdVal != null ? usdVal - usdVal / (1 + (pnlPct ?? 0) / 100) * (1 + (pnlPct ?? 0) / 100) / (1 + (pnlPct ?? 0) / 100) : null
+              const stats = tokenStats[key]
+
+              // Fetch stats on first open
+              if (!stats?.fetched && !stats?.loading) {
+                setTimeout(() => fetchTokenStats(tk.address), 0)
               }
+
+              const pnlAbsUsd = (entry && usdPrice && usdVal != null && usdVal > 0 && entry > 0)
+                ? usdVal * (usdPrice - entry) / usdPrice
+                : null
+
               return (
-                <div key={token.address} className="rounded-xl overflow-hidden transition-all"
-                  style={{ background: isExpanded ? 'rgba(0,80,255,0.06)' : CARD_BG, border: `1px solid ${isExpanded ? CARD_BORDER_ACTIVE : CARD_BORDER}` }}>
-                  <button onClick={() => toggleExpand(token.address)} className="w-full flex items-center gap-3 p-3 text-left hover:bg-white/[0.02] transition-colors">
-                    <TokenLogo token={token} size="md" />
+                <div style={{ background: 'rgba(0,30,60,0.7)', borderBottom: '1px solid rgba(0,163,255,0.18)' }}>
+                  {/* Header */}
+                  <div className="flex items-center gap-3 px-3 pt-3 pb-2">
+                    <TokenLogo token={tk} size="lg" />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-sm font-bold text-white">{token.symbol}</span>
-                        {token.isCustom && <span className="text-[8px] text-white/25 border border-white/10 rounded px-1">custom</span>}
-                        {apr && <span className="text-[8px] font-bold px-1 py-px rounded" style={{ background: 'rgba(0,163,255,0.15)', color: '#60a5fa' }}>{apr}</span>}
+                      <div className="flex items-center gap-2">
+                        <p className="text-base font-black text-white">{tk.symbol}</p>
+                        <span className="text-[9px] text-white/30">{tk.name}</span>
+                        {TOKEN_APR[tk.symbol] && (
+                          <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full"
+                            style={{ background: 'rgba(0,163,255,0.2)', color: '#60a5fa' }}>
+                            {TOKEN_APR[tk.symbol]}
+                          </span>
+                        )}
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        {usdPrice && <span className="text-[10px] font-mono text-blue-300/80">{fmtUsd(usdPrice)}</span>}
-                        {ch24 != null && <ChangeBadge pct={ch24} size="xs" />}
-                        {vol24 != null && vol24 > 0 && <span className="text-[9px] text-white/25 font-mono">vol ${shortNum(vol24)}</span>}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-bold font-mono text-white">{formatToken(bal, token.decimals, 4)}</p>
-                      {usdVal != null && usdVal > 0.001 && <p className="text-[11px] font-mono text-blue-300">${usdVal.toFixed(2)}</p>}
-                      {pnlPct != null && (
-                        <p className={cn('text-[9px] font-mono font-bold mt-px', pnlPct >= 0 ? 'text-green-400' : 'text-red-400')}>
-                          {pnlPct >= 0 ? '▲' : '▼'} {Math.abs(pnlPct).toFixed(1)}% PnL
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <p className="text-xl font-black font-mono text-white leading-none">
+                          {usdPrice ? fmtUsd(usdPrice) : '—'}
                         </p>
+                        {ch24 != null && <ChangeBadge pct={ch24} size="sm" />}
+                      </div>
+                    </div>
+                    <button onClick={() => setSelectedWalletToken(null)}
+                      className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors shrink-0"
+                      style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
+                      <X className="w-3.5 h-3.5 text-white/50" />
+                    </button>
+                  </div>
+
+                  {/* Time‑frame change pills */}
+                  {(stats?.change5m != null || stats?.change1h != null || ch24 != null) && (
+                    <div className="flex gap-1.5 px-3 pb-2">
+                      {[
+                        { l: '5m',  v: stats?.change5m },
+                        { l: '1h',  v: stats?.change1h },
+                        { l: '24h', v: ch24 },
+                      ].map(c => c.v != null && (
+                        <div key={c.l} className="flex items-center gap-1 px-2 py-1 rounded-lg"
+                          style={{
+                            background: c.v >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                            border: `1px solid ${c.v >= 0 ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`,
+                          }}>
+                          {c.v >= 0 ? <TrendingUp className="w-2.5 h-2.5 text-green-400" /> : <TrendingDown className="w-2.5 h-2.5 text-red-400" />}
+                          <span className="text-[9px] text-white/40">{c.l}</span>
+                          <span className={cn('text-[10px] font-bold font-mono', c.v >= 0 ? 'text-green-400' : 'text-red-400')}>
+                            {c.v >= 0 ? '+' : ''}{c.v.toFixed(2)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Balance + PnL row */}
+                  <div className="grid grid-cols-2 gap-2 px-3 pb-2">
+                    <div className="rounded-xl p-2.5" style={{ background: 'rgba(0,80,255,0.08)', border: '1px solid rgba(0,163,255,0.15)' }}>
+                      <p className="text-[8px] text-white/35 uppercase tracking-wide">Mi balance</p>
+                      <p className="text-sm font-black font-mono text-white mt-0.5">{formatToken(bal, tk.decimals, 4)} {tk.symbol}</p>
+                      {usdVal != null && usdVal > 0.001 && (
+                        <p className="text-[10px] font-mono text-blue-300">${usdVal.toFixed(2)}</p>
                       )}
                     </div>
-                    {isExpanded ? <ChevronUp className="w-4 h-4 text-blue-400 shrink-0" /> : <ChevronDown className="w-4 h-4 text-white/25 shrink-0" />}
-                  </button>
+                    <div className="rounded-xl p-2.5" style={{
+                      background: pnlPct != null && pnlPct >= 0 ? 'rgba(34,197,94,0.08)' : pnlPct != null ? 'rgba(239,68,68,0.08)' : 'rgba(0,80,255,0.06)',
+                      border: `1px solid ${pnlPct != null && pnlPct >= 0 ? 'rgba(34,197,94,0.2)' : pnlPct != null ? 'rgba(239,68,68,0.2)' : 'rgba(0,163,255,0.1)'}`,
+                    }}>
+                      <p className="text-[8px] text-white/35 uppercase tracking-wide">PnL desde entrada</p>
+                      {entry && usdPrice ? (
+                        <>
+                          <p className={cn('text-sm font-black font-mono mt-0.5', pnlPct! >= 0 ? 'text-green-400' : 'text-red-400')}>
+                            {pnlPct! >= 0 ? '+' : ''}{pnlPct!.toFixed(2)}%
+                          </p>
+                          <p className="text-[9px] text-white/35 font-mono">
+                            entrada: {fmtUsd(entry)}
+                            {pnlAbsUsd != null && pnlAbsUsd !== 0 && (
+                              <span className={cn('ml-1 font-bold', pnlAbsUsd >= 0 ? 'text-green-400' : 'text-red-400')}>
+                                ({pnlAbsUsd >= 0 ? '+' : ''}${Math.abs(pnlAbsUsd).toFixed(2)})
+                              </span>
+                            )}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-white/25 mt-0.5">sin precio de entrada</p>
+                      )}
+                    </div>
+                  </div>
 
-                  {/* Expanded */}
-                  {isExpanded && (
-                    <div className="px-3 pb-3 pt-1 space-y-2" style={{ borderTop: '1px solid rgba(0,163,255,0.1)' }}>
-                      {/* PnL detail */}
-                      {entry && usdPrice && (
-                        <div className="grid grid-cols-2 gap-1.5">
-                          <div className="rounded-lg p-2" style={{ background: 'rgba(0,80,255,0.06)', border: '1px solid rgba(0,163,255,0.12)' }}>
-                            <p className="text-[8px] text-white/35 uppercase tracking-wide">Precio entrada</p>
-                            <p className="text-xs font-bold font-mono text-white/70">{fmtUsd(entry)}</p>
-                          </div>
-                          <div className="rounded-lg p-2" style={{
-                            background: pnlPct != null && pnlPct >= 0 ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)',
-                            border: `1px solid ${pnlPct != null && pnlPct >= 0 ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'}`,
-                          }}>
-                            <p className="text-[8px] text-white/35 uppercase tracking-wide">PnL</p>
-                            <p className={cn('text-xs font-bold font-mono', pnlPct != null && pnlPct >= 0 ? 'text-green-400' : 'text-red-400')}>
-                              {pnlPct != null ? `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%` : '—'}
-                            </p>
-                          </div>
+                  {/* Market stats */}
+                  {stats?.fetched && (stats.liquidityUsd || stats.volume24h || stats.fdv) && (
+                    <div className="flex gap-2 px-3 pb-2">
+                      {stats.liquidityUsd != null && stats.liquidityUsd > 0 && (
+                        <div className="flex-1 rounded-lg p-1.5 text-center" style={{ background: 'rgba(0,60,120,0.3)', border: '1px solid rgba(0,163,255,0.1)' }}>
+                          <p className="text-[8px] text-white/30 flex items-center justify-center gap-0.5"><Droplets className="w-2 h-2" />Liq.</p>
+                          <p className="text-[10px] font-bold font-mono text-blue-300">${shortNum(stats.liquidityUsd)}</p>
                         </div>
                       )}
-
-                      {/* Stats grid: 5m / 1h / 24h changes */}
-                      {stats?.fetched && (stats.change5m != null || stats.change1h != null || stats.change24h != null) && (
-                        <div className="grid grid-cols-3 gap-1">
-                          {[{ l: '5m', v: stats.change5m ?? 0 }, { l: '1h', v: stats.change1h ?? 0 }, { l: '24h', v: stats.change24h ?? 0 }].map(c => (
-                            <div key={c.l} className="rounded-lg p-1.5 text-center font-mono"
-                              style={{ background: c.v >= 0 ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${c.v >= 0 ? 'rgba(34,197,94,0.14)' : 'rgba(239,68,68,0.14)'}` }}>
-                              <p className="text-[8px] text-white/35 uppercase">{c.l}</p>
-                              <p className={cn('text-[10px] font-bold', c.v >= 0 ? 'text-green-400' : 'text-red-400')}>{c.v >= 0 ? '+' : ''}{c.v.toFixed(2)}%</p>
-                            </div>
-                          ))}
+                      {stats.volume24h != null && stats.volume24h > 0 && (
+                        <div className="flex-1 rounded-lg p-1.5 text-center" style={{ background: 'rgba(0,60,120,0.3)', border: '1px solid rgba(0,163,255,0.1)' }}>
+                          <p className="text-[8px] text-white/30 flex items-center justify-center gap-0.5"><Activity className="w-2 h-2" />Vol.24h</p>
+                          <p className="text-[10px] font-bold font-mono text-blue-300">${shortNum(stats.volume24h)}</p>
                         </div>
                       )}
-
-                      {/* Market stats */}
-                      {stats?.fetched && (stats.liquidityUsd || stats.volume24h || stats.fdv) && (
-                        <div className="grid grid-cols-3 gap-1">
-                          {stats.liquidityUsd != null && stats.liquidityUsd > 0 && (
-                            <div className="rounded-lg p-1.5" style={{ background: 'rgba(0,80,255,0.06)', border: '1px solid rgba(0,163,255,0.1)' }}>
-                              <p className="text-[8px] text-white/35 flex items-center gap-0.5"><Droplets className="w-2 h-2" />Liq.</p>
-                              <p className="text-[10px] font-bold font-mono text-blue-300">${shortNum(stats.liquidityUsd)}</p>
-                            </div>
-                          )}
-                          {stats.volume24h != null && stats.volume24h > 0 && (
-                            <div className="rounded-lg p-1.5" style={{ background: 'rgba(0,80,255,0.06)', border: '1px solid rgba(0,163,255,0.1)' }}>
-                              <p className="text-[8px] text-white/35 flex items-center gap-0.5"><Activity className="w-2 h-2" />Vol.</p>
-                              <p className="text-[10px] font-bold font-mono text-blue-300">${shortNum(stats.volume24h)}</p>
-                            </div>
-                          )}
-                          {stats.fdv != null && stats.fdv > 0 && (
-                            <div className="rounded-lg p-1.5" style={{ background: 'rgba(0,80,255,0.06)', border: '1px solid rgba(0,163,255,0.1)' }}>
-                              <p className="text-[8px] text-white/35 flex items-center gap-0.5"><BarChart2 className="w-2 h-2" />FDV</p>
-                              <p className="text-[10px] font-bold font-mono text-blue-300">${shortNum(stats.fdv)}</p>
-                            </div>
-                          )}
+                      {stats.fdv != null && stats.fdv > 0 && (
+                        <div className="flex-1 rounded-lg p-1.5 text-center" style={{ background: 'rgba(0,60,120,0.3)', border: '1px solid rgba(0,163,255,0.1)' }}>
+                          <p className="text-[8px] text-white/30 flex items-center justify-center gap-0.5"><BarChart2 className="w-2 h-2" />FDV</p>
+                          <p className="text-[10px] font-bold font-mono text-blue-300">${shortNum(stats.fdv)}</p>
                         </div>
                       )}
+                    </div>
+                  )}
 
-                      {/* Chart */}
-                      {stats?.loading && (
-                        <div className="h-36 flex items-center justify-center rounded-lg" style={{ background: 'rgba(0,0,0,0.3)' }}>
-                          <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-                        </div>
-                      )}
-                      {stats?.fetched && stats.pairAddress && (
-                        <div>
-                          <div className="flex items-center gap-1 mb-1">
-                            {(['5', '60', '1D'] as const).map(tf => (
-                              <button key={tf} onClick={() => setChartInterval(tf)}
-                                className={cn('px-2 py-0.5 text-[9px] font-bold rounded transition-colors',
-                                  chartInterval === tf ? 'text-white' : 'text-white/30 hover:text-white/60')}
-                                style={chartInterval === tf ? { background: 'rgba(0,122,255,0.3)', border: '1px solid rgba(0,163,255,0.4)' } : {}}>
-                                {tf === '5' ? '5m' : tf === '60' ? '1h' : '1d'}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="rounded-xl overflow-hidden" style={{ background: '#030d1a', border: '1px solid rgba(0,163,255,0.15)' }}>
-                            <iframe
-                              key={`${tokenKey}-${chartInterval}`}
-                              src={`https://dexscreener.com/world/${stats.pairAddress}?embed=1&theme=dark&trades=0&info=0&interval=${chartInterval}`}
-                              title={`${token.symbol} chart`} className="w-full" style={{ height: 240, border: 0 }} loading="lazy" />
-                          </div>
-                        </div>
-                      )}
+                  {/* Loading spinner for stats */}
+                  {stats?.loading && (
+                    <div className="flex justify-center py-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-blue-400/50" />
+                    </div>
+                  )}
 
-                      {/* Buy/Sell quick actions */}
-                      <div className="grid grid-cols-2 gap-2 pt-0.5">
-                        <button onClick={() => {
-                          const pay = token.address.toLowerCase() === TOKENS.USDC.toLowerCase()
-                            ? DEFAULT_TOKENS.find(t => t.symbol === 'WLD')! : DEFAULT_TOKENS.find(t => t.symbol === 'USDC')!
-                          setFromToken(pay); setToToken(token); setFromAmt(''); setMaxRawAmt(null); setExpandedToken(null); setActiveTab('swap')
-                        }} className="h-9 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5"
-                          style={{ background: 'linear-gradient(135deg,#10b981,#059669)', boxShadow: '0 0 12px rgba(16,185,129,0.2)' }}>
-                          <ArrowDownToLine className="w-3.5 h-3.5" /> Comprar
-                        </button>
-                        <button onClick={() => {
-                          const recv = token.address.toLowerCase() === TOKENS.USDC.toLowerCase()
-                            ? DEFAULT_TOKENS.find(t => t.symbol === 'WLD')! : DEFAULT_TOKENS.find(t => t.symbol === 'USDC')!
-                          setFromToken(token); setToToken(recv); setFromAmt(''); setMaxRawAmt(null); setExpandedToken(null); setActiveTab('swap')
-                        }} disabled={bal === 0n}
-                          className="h-9 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 disabled:opacity-40"
-                          style={{ background: 'linear-gradient(135deg,#ef4444,#b91c1c)', boxShadow: '0 0 12px rgba(239,68,68,0.2)' }}>
-                          <ArrowUpFromLine className="w-3.5 h-3.5" /> Vender
-                        </button>
+                  {/* Chart */}
+                  {stats?.fetched && stats.pairAddress && (
+                    <div className="px-3 pb-2">
+                      <div className="flex items-center gap-1 mb-1.5">
+                        <CandlestickChart className="w-3 h-3 text-blue-400/60" />
+                        <span className="text-[9px] text-white/30 font-semibold">GRÁFICO</span>
+                        <div className="flex-1" />
+                        {(['5', '60', '1D'] as const).map(tf => (
+                          <button key={tf} onClick={() => setDetailChartInterval(tf)}
+                            className={cn('px-2 py-0.5 text-[9px] font-bold rounded transition-colors',
+                              detailChartInterval === tf ? 'text-white' : 'text-white/30 hover:text-white/60')}
+                            style={detailChartInterval === tf ? { background: 'rgba(0,122,255,0.3)', border: '1px solid rgba(0,163,255,0.4)' } : {}}>
+                            {tf === '5' ? '5m' : tf === '60' ? '1h' : '1d'}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="rounded-xl overflow-hidden" style={{ background: '#030d1a', border: '1px solid rgba(0,163,255,0.18)' }}>
+                        <iframe
+                          key={`det-${key}-${detailChartInterval}`}
+                          src={`https://dexscreener.com/world/${stats.pairAddress}?embed=1&theme=dark&trades=0&info=0&interval=${detailChartInterval}`}
+                          title={`${tk.symbol} chart`}
+                          className="w-full" style={{ height: 220, border: 0 }} loading="lazy" />
                       </div>
                     </div>
                   )}
+
+                  {/* Buy / Sell */}
+                  <div className="grid grid-cols-2 gap-2 px-3 pb-3">
+                    <button onClick={() => {
+                      const pay = tk.address.toLowerCase() === TOKENS.USDC.toLowerCase()
+                        ? DEFAULT_TOKENS.find(t => t.symbol === 'WLD')!
+                        : DEFAULT_TOKENS.find(t => t.symbol === 'USDC')!
+                      setFromToken(pay); setToToken(tk); setFromAmt(''); setMaxRawAmt(null); setSelectedWalletToken(null); setActiveTab('swap')
+                    }} className="h-10 rounded-xl text-sm font-black text-white flex items-center justify-center gap-2 transition-all hover:brightness-110 active:scale-95"
+                      style={{ background: 'linear-gradient(135deg,#059669,#10b981)', boxShadow: '0 0 16px rgba(16,185,129,0.25)' }}>
+                      <ArrowDownToLine className="w-4 h-4" /> Comprar
+                    </button>
+                    <button onClick={() => {
+                      const recv = tk.address.toLowerCase() === TOKENS.USDC.toLowerCase()
+                        ? DEFAULT_TOKENS.find(t => t.symbol === 'WLD')!
+                        : DEFAULT_TOKENS.find(t => t.symbol === 'USDC')!
+                      setFromToken(tk); setToToken(recv); setFromAmt(''); setMaxRawAmt(null); setSelectedWalletToken(null); setActiveTab('swap')
+                    }} disabled={bal === 0n}
+                      className="h-10 rounded-xl text-sm font-black text-white flex items-center justify-center gap-2 disabled:opacity-35 transition-all hover:brightness-110 active:scale-95"
+                      style={{ background: 'linear-gradient(135deg,#b91c1c,#ef4444)', boxShadow: '0 0 16px rgba(239,68,68,0.25)' }}>
+                      <ArrowUpFromLine className="w-4 h-4" /> Vender
+                    </button>
+                  </div>
                 </div>
               )
-            })}
+            })()}
 
-            {/* Add custom token */}
-            <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(0,40,80,0.5)', border: '1px solid rgba(0,163,255,0.08)' }}>
-              <p className="text-[10px] font-semibold text-white/30 flex items-center gap-1"><Plus className="w-2.5 h-2.5" /> Agregar token por dirección</p>
+            {/* ── Token List ───────────────────────────────────────────── */}
+            <div className="px-3 py-2 space-y-0.5">
+              {/* Tokens with balance */}
+              {allTokens.filter(t => getBal(t) > 0n).length > 0 && (
+                <p className="text-[9px] text-white/25 uppercase tracking-widest font-semibold px-1 py-1">Mi cartera</p>
+              )}
+              {allTokens.map(token => {
+                const key = token.address.toLowerCase()
+                const bal = getBal(token)
+                const usdVal = getUsdVal(token, bal)
+                const usdPrice = prices[key]
+                const ch24 = changes24h[key]
+                const stats = tokenStats[key]
+                const entry = entryPrices[key]
+                const pnlPct = entry && usdPrice && entry > 0 ? ((usdPrice - entry) / entry) * 100 : null
+                const isSelected = selectedWalletToken?.address.toLowerCase() === key
+                const hasBal = bal > 0n
+
+                if (!hasBal) {
+                  // Compact row for zero-balance tokens
+                  return (
+                    <button key={token.address}
+                      onClick={() => { setSelectedWalletToken(isSelected ? null : token) }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-left transition-all hover:bg-white/[0.02]"
+                      style={{ background: isSelected ? 'rgba(0,80,255,0.08)' : 'transparent', border: `1px solid ${isSelected ? CARD_BORDER_ACTIVE : 'transparent'}` }}>
+                      <TokenLogo token={token} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-semibold text-white/45">{token.symbol}</p>
+                      </div>
+                      {usdPrice && <span className="text-[10px] font-mono text-white/25">{fmtUsd(usdPrice)}</span>}
+                      {ch24 != null && <ChangeBadge pct={ch24} size="xs" />}
+                      <ChevronDown className="w-3 h-3 text-white/15 shrink-0" />
+                    </button>
+                  )
+                }
+
+                // Full row for tokens with balance — includes sparkline
+                return (
+                  <button key={token.address}
+                    onClick={() => { setSelectedWalletToken(isSelected ? null : token) }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all hover:bg-white/[0.025]"
+                    style={{
+                      background: isSelected ? 'rgba(0,80,255,0.1)' : CARD_BG,
+                      border: `1px solid ${isSelected ? CARD_BORDER_ACTIVE : CARD_BORDER}`,
+                    }}>
+                    {/* Logo */}
+                    <TokenLogo token={token} size="md" />
+
+                    {/* Name / price */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-sm font-bold text-white">{token.symbol}</span>
+                        {TOKEN_APR[token.symbol] && (
+                          <span className="text-[8px] font-bold px-1 py-px rounded"
+                            style={{ background: 'rgba(0,163,255,0.15)', color: '#60a5fa' }}>
+                            {TOKEN_APR[token.symbol]}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {usdPrice
+                          ? <span className="text-[10px] font-mono text-blue-300/80">{fmtUsd(usdPrice)}</span>
+                          : <span className="text-[10px] text-white/20">—</span>
+                        }
+                        {ch24 != null && <ChangeBadge pct={ch24} size="xs" />}
+                      </div>
+                    </div>
+
+                    {/* Sparkline */}
+                    <MiniSparkline
+                      change5m={stats?.change5m}
+                      change1h={stats?.change1h}
+                      change24h={ch24}
+                    />
+
+                    {/* Balance / USD / PnL */}
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-bold font-mono text-white leading-tight">
+                        {formatToken(bal, token.decimals, 4)}
+                      </p>
+                      {usdVal != null && usdVal > 0.001 && (
+                        <p className="text-[11px] font-mono text-blue-300">${usdVal.toFixed(2)}</p>
+                      )}
+                      {pnlPct != null && (
+                        <p className={cn('text-[9px] font-mono font-bold', pnlPct >= 0 ? 'text-green-400' : 'text-red-400')}>
+                          {pnlPct >= 0 ? '▲' : '▼'}{Math.abs(pnlPct).toFixed(1)}%
+                        </p>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* ── Add custom token ──────────────────────────────────────── */}
+            <div className="mx-3 mb-3 rounded-xl p-3 space-y-2" style={{ background: 'rgba(0,40,80,0.4)', border: '1px solid rgba(0,163,255,0.08)' }}>
+              <p className="text-[10px] font-semibold text-white/30 flex items-center gap-1">
+                <Plus className="w-2.5 h-2.5" /> Agregar token por dirección
+              </p>
               <div className="flex gap-2">
                 <input value={addAddr} onChange={e => setAddAddr(e.target.value)} placeholder="0x..."
                   className="flex-1 min-w-0 text-xs font-mono rounded-lg px-3 py-2 text-white placeholder:text-white/20 outline-none"
