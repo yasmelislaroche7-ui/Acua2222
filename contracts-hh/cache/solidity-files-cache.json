@@ -842,6 +842,124 @@
         "IERC20S",
         "SushiStakeV2"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaBridgeBNB.sol": {
+      "lastModificationDate": 1778341094667,
+      "contentHash": "3348910539240065f9d3f14336c5bdf1",
+      "sourceName": "contracts/AcuaBridgeBNB.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaBridgeBNB",
+        "IERC20"
+      ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaBridgeWLD.sol": {
+      "lastModificationDate": 1778341094667,
+      "contentHash": "aad978474306d9c52f89c61c021a6a9f",
+      "sourceName": "contracts/AcuaBridgeWLD.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaBridgeWLD",
+        "IERC20"
+      ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/WLDStakeV2.sol": {
+      "lastModificationDate": 1778341094668,
+      "contentHash": "ae3a150c3eb7b930b6f889e5bb539342",
+      "sourceName": "contracts/WLDStakeV2.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "IERC20W",
+        "WLDStakeV2"
+      ]
     }
   }
 }
