@@ -19,9 +19,6 @@ import {
   fetchH2OUsdcRate, h2oToUsdc, formatUsd,
   type H2OV3Pool, type H2OV3Position, type PoolLiveData,
 } from '@/lib/h2o-v3'
-import {
-  buildFeePayment, fetchFeeInfo, insufficientFeeMsg,
-} from '@/lib/feeCollector'
 
 // ─── Sparkline SVG (mini chart de precio 24h) ─────────────────────────────────
 function Sparkline({ data, change, height = 28, width = 80 }: { data: number[]; change: number | null; height?: number; width?: number }) {
@@ -353,8 +350,6 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
   const [withdrawPct, setWithdrawPct] = useState(100)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
-  const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
-  const [h2oBal, setH2oBal] = useState<bigint>(0n)
   const [bal0, setBal0] = useState<bigint>(0n)
   const [bal1, setBal1] = useState<bigint>(0n)
   // Manual price entry (token1 per token0) used when pool has no spot price.
@@ -379,9 +374,6 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
   useEffect(() => {
     if (!userAddress) return
     let cancelled = false
-    fetchFeeInfo(userAddress)
-      .then(d => { if (!cancelled) { setFeeAmount(d.fee); setH2oBal(d.userH2O) } })
-      .catch(() => {})
     Promise.all([
       fetchUserBalance(pool.token0, userAddress),
       fetchUserBalance(pool.token1, userAddress),
@@ -390,11 +382,6 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
       .catch(() => {})
     return () => { cancelled = true }
   }, [pool.token0, pool.token1, userAddress])
-
-  function requireFee(): boolean {
-    if (h2oBal < feeAmount) { setMsg(insufficientFeeMsg(feeAmount)); return false }
-    return true
-  }
 
   function onAmt0Change(v: string) {
     setAmount0(v)
@@ -437,7 +424,6 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
   async function doDeposit() {
     if (!H2O_V3_ADDRESS) return setMsg('Contrato no desplegado')
     if (!amount0 || !amount1 || parseFloat(amount0) <= 0 || parseFloat(amount1) <= 0) return setMsg('Ingresa un monto')
-    if (!requireFee()) return
     setLoading(true); setMsg('')
     try {
       const a0Wei = ethers.parseUnits(amount0, t0.decimals)
@@ -448,11 +434,9 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
       const nonce0 = randomNonce()
       const nonce1 = nonce0 + 1n
-      const fee = buildFeePayment(feeAmount, deadline)
 
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address: H2O_V3_ADDRESS,
             abi: H2O_V3_TX_ABI,
@@ -460,16 +444,15 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
             args: [
               pool.poolId.toString(),
               { permitted: { token: pool.token0, amount: a0Wei.toString() }, nonce: nonce0.toString(), deadline: deadline.toString() },
-              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+              'PERMIT2_SIGNATURE_PLACEHOLDER_0',
               { permitted: { token: pool.token1, amount: a1Wei.toString() }, nonce: nonce1.toString(), deadline: deadline.toString() },
-              'PERMIT2_SIGNATURE_PLACEHOLDER_2',
+              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
               '0',
               '0',
             ],
           },
         ],
         permit2: [
-          fee.permit2,
           { permitted: { token: pool.token0, amount: a0Wei.toString() }, spender: H2O_V3_ADDRESS, nonce: nonce0.toString(), deadline: deadline.toString() },
           { permitted: { token: pool.token1, amount: a1Wei.toString() }, spender: H2O_V3_ADDRESS, nonce: nonce1.toString(), deadline: deadline.toString() },
         ],
@@ -488,15 +471,12 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
   async function doWithdraw() {
     if (!H2O_V3_ADDRESS) return setMsg('Contrato no desplegado')
     if (!position || position.liquidity === 0n) return setMsg('Sin liquidez para retirar')
-    if (!requireFee()) return
     setLoading(true); setMsg('')
     try {
       const liqToWithdraw = (position.liquidity * BigInt(withdrawPct)) / 100n
       if (liqToWithdraw === 0n) throw new Error('Monto de retiro 0')
-      const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address: H2O_V3_ADDRESS,
             abi: H2O_V3_TX_ABI,
@@ -504,7 +484,7 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
             args: [pool.poolId.toString(), liqToWithdraw.toString(), '0', '0'],
           },
         ],
-        permit2: [fee.permit2],
+        permit2: [],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ Retiro hecho! Refrescando...')
@@ -517,13 +497,10 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
   async function doClaim() {
     if (!H2O_V3_ADDRESS) return setMsg('Contrato no desplegado')
     if (!position || position.netH2O === 0n) return setMsg('Nada que reclamar')
-    if (!requireFee()) return
     setLoading(true); setMsg('')
     try {
-      const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address: H2O_V3_ADDRESS,
             abi: H2O_V3_TX_ABI,
@@ -531,7 +508,7 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
             args: [pool.poolId.toString()],
           },
         ],
-        permit2: [fee.permit2],
+        permit2: [],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ Recompensa reclamada! Refrescando...')
@@ -545,7 +522,6 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
   const tvl = live?.tvlInH2O ?? 0n
   const tvlUsd = h2oToUsdc(tvl, usdcRate)
   const pendingUsd = position ? h2oToUsdc(position.netH2O, usdcRate) : 0n
-  const h2oBalUsd = h2oToUsdc(h2oBal, usdcRate)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-md" onClick={onClose}>
@@ -585,14 +561,6 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
             <StatPill label="Pool Liq" value={live ? formatCompact(live.poolLiquidity, 0) : '—'} />
           </div>
 
-          {/* USDC equivalent of user H2O balance */}
-          <div className="flex items-center justify-between rounded-xl border border-cyan-500/15 bg-cyan-950/30 px-3 py-2 text-xs">
-            <span className="text-cyan-400/70 uppercase tracking-wider text-[10px] font-bold">Tu balance H2O</span>
-            <div className="text-right">
-              <div className="text-cyan-100 font-mono font-bold">{formatToken(h2oBal, 18, 4)} <span className="text-cyan-500/60 font-normal">H2O</span></div>
-              {h2oBalUsd > 0n && <div className="text-[10px] text-cyan-400/70 font-mono">≈ {formatUsd(h2oBalUsd)}</div>}
-            </div>
-          </div>
 
           {/* Price chart */}
           {live && <PriceChart data={live.priceHistory} change={live.priceChange24h} t0Sym={t0.symbol} t1Sym={t1.symbol} />}
@@ -874,8 +842,6 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
   const [feeFilter, setFeeFilter] = useState<FeeFilter>('all')
   const [sortMode, setSortMode] = useState<SortMode>('apr')
   const [search, setSearch] = useState('')
-  const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
-  const [h2oBal, setH2oBal] = useState<bigint>(0n)
   const [claimingAll, setClaimingAll] = useState(false)
   const initialDoneRef = useRef(false)
   const mountedRef = useRef(true)
@@ -968,12 +934,7 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         fetchH2OUsdcRate().then(rate => {
           if (mountedRef.current && rate > 0n) setUsdcRate(rate)
         }).catch(() => {}),
-        userAddress
-          ? fetchFeeInfo(userAddress).then(d => {
-              if (!mountedRef.current) return
-              setFeeAmount(d.fee); setH2oBal(d.userH2O)
-            }).catch(() => {})
-          : Promise.resolve(),
+        Promise.resolve(),
       ])
 
       setLastUpdate(Date.now())
@@ -998,17 +959,12 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
     () => claimablePools.reduce((acc, p) => acc + (positions[p.poolId]?.netH2O ?? 0n), 0n),
     [claimablePools, positions],
   )
-  const claimAllFee = feeAmount * BigInt(claimablePools.length)
 
   // World App allows max ~5 txs per batch. Chunk claimAll into groups.
   const MAX_CLAIMS_PER_BATCH = 5
 
   async function doClaimAll() {
     if (!H2O_V3_ADDRESS || claimablePools.length === 0) return
-    if (h2oBal < claimAllFee) {
-      setMsg(`Necesitas ${ethers.formatUnits(claimAllFee, 18)} H2O para pagar las ${claimablePools.length} comisiones.`)
-      return
-    }
     setClaimingAll(true); setMsg('')
     let totalClaimed = 0
     try {
@@ -1019,10 +975,7 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
       }
       for (let bi = 0; bi < batches.length; bi++) {
         const batch = batches[bi]
-        const batchFee = feeAmount * BigInt(batch.length)
-        const fee = buildFeePayment(batchFee)
         const transactions: any[] = [
-          fee.tx,
           ...batch.map(p => ({
             address: H2O_V3_ADDRESS,
             abi: H2O_V3_TX_ABI,
@@ -1035,7 +988,7 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         }
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: transactions,
-          permit2: [fee.permit2],
+          permit2: [],
         })
         if (finalPayload.status === 'success') {
           totalClaimed += batch.length
@@ -1154,7 +1107,6 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         lastUpdate={lastUpdate}
         claimablePools={claimablePools.length}
         totalClaimable={totalClaimable}
-        claimAllFee={claimAllFee}
         onClaimAll={doClaimAll}
         claimingAll={claimingAll}
       />
@@ -1470,9 +1422,9 @@ function BigStat({ label, value, sub, icon, highlight }: { label: string; value:
   )
 }
 
-function Header({ onRefresh, loading, lastUpdate, claimablePools, totalClaimable, claimAllFee, onClaimAll, claimingAll }: {
+function Header({ onRefresh, loading, lastUpdate, claimablePools, totalClaimable, onClaimAll, claimingAll }: {
   onRefresh?: () => void; loading?: boolean; lastUpdate?: number;
-  claimablePools?: number; totalClaimable?: bigint; claimAllFee?: bigint;
+  claimablePools?: number; totalClaimable?: bigint;
   onClaimAll?: () => void; claimingAll?: boolean;
 }) {
   const [secondsAgo, setSecondsAgo] = useState(0)
@@ -1500,7 +1452,7 @@ function Header({ onRefresh, loading, lastUpdate, claimablePools, totalClaimable
           <button
             onClick={onClaimAll}
             disabled={!!claimingAll}
-            title={`Reclama ${claimablePools} pos. (${ethers.formatUnits(totalClaimable ?? 0n, 18)} H2O · fee ${ethers.formatUnits(claimAllFee ?? 0n, 18)} H2O)`}
+            title={`Reclama ${claimablePools} pos. (${ethers.formatUnits(totalClaimable ?? 0n, 18)} H2O)`}
             className={cn(
               'flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold transition-all',
               'bg-gradient-to-r from-cyan-500 to-blue-600 border-cyan-400/50 text-white',
