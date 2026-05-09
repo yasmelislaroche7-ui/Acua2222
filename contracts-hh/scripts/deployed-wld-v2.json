@@ -1,8 +1,9 @@
 {
   "contract": "0x664dc60740888A25C77141CbcE7D4eD7dF2C44f7",
-  "owner2": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
+  "owner2": "0x5474c309e985c6b4fc623acf01ade604da781e52",
   "deployer": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
   "network": "worldchain",
   "chainId": 480,
-  "deployedAt": "2026-05-09T16:20:08.343Z"
+  "deployedAt": "2026-05-09T16:20:08.343Z",
+  "owner2UpdatedAt": "2026-05-09T17:11:41.527Z"
 }

@@ -18,7 +18,7 @@ import {
 } from '@/lib/sushibnb-abi'
 import {
   WLD_CONTRACT, WLD_TOKEN,
-  WLD_STAKE_ABI, WLD_WITHDRAW_ABI, WLD_CLAIM_ABI, WLD_TRIGGER_ABI,
+  WLD_STAKE_ABI, WLD_WITHDRAW_ABI, WLD_CLAIM_ABI, WLD_FUND_ABI, WLD_TRIGGER_ABI,
   fetchUserWldInfo, fetchGlobalWldStats,
   fmtWld, fmtWldShort,
   type UserWldInfo, type GlobalWldStats,
@@ -292,8 +292,17 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
   const [wldLoading, setWldLoading] = useState(false)
   const [wldStakeAmt, setWldStakeAmt] = useState('')
   const [wldWdAmt, setWldWdAmt]       = useState('')
+  const [wldFundAmt, setWldFundAmt]   = useState('')
   const [wldTxStep, setWldTxStep]   = useState<TxStep | null>(null)
   const [wldTxPending, setWldTxPending] = useState(false)
+
+  // ─── WLD owner addresses ──────────────────────────────────────────────────
+  const WLD_OWNER  = '0x5474c309e985c6b4fc623acf01ade604da781e52'
+  const WLD_OWNER2 = '0x5474c309e985c6b4fc623acf01ade604da781e52'
+  const isWldOwner = !!(wldAddr && (
+    wldAddr.toLowerCase() === WLD_OWNER.toLowerCase() ||
+    wldAddr.toLowerCase() === WLD_OWNER2.toLowerCase()
+  ))
 
   // ─── Load user info ──────────────────────────────────────────────────────────
   const load = useCallback(async (addr: string) => {
@@ -453,6 +462,37 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{ address: WLD_CONTRACT, abi: WLD_TRIGGER_ABI as any, functionName: 'triggerQueue', args: [] }],
       })
+      return finalPayload
+    })
+  }
+
+  const doWLDFund = async () => {
+    if (!wldFundAmt || !MiniKit.isInstalled()) return
+    let amount: bigint
+    try { amount = ethers.parseEther(wldFundAmt.replace(',', '.')) } catch { return }
+    if (amount === BigInt(0)) return
+    const nonce    = randomNonce()
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
+    await runWldTx(`Fondeando pool con ${wldFundAmt} WLD…`, async () => {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: WLD_CONTRACT,
+          abi: WLD_FUND_ABI as any,
+          functionName: 'fund',
+          args: [
+            { permitted: { token: WLD_TOKEN, amount: amount.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
+            amount.toString(),
+          ],
+        }],
+        permit2: [{
+          permitted: { token: WLD_TOKEN, amount: amount.toString() },
+          spender: WLD_CONTRACT,
+          nonce: nonce.toString(),
+          deadline: deadline.toString(),
+        }],
+      })
+      setWldFundAmt('')
       return finalPayload
     })
   }
@@ -1535,6 +1575,64 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
               {wldTxPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRight className="w-3 h-3" />}
               Procesar cola (público)
             </button>
+
+            {/* ─── Fund Pool (owner/owner2 only) ─────────────────────────── */}
+            {isWldOwner && (
+              <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">💰</span>
+                  <div>
+                    <p className="text-xs font-black text-emerald-400">Fondear Pool WLD</p>
+                    <p className="text-[8px] text-[oklch(0.45_0.01_230)]">Solo owner · Permit2 · Mismo flujo que stake</p>
+                  </div>
+                  <span className="ml-auto text-[8px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-400">OWNER</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl bg-black/30 border border-white/5 p-2 text-center">
+                    <p className="text-[7px] text-[oklch(0.45_0.01_230)] uppercase mb-0.5">Fund Pool actual</p>
+                    <p className="text-sm font-black font-mono text-emerald-400">{wldGlobal ? fmtWldShort(wldGlobal.fundPool) : '—'}</p>
+                    <p className="text-[7px] text-[oklch(0.40_0.01_230)]">WLD</p>
+                  </div>
+                  <div className="rounded-xl bg-black/30 border border-white/5 p-2 text-center">
+                    <p className="text-[7px] text-[oklch(0.45_0.01_230)] uppercase mb-0.5">Total fondeado</p>
+                    <p className="text-sm font-black font-mono text-blue-400">{wldGlobal ? fmtWldShort(wldGlobal.totalFunded) : '—'}</p>
+                    <p className="text-[7px] text-[oklch(0.40_0.01_230)]">WLD</p>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={wldFundAmt}
+                    onChange={e => setWldFundAmt(e.target.value)}
+                    placeholder="0.0 WLD a fondear"
+                    className="w-full bg-[oklch(0.14_0.02_245)] border border-emerald-500/30 rounded-xl px-3 py-2.5 text-sm font-mono text-foreground focus:outline-none focus:border-emerald-500/60 placeholder:text-[oklch(0.35_0.01_230)]"
+                  />
+                  <button
+                    onClick={() => wldUser && setWldFundAmt(fmtWld(wldUser.wldBal, 6))}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-bold text-emerald-400 hover:text-emerald-300"
+                  >
+                    MAX
+                  </button>
+                </div>
+
+                <div className="flex items-start gap-1.5 text-[8px] text-[oklch(0.45_0.01_230)]">
+                  <Info className="w-3 h-3 shrink-0 mt-0.5" />
+                  <p>Usa Permit2 (sin approve separado). Los WLD van directamente al contrato como fondos para pagar retiros y recompensas.</p>
+                </div>
+
+                <button
+                  onClick={doWLDFund}
+                  disabled={wldTxPending || !wldFundAmt || parseFloat(wldFundAmt) <= 0}
+                  className="w-full py-3 rounded-xl text-sm font-black flex items-center justify-center gap-2 disabled:opacity-40 transition-all"
+                  style={{ background: 'linear-gradient(135deg,#059669,#10b981)', color: 'white', boxShadow: '0 0 16px rgba(16,185,129,0.25)' }}
+                >
+                  {wldTxPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '💰'}
+                  FONDEAR POOL WLD
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           /* No World App connected */
