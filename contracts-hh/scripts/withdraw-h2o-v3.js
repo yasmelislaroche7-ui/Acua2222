@@ -16,7 +16,6 @@ const fs = require("fs");
 
 // Lista de tokens a evaluar para withdraw (todos los del swap + H2O)
 const TOKENS = {
-  H2O:    "0x17392e5483983945dEB92e0518a8F2C4eB6bA59d",
   WLD:    "0x2cFc85d8E48F8EAB294be644d9E25C3030863003",
   USDC:   "0x79A02482A880bCE3F13e09Da970dC34db4CD24d1",
   SUSHI:  "0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38",
