@@ -11,9 +11,6 @@ import {
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 import {
-  buildFeePayment, fetchFeeInfo, insufficientFeeMsg, feeLabel,
-} from '@/lib/feeCollector'
-import {
   type WalletMode, buyMiningEthers, claimUTH2Ethers,
 } from '@/lib/tx-signer'
 
@@ -224,14 +221,6 @@ function BuyDialog({ pkg, uth2Balance, userAddress, walletMode, importedSigner, 
   const [units, setUnits] = useState('1')
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
-  const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
-  const [h2oBalance, setH2oBalance] = useState<bigint>(0n)
-
-  useEffect(() => {
-    fetchFeeInfo(userAddress)
-      .then(d => { setFeeAmount(d.fee); setH2oBalance(d.userH2O) })
-      .catch(() => {})
-  }, [userAddress])
 
   const u = parseInt(units) || 0
   const totalCost = BigInt(u) * pkg.priceUTH2
@@ -242,11 +231,10 @@ function BuyDialog({ pkg, uth2Balance, userAddress, walletMode, importedSigner, 
   async function doBuy() {
     if (!u || u <= 0) return setMsg('Ingresa una cantidad válida')
     if (!canAfford) return setMsg('Saldo UTH₂ insuficiente')
-    if (h2oBalance < feeAmount) return setMsg(insufficientFeeMsg(feeAmount))
     setLoading(true); setMsg('')
     try {
       if (walletMode === 'imported' && importedSigner) {
-        await buyMiningEthers(importedSigner, MINING_UTH2_CONTRACT, TOKENS.UTH2, pkg.id, u, totalCost, feeAmount,
+        await buyMiningEthers(importedSigner, MINING_UTH2_CONTRACT, TOKENS.UTH2, pkg.id, u, totalCost, 0n,
           m => setMsg(m))
         setMsg('✓ ¡Paquete comprado! Minería activada permanentemente')
         setTimeout(onSuccess, 2000)
@@ -255,10 +243,8 @@ function BuyDialog({ pkg, uth2Balance, userAddress, walletMode, importedSigner, 
 
       const nonce = randomNonce()
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
-      const fee = buildFeePayment(feeAmount, deadline)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address: MINING_UTH2_CONTRACT,
             abi: BUY_PACKAGE_ABI,
@@ -266,12 +252,11 @@ function BuyDialog({ pkg, uth2Balance, userAddress, walletMode, importedSigner, 
             args: [
               pkg.id.toString(), u.toString(),
               { permitted: { token: TOKENS.UTH2, amount: totalCost.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
-              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+              'PERMIT2_SIGNATURE_PLACEHOLDER_0',
             ],
           },
         ],
         permit2: [
-          fee.permit2,
           {
             permitted: { token: TOKENS.UTH2, amount: totalCost.toString() },
             spender: MINING_UTH2_CONTRACT,
@@ -375,19 +360,11 @@ export function MiningUTH2Panel({ userAddress, walletMode, importedSigner }: Min
   const [claiming, setClaiming] = useState(false)
   const [msg, setMsg] = useState('')
 
-  const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
-  const [h2oBalance, setH2oBalance] = useState<bigint>(0n)
-
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [miningInfo, feeData] = await Promise.all([
-        fetchMiningUTH2Info(userAddress),
-        fetchFeeInfo(userAddress).catch(() => ({ fee: 10n ** 18n, userH2O: 0n })),
-      ])
+      const miningInfo = await fetchMiningUTH2Info(userAddress)
       setInfo(miningInfo)
-      setFeeAmount(feeData.fee)
-      setH2oBalance(feeData.userH2O)
     }
     catch (e) { console.error('MiningUTH2 load', e) }
     finally { setLoading(false) }
@@ -405,7 +382,6 @@ export function MiningUTH2Panel({ userAddress, walletMode, importedSigner }: Min
   const totalActiveUnits = info?.userPackages.reduce((s, p) => s + Number(p.units), 0) ?? 0
 
   async function doClaimAll() {
-    if (h2oBalance < feeAmount) return setMsg(insufficientFeeMsg(feeAmount))
     setClaiming(true); setMsg('')
     try {
       if (walletMode === 'imported' && importedSigner) {
@@ -415,13 +391,10 @@ export function MiningUTH2Panel({ userAddress, walletMode, importedSigner }: Min
         setTimeout(load, 2000)
         return
       }
-      const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           { address: MINING_UTH2_CONTRACT, abi: CLAIM_ABI, functionName: 'claimRewards', args: [] },
         ],
-        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ H2O reclamado exitosamente!')

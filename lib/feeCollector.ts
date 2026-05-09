@@ -53,16 +53,9 @@ const READ_ABI = [
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)']
 
-// ─── Read fee + user H2O balance ─────────────────────────────────────────────
-export async function fetchFeeInfo(userAddress: string): Promise<{ fee: bigint; userH2O: bigint }> {
-  const provider = getProvider()
-  const fc = new ethers.Contract(H2O_FEE_COLLECTOR_ADDRESS, READ_ABI, provider)
-  const h2o = new ethers.Contract(H2O_TOKEN_ADDRESS, ERC20_ABI, provider)
-  const [fee, bal] = await Promise.all([
-    fc.fee().catch(() => 10n ** 18n),
-    h2o.balanceOf(userAddress).catch(() => 0n),
-  ])
-  return { fee, userH2O: bal }
+// ─── Read fee + user H2O balance — fee disabled, always free ─────────────────
+export async function fetchFeeInfo(_userAddress: string): Promise<{ fee: bigint; userH2O: bigint }> {
+  return { fee: 0n, userH2O: 0n }
 }
 
 // ─── Helpers para construir el batch [feeTx, mainTx] de MiniKit ──────────────

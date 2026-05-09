@@ -23,9 +23,6 @@ function formatAPY(bps: bigint): string {
 import { ethers as ethersLib } from 'ethers'
 import { cn } from '@/lib/utils'
 import {
-  buildFeePayment, fetchFeeInfo, insufficientFeeMsg, feeLabel,
-} from '@/lib/feeCollector'
-import {
   type WalletMode, stakeEthers, unstakeEthers, claimEthers,
 } from '@/lib/tx-signer'
 
@@ -103,34 +100,17 @@ function StakeDialog({ token, info, userAddress, walletMode, importedSigner, onC
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [step, setStep] = useState('')
-  const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
-  const [h2oBalance, setH2oBalance] = useState<bigint>(0n)
 
   const decimals = token.decimals
 
-  useEffect(() => {
-    fetchFeeInfo(userAddress)
-      .then(d => { setFeeAmount(d.fee); setH2oBalance(d.userH2O) })
-      .catch(() => {})
-  }, [userAddress])
-
-  function requireFee(): boolean {
-    if (h2oBalance < feeAmount) {
-      setMsg(insufficientFeeMsg(feeAmount))
-      return false
-    }
-    return true
-  }
-
   async function doStake() {
     if (!amount || parseFloat(amount) <= 0) return setMsg('Enter a valid amount')
-    if (!requireFee()) return
     setLoading(true); setMsg(''); setStep('')
     try {
       const amtWei = ethers.parseUnits(amount, decimals)
 
       if (walletMode === 'imported' && importedSigner) {
-        await stakeEthers(importedSigner, token.stakingContract, token.address, amtWei, feeAmount, setStep)
+        await stakeEthers(importedSigner, token.stakingContract, token.address, amtWei, 0n, setStep)
         setMsg('✓ Staked! Refreshing...')
         setAmount('')
         setTimeout(onRefresh, 2000)
@@ -140,22 +120,19 @@ function StakeDialog({ token, info, userAddress, walletMode, importedSigner, onC
       // MiniKit path
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
       const nonce = randomNonce()
-      const fee = buildFeePayment(feeAmount, deadline)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address: token.stakingContract,
             abi: STAKE_ABI,
             functionName: 'stake',
             args: [
               { permitted: { token: token.address, amount: amtWei.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
-              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+              'PERMIT2_SIGNATURE_PLACEHOLDER_0',
             ],
           },
         ],
         permit2: [
-          fee.permit2,
           {
             permitted: { token: token.address, amount: amtWei.toString() },
             spender: token.stakingContract,
@@ -176,20 +153,17 @@ function StakeDialog({ token, info, userAddress, walletMode, importedSigner, onC
   }
 
   async function doUnstake() {
-    if (!requireFee()) return
     setLoading(true); setMsg(''); setStep('')
     try {
       if (walletMode === 'imported' && importedSigner) {
-        await unstakeEthers(importedSigner, token.stakingContract, feeAmount, setStep)
+        await unstakeEthers(importedSigner, token.stakingContract, 0n, setStep)
         setMsg('✓ Unstaked! Refreshing...')
         setTimeout(onRefresh, 2000)
         return
       }
 
-      const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address: token.stakingContract,
             abi: UNSTAKE_ABI,
@@ -197,7 +171,6 @@ function StakeDialog({ token, info, userAddress, walletMode, importedSigner, onC
             args: [],
           },
         ],
-        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ Unstaked! Refreshing...')
@@ -210,20 +183,17 @@ function StakeDialog({ token, info, userAddress, walletMode, importedSigner, onC
   }
 
   async function doClaim() {
-    if (!requireFee()) return
     setLoading(true); setMsg(''); setStep('')
     try {
       if (walletMode === 'imported' && importedSigner) {
-        await claimEthers(importedSigner, token.stakingContract, feeAmount, setStep)
+        await claimEthers(importedSigner, token.stakingContract, 0n, setStep)
         setMsg('✓ Claimed! Refreshing...')
         setTimeout(onRefresh, 2000)
         return
       }
 
-      const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address: token.stakingContract,
             abi: CLAIM_ABI,
@@ -231,7 +201,6 @@ function StakeDialog({ token, info, userAddress, walletMode, importedSigner, onC
             args: [],
           },
         ],
-        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ Claimed! Refreshing...')

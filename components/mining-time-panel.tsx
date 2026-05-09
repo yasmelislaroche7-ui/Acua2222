@@ -14,9 +14,7 @@ import {
 } from '@/lib/time'
 import { getProvider } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
-import {
-  buildFeePayment, fetchFeeInfo, insufficientFeeMsg, feeLabel,
-} from '@/lib/feeCollector'
+
 
 // ─── ABI fragments for MiniKit (centralized in lib/time.ts) ──────────────────
 const STAKE_PERMIT2_ABI = STAKE_WITH_PERMIT2_ABI_FRAG
@@ -127,9 +125,6 @@ export function MiningTimePanel({ userAddress }: { userAddress: string }) {
   const [unstakeAmt, setUnstakeAmt] = useState('')
   const [txLoading, setTxLoading] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
-  const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
-  const [h2oBalance, setH2oBalance] = useState<bigint>(0n)
-
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -138,14 +133,13 @@ export function MiningTimePanel({ userAddress }: { userAddress: string }) {
       const timeToken = new ethers.Contract(TIME_TOKEN_ADDRESS, ERC20_BALANCE_ABI, p)
       const wldToken = new ethers.Contract(WLD_TOKEN_ADDRESS, ERC20_BALANCE_ABI, p)
 
-      const [staked, pending, total, unalloc, timeBal, wldBal, feeData] = await Promise.all([
+      const [staked, pending, total, unalloc, timeBal, wldBal] = await Promise.all([
         staking.stakedBalance(userAddress),
         staking.pendingWldReward(userAddress),
         staking.totalStaked(),
         staking.unallocatedWld(),
         timeToken.balanceOf(userAddress),
         wldToken.balanceOf(userAddress),
-        fetchFeeInfo(userAddress).catch(() => ({ fee: 10n ** 18n, userH2O: 0n })),
       ])
 
       setInfo({
@@ -156,8 +150,6 @@ export function MiningTimePanel({ userAddress }: { userAddress: string }) {
         timeBalance: timeBal,
         wldBalance: wldBal,
       })
-      setFeeAmount(feeData.fee)
-      setH2oBalance(feeData.userH2O)
     } catch (e) {
       console.error('[TimePanel] load error', e)
     } finally {
@@ -167,39 +159,27 @@ export function MiningTimePanel({ userAddress }: { userAddress: string }) {
 
   useEffect(() => { load() }, [load])
 
-  function requireFee(): boolean {
-    if (h2oBalance < feeAmount) {
-      setMsg({ ok: false, text: insufficientFeeMsg(feeAmount) })
-      return false
-    }
-    return true
-  }
-
   // ── Real-time pending counter ──────────────────────────────────────────────
   const displayedPending = useRealtimePending(info?.pendingWld ?? 0n, (info?.stakedBalance ?? 0n) > 0n)
 
   // ── Stake TIME ─────────────────────────────────────────────────────────────
   const doStake = useCallback(async () => {
     if (!stakeAmt || parseFloat(stakeAmt) <= 0) return
-    if (!requireFee()) return
     setTxLoading('stake'); setMsg(null)
     try {
       const amtWei = ethers.parseUnits(stakeAmt, 18)
       const nonce = randomNonce()
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
-      const fee = buildFeePayment(feeAmount, deadline)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address: TIME_STAKING_ADDRESS,
             abi: STAKE_PERMIT2_ABI,
             functionName: 'stakeWithPermit2',
-            args: [amtWei.toString(), nonce.toString(), deadline.toString(), 'PERMIT2_SIGNATURE_PLACEHOLDER_1'],
+            args: [amtWei.toString(), nonce.toString(), deadline.toString(), 'PERMIT2_SIGNATURE_PLACEHOLDER_0'],
           },
         ],
         permit2: [
-          fee.permit2,
           {
             permitted: { token: TIME_TOKEN_ADDRESS, amount: amtWei.toString() },
             spender: TIME_STAKING_ADDRESS,
@@ -218,19 +198,16 @@ export function MiningTimePanel({ userAddress }: { userAddress: string }) {
     } catch (e: any) {
       setMsg({ ok: false, text: e?.message ?? 'Error' })
     } finally { setTxLoading(null) }
-  }, [stakeAmt, load, feeAmount, h2oBalance])
+  }, [stakeAmt, load])
 
   // ── Unstake TIME ───────────────────────────────────────────────────────────
   const doUnstake = useCallback(async () => {
     if (!unstakeAmt || parseFloat(unstakeAmt) <= 0) return
-    if (!requireFee()) return
     setTxLoading('unstake'); setMsg(null)
     try {
       const amtWei = ethers.parseUnits(unstakeAmt, 18)
-      const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address: TIME_STAKING_ADDRESS,
             abi: UNSTAKE_ABI,
@@ -238,7 +215,6 @@ export function MiningTimePanel({ userAddress }: { userAddress: string }) {
             args: [amtWei.toString()],
           },
         ],
-        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         setMsg({ ok: true, text: '✓ TIME retirado exitosamente' })
@@ -250,17 +226,14 @@ export function MiningTimePanel({ userAddress }: { userAddress: string }) {
     } catch (e: any) {
       setMsg({ ok: false, text: e?.message ?? 'Error' })
     } finally { setTxLoading(null) }
-  }, [unstakeAmt, load, feeAmount, h2oBalance])
+  }, [unstakeAmt, load])
 
   // ── Claim WLD ──────────────────────────────────────────────────────────────
   const doClaim = useCallback(async () => {
-    if (!requireFee()) return
     setTxLoading('claim'); setMsg(null)
     try {
-      const fee = buildFeePayment(feeAmount)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address: TIME_STAKING_ADDRESS,
             abi: CLAIM_WLD_ABI,
@@ -268,7 +241,6 @@ export function MiningTimePanel({ userAddress }: { userAddress: string }) {
             args: [],
           },
         ],
-        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         setMsg({ ok: true, text: '✓ WLD reclamado exitosamente' })
@@ -279,7 +251,7 @@ export function MiningTimePanel({ userAddress }: { userAddress: string }) {
     } catch (e: any) {
       setMsg({ ok: false, text: e?.message ?? 'Error' })
     } finally { setTxLoading(null) }
-  }, [load, feeAmount, h2oBalance])
+  }, [load])
 
   const hasStake = (info?.stakedBalance ?? 0n) > 0n
   const pendingWld = info?.pendingWld ?? 0n

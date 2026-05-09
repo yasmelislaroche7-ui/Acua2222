@@ -11,9 +11,7 @@ import {
   CircleDollarSign, Users, BarChart3, Lock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import {
-  buildFeePayment, fetchFeeInfo, insufficientFeeMsg, feeLabel,
-} from '@/lib/feeCollector'
+
 import {
   SUSHI_CONTRACT, SUSHI_TOKEN, SUSHI_OWNER2,
   STAKE_ABI, WITHDRAW_ABI, CLAIM_ABI, FUND_ABI, TRIGGER_ABI,
@@ -164,10 +162,6 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
   const [busyFund,  setBusyFund]  = useState(false)
   const [busyTrig,  setBusyTrig]  = useState(false)
 
-  // H2O fee
-  const [feeAmount, setFeeAmount] = useState<bigint>(10n ** 18n)
-  const [h2oBalance, setH2oBalance] = useState<bigint>(0n)
-
   // Owner admin
   const [newApr, setNewApr]       = useState('')
   const [newFee, setNewFee]       = useState('')
@@ -202,16 +196,14 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
   const load = useCallback(async () => {
     if (!isDeployed) { setLoading(false); return }
     try {
-      const [u, g, wq, cq, feeData] = await Promise.all([
+      const [u, g, wq, cq] = await Promise.all([
         fetchUserSushiInfo(userAddress),
         fetchGlobalSushiStats(),
         fetchWithdrawQueue(0, 30),
         fetchClaimQueue(0, 30),
-        fetchFeeInfo(userAddress).catch(() => ({ fee: 10n ** 18n, userH2O: 0n })),
       ])
       if (!mountedRef.current) return
       setUserInfo(u); setStats(g); setWQueue(wq); setCQueue(cq)
-      setFeeAmount(feeData.fee); setH2oBalance(feeData.userH2O)
     } catch (e: any) {
       if (mountedRef.current) setErr(e?.message ?? 'Error cargando datos')
     } finally {
@@ -263,27 +255,23 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
     const sushiFee = gross * BigInt(stats?.feeBps ?? 500) / 10_000n
     const net = gross - sushiFee
     if (net <= 0n) return setErr('Monto muy pequeño')
-    if (h2oBalance < feeAmount) return setErr(insufficientFeeMsg(feeAmount))
     setBusyStake(true); setErr('')
     try {
       const nonce = randNonce(); const dl = makeDeadline()
-      const txFee = buildFeePayment(feeAmount, dl)
       await sendTx(() => ({
         transaction: [
-          txFee.tx,
           {
             address: SUSHI_CONTRACT,
             abi: STAKE_ABI,
             functionName: 'stake',
             args: [
               { permitted: { token: SUSHI_TOKEN, amount: gross.toString() }, nonce: nonce.toString(), deadline: dl.toString() },
-              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+              'PERMIT2_SIGNATURE_PLACEHOLDER_0',
               gross.toString(),
             ],
           },
         ],
         permit2: [
-          txFee.permit2,
           {
             permitted: { token: SUSHI_TOKEN, amount: gross.toString() },
             spender: SUSHI_CONTRACT,
@@ -309,13 +297,10 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
     const today = todayDay()
     if (today <= (userInfo?.lastWithdrawDay ?? 0)) return setErr('Ya tienes un retiro solicitado hoy')
     if (userInfo?.hasWithdraw) return setErr('Ya tienes un retiro pendiente en cola')
-    if (h2oBalance < feeAmount) return setErr(insufficientFeeMsg(feeAmount))
     setBusyWd(true); setErr('')
     try {
-      const txFee = buildFeePayment(feeAmount)
       await sendTx(() => ({
         transaction: [
-          txFee.tx,
           {
             address: SUSHI_CONTRACT,
             abi: WITHDRAW_ABI,
@@ -323,7 +308,6 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
             args: [gross.toString()],
           },
         ],
-        permit2: [txFee.permit2],
       }))
       setWdAmt('')
       await load()
@@ -340,13 +324,10 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
     const today = todayDay()
     if (today <= (userInfo?.lastClaimDay ?? 0)) return setErr('Ya tienes un reclamo solicitado hoy')
     if (userInfo?.hasClaim) return setErr('Ya tienes un reclamo pendiente en cola')
-    if (h2oBalance < feeAmount) return setErr(insufficientFeeMsg(feeAmount))
     setBusyClaim(true); setErr('')
     try {
-      const txFee = buildFeePayment(feeAmount)
       await sendTx(() => ({
         transaction: [
-          txFee.tx,
           {
             address: SUSHI_CONTRACT,
             abi: CLAIM_ABI,
@@ -354,7 +335,6 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
             args: [],
           },
         ],
-        permit2: [txFee.permit2],
       }))
       await load()
     } catch (e: any) {
@@ -466,27 +446,23 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
   async function doWldStake() {
     const gross = parseWei(wldStakeAmt)
     if (gross === 0n) return setWldErr('Ingresa un monto')
-    if (h2oBalance < feeAmount) return setWldErr(insufficientFeeMsg(feeAmount))
     setBusyWldStake(true); setWldErr('')
     try {
       const nonce = randNonce(); const dl = makeDeadline()
-      const txFee = buildFeePayment(feeAmount, dl)
       await sendTx(() => ({
         transaction: [
-          txFee.tx,
           {
             address: WLD_CONTRACT,
             abi: WLD_STAKE_ABI,
             functionName: 'stake',
             args: [
               { permitted: { token: WLD_TOKEN, amount: gross.toString() }, nonce: nonce.toString(), deadline: dl.toString() },
-              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+              'PERMIT2_SIGNATURE_PLACEHOLDER_0',
               gross.toString(),
             ],
           },
         ],
         permit2: [
-          txFee.permit2,
           {
             permitted: { token: WLD_TOKEN, amount: gross.toString() },
             spender: WLD_CONTRACT,
@@ -505,14 +481,10 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
   async function doWldWithdraw() {
     const gross = parseWei(wldWdAmt)
     if (gross === 0n) return setWldErr('Ingresa un monto')
-    if (h2oBalance < feeAmount) return setWldErr(insufficientFeeMsg(feeAmount))
     setBusyWldWd(true); setWldErr('')
     try {
-      const dl = makeDeadline()
-      const txFee = buildFeePayment(feeAmount, dl)
       await sendTx(() => ({
         transaction: [
-          txFee.tx,
           {
             address: WLD_CONTRACT,
             abi: WLD_WITHDRAW_ABI,
@@ -520,7 +492,6 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
             args: [gross.toString()],
           },
         ],
-        permit2: [txFee.permit2],
       }))
       setWldWdAmt('')
       await load()
@@ -530,17 +501,12 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
   }
 
   async function doWldClaim() {
-    if (h2oBalance < feeAmount) return setWldErr(insufficientFeeMsg(feeAmount))
     setBusyWldClaim(true); setWldErr('')
     try {
-      const dl = makeDeadline()
-      const txFee = buildFeePayment(feeAmount, dl)
       await sendTx(() => ({
         transaction: [
-          txFee.tx,
           { address: WLD_CONTRACT, abi: WLD_CLAIM_ABI, functionName: 'requestClaim', args: [] },
         ],
-        permit2: [txFee.permit2],
       }))
       await load()
     } catch (e: any) {
@@ -907,18 +873,9 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
               Tus SUSHI generan <strong className="text-foreground">{aprPct}% APR</strong> anual. Retiros después de 48h · Reclamos después de 24h.
             </p>
           </div>
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="text-[oklch(0.45_0.01_230)]">Comisión de red</span>
-            <span className={cn(
-              'font-mono font-bold',
-              h2oBalance >= feeAmount ? 'text-cyan-400' : 'text-red-400',
-            )}>
-              {feeLabel(feeAmount)} H2O · saldo: {parseFloat(ethers.formatUnits(h2oBalance, 18)).toFixed(2)}
-            </span>
-          </div>
           <button
             onClick={doStake}
-            disabled={busyStake || !stakeAmt || h2oBalance < feeAmount}
+            disabled={busyStake || !stakeAmt}
             className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
             style={{ background: busyStake ? 'rgba(232,65,66,0.3)' : SUSHI_COLOR, color: 'white', boxShadow: busyStake ? 'none' : `0 0 18px ${SUSHI_COLOR}55` }}
           >
@@ -962,15 +919,9 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
                 : 'El retiro se pone en la cola de espera de 48 horas'}
             />
           )}
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="text-[oklch(0.45_0.01_230)]">Comisión de red</span>
-            <span className={cn('font-mono font-bold', h2oBalance >= feeAmount ? 'text-cyan-400' : 'text-red-400')}>
-              {feeLabel(feeAmount)} H2O
-            </span>
-          </div>
           <button
             onClick={doWithdraw}
-            disabled={busyWd || !canWithdraw || !wdAmt || h2oBalance < feeAmount}
+            disabled={busyWd || !canWithdraw || !wdAmt}
             className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 border"
             style={{ borderColor: `${SUSHI_COLOR}50`, color: SUSHI_COLOR, background: `${SUSHI_COLOR}10` }}
           >
@@ -1018,15 +969,9 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
               )}
             </div>
           </div>
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="text-[oklch(0.45_0.01_230)]">Comisión de red</span>
-            <span className={cn('font-mono font-bold', h2oBalance >= feeAmount ? 'text-cyan-400' : 'text-red-400')}>
-              {feeLabel(feeAmount)} H2O
-            </span>
-          </div>
           <button
             onClick={doClaim}
-            disabled={busyClaim || !canClaim || h2oBalance < feeAmount}
+            disabled={busyClaim || !canClaim}
             className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 border"
             style={{ borderColor: 'rgba(34,197,94,0.40)', color: '#22c55e', background: 'rgba(34,197,94,0.10)' }}
           >
@@ -1282,15 +1227,9 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
                   Tus WLD generan <strong className="text-foreground">{wldAprPct}% APR</strong> anual. Retiros después de 48h · Reclamos después de 24h.
                 </p>
               </div>
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="text-[oklch(0.45_0.01_230)]">Comisión de red</span>
-                <span className={cn('font-mono font-bold', h2oBalance >= feeAmount ? 'text-cyan-400' : 'text-red-400')}>
-                  {feeLabel(feeAmount)} H2O · saldo: {parseFloat(ethers.formatUnits(h2oBalance, 18)).toFixed(2)}
-                </span>
-              </div>
               <button
                 onClick={doWldStake}
-                disabled={busyWldStake || !wldStakeAmt || h2oBalance < feeAmount}
+                disabled={busyWldStake || !wldStakeAmt}
                 className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                 style={{ background: busyWldStake ? 'rgba(59,130,246,0.3)' : '#2563eb', color: 'white', boxShadow: busyWldStake ? 'none' : '0 0 18px rgba(37,99,235,0.55)' }}
               >
@@ -1330,15 +1269,9 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
                     : 'El retiro se pone en la cola de espera de 48 horas'}
                 />
               )}
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="text-[oklch(0.45_0.01_230)]">Comisión de red</span>
-                <span className={cn('font-mono font-bold', h2oBalance >= feeAmount ? 'text-cyan-400' : 'text-red-400')}>
-                  {feeLabel(feeAmount)} H2O
-                </span>
-              </div>
               <button
                 onClick={doWldWithdraw}
-                disabled={busyWldWd || !wldCanWithdraw || !wldWdAmt || h2oBalance < feeAmount}
+                disabled={busyWldWd || !wldCanWithdraw || !wldWdAmt}
                 className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 border"
                 style={{ borderColor: 'rgba(59,130,246,0.50)', color: '#60a5fa', background: 'rgba(59,130,246,0.10)' }}
               >
@@ -1382,15 +1315,9 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
                   )}
                 </div>
               </div>
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="text-[oklch(0.45_0.01_230)]">Comisión de red</span>
-                <span className={cn('font-mono font-bold', h2oBalance >= feeAmount ? 'text-cyan-400' : 'text-red-400')}>
-                  {feeLabel(feeAmount)} H2O
-                </span>
-              </div>
               <button
                 onClick={doWldClaim}
-                disabled={busyWldClaim || !wldCanClaim || h2oBalance < feeAmount}
+                disabled={busyWldClaim || !wldCanClaim}
                 className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 border"
                 style={{ borderColor: 'rgba(34,197,94,0.40)', color: '#22c55e', background: 'rgba(34,197,94,0.10)' }}
               >

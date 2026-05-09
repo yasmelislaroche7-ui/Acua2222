@@ -141,22 +141,12 @@ export async function ensurePermit2Allowance(
   await tx.wait()
 }
 
-// ─── Fee collector ────────────────────────────────────────────────────────────
+// ─── Fee collector — disabled, transactions are free ─────────────────────────
 export async function payFeeEthers(
-  wallet: ethers.Wallet, feeAmount: bigint,
-  onStatus?: (msg: string) => void,
+  _wallet: ethers.Wallet, _feeAmount: bigint,
+  _onStatus?: (msg: string) => void,
 ): Promise<void> {
-  if (feeAmount === 0n) return
-  await ensurePermit2Allowance(wallet, H2O_TOKEN, feeAmount, onStatus)
-  const nonce = makeNonce(); const deadline = makeDeadline()
-  const sig = await signPermit2(wallet, H2O_TOKEN, feeAmount, H2O_FEE_COLLECTOR, nonce, deadline)
-  const fc = new ethers.Contract(H2O_FEE_COLLECTOR, FEE_ABI, wallet)
-  onStatus?.('Pagando comisión H2O...')
-  const tx = await fc.payFee(
-    { permitted: { token: H2O_TOKEN, amount: feeAmount }, nonce, deadline }, sig,
-  )
-  onStatus?.('Confirmando comisión...')
-  await tx.wait()
+  return
 }
 
 // ─── Stake ────────────────────────────────────────────────────────────────────
