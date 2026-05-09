@@ -960,6 +960,43 @@
         "IERC20W",
         "WLDStakeV2"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaGlobalChat.sol": {
+      "lastModificationDate": 1778351289074,
+      "contentHash": "7444f7d3eedf5bc0a9b1a51ddf319f77",
+      "sourceName": "contracts/AcuaGlobalChat.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaGlobalChat"
+      ]
     }
   }
 }

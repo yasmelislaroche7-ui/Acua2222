@@ -12,7 +12,7 @@ import { getProvider } from '@/lib/new-contracts'
 
 // ─── Contract ────────────────────────────────────────────────────────────────
 // After deploying AcuaGlobalChat, set the address here:
-const CHAT_ADDR = ''
+const CHAT_ADDR = '0xa1A60A5539c18659bD7A86Fe49Fb5A8fb0Aa4560'
 
 const CHAT_ABI = [
   'function postMessage(string calldata text) external returns (uint256 id)',
