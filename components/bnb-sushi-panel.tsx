@@ -16,6 +16,14 @@ import {
   SUSHI_BNB_CONTRACT, SUSHI_BNB_TOKEN, BNB_RPC, BNB_USD_APPROX,
   SUSHI_BNB_ABI, ERC20_ABI, MEMBERSHIP_TIERS,
 } from '@/lib/sushibnb-abi'
+import {
+  WLD_CONTRACT, WLD_TOKEN,
+  WLD_STAKE_ABI, WLD_WITHDRAW_ABI, WLD_CLAIM_ABI, WLD_TRIGGER_ABI,
+  fetchUserWldInfo, fetchGlobalWldStats,
+  fmtWld, fmtWldShort,
+  type UserWldInfo, type GlobalWldStats,
+} from '@/lib/wld-stake-v2'
+import { randomNonce } from '@/lib/new-contracts'
 import type { WalletMode } from '@/lib/tx-signer'
 
 // ─── MiniKit JSON ABIs (for BNB Chain signing via World Wallet) ───────────────
@@ -248,6 +256,11 @@ interface BNBSushiPanelProps {
 // ═══════════════════════════════════════════════════════════════════════════════
 export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSushiPanelProps) {
   const { lang } = useLang()
+
+  // ─── Panel switcher (SUSHI BNB | WLD World Chain) ────────────────────────
+  const [activePanel, setActivePanel] = useState<'sushi' | 'wld'>('sushi')
+
+  // ─── SUSHI (BNB Chain) state ──────────────────────────────────────────────
   const [info, setInfo]           = useState<StakeInfo | null>(null)
   const [totalStaked, setTotalStaked] = useState<bigint | null>(null)
   const [loading, setLoading]     = useState(false)
@@ -270,6 +283,17 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
   // TX history
   const [txHistory, setTxHistory] = useState<TxRecord[]>([])
   useEffect(() => { setTxHistory(loadHistory()) }, [])
+
+  // ─── WLD (World Chain) state ──────────────────────────────────────────────
+  const [wldUser, setWldUser]       = useState<UserWldInfo | null>(null)
+  const [wldGlobal, setWldGlobal]   = useState<GlobalWldStats | null>(null)
+  const [wldPaidWd, setWldPaidWd]   = useState<bigint>(BigInt(0))
+  const [wldPaidCl, setWldPaidCl]   = useState<bigint>(BigInt(0))
+  const [wldLoading, setWldLoading] = useState(false)
+  const [wldStakeAmt, setWldStakeAmt] = useState('')
+  const [wldWdAmt, setWldWdAmt]       = useState('')
+  const [wldTxStep, setWldTxStep]   = useState<TxStep | null>(null)
+  const [wldTxPending, setWldTxPending] = useState(false)
 
   // ─── Load user info ──────────────────────────────────────────────────────────
   const load = useCallback(async (addr: string) => {
@@ -323,7 +347,120 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
 
   useEffect(() => { if (bnbAddress) load(bnbAddress) }, [bnbAddress, load])
 
+  // ─── WLD (World Chain) load ───────────────────────────────────────────────
+  const wldAddr = walletMode === 'minikit' ? bnbAddress : null
+
+  const loadWLD = useCallback(async (addr: string) => {
+    setWldLoading(true)
+    try {
+      const [user, global] = await Promise.allSettled([
+        fetchUserWldInfo(addr),
+        fetchGlobalWldStats(),
+      ])
+      if (user.status   === 'fulfilled') setWldUser(user.value)
+      if (global.status === 'fulfilled') {
+        setWldGlobal(global.value)
+        // totalPaidWithdrawals / totalPaidClaims are part of global
+        // (not returned by getGlobalStats — read separately if needed)
+      }
+    } catch (e) { console.error('[WLDStake] load error', e) }
+    finally { setWldLoading(false) }
+  }, [])
+
+  useEffect(() => { if (wldAddr) loadWLD(wldAddr) }, [wldAddr, loadWLD])
+
+  // ─── WLD tx runner (MiniKit, World Chain) ─────────────────────────────────
+  const runWldTx = async (label: string, fn: () => Promise<any>) => {
+    setWldTxPending(true)
+    setWldTxStep({ step: 1, total: 1, label })
+    try {
+      const finalPayload = await fn()
+      if (finalPayload?.status === 'success') {
+        setWldTxStep({ step: 1, total: 1, label: `✓ ${label.replace('…', '')}`, done: true })
+        if (wldAddr) await loadWLD(wldAddr)
+      } else {
+        const msg = finalPayload?.message ?? finalPayload?.error_code ?? 'Rechazado por World App'
+        setWldTxStep({ step: 1, total: 1, label: 'Error', error: msg })
+      }
+    } catch (e: any) {
+      setWldTxStep({ step: 1, total: 1, label: 'Error', error: e?.message ?? 'Error inesperado' })
+    } finally {
+      setWldTxPending(false)
+    }
+  }
+
+  // ─── WLD actions ──────────────────────────────────────────────────────────
+  const doWLDStake = async () => {
+    if (!wldStakeAmt || !MiniKit.isInstalled()) return
+    let gross: bigint
+    try { gross = ethers.parseEther(wldStakeAmt.replace(',', '.')) } catch { return }
+    if (gross === BigInt(0)) return
+    const nonce    = randomNonce()
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
+    await runWldTx(`Stakeando ${wldStakeAmt} WLD…`, async () => {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: WLD_CONTRACT,
+          abi: WLD_STAKE_ABI as any,
+          functionName: 'stake',
+          args: [
+            { permitted: { token: WLD_TOKEN, amount: gross.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
+            gross.toString(),
+          ],
+        }],
+        permit2: [{
+          permitted: { token: WLD_TOKEN, amount: gross.toString() },
+          spender: WLD_CONTRACT,
+          nonce: nonce.toString(),
+          deadline: deadline.toString(),
+        }],
+      })
+      setWldStakeAmt('')
+      return finalPayload
+    })
+  }
+
+  const doWLDRequestWithdraw = async () => {
+    if (!wldUser || wldUser.staked === BigInt(0)) return
+    if (!MiniKit.isInstalled()) return
+    const gross = wldWdAmt
+      ? (() => { try { return ethers.parseEther(wldWdAmt.replace(',', '.')) } catch { return wldUser.staked } })()
+      : wldUser.staked
+    await runWldTx('Solicitando retiro WLD…', async () => {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{ address: WLD_CONTRACT, abi: WLD_WITHDRAW_ABI as any, functionName: 'requestWithdrawal', args: [gross.toString()] }],
+      })
+      setWldWdAmt('')
+      return finalPayload
+    })
+  }
+
+  const doWLDRequestClaim = async () => {
+    if (!wldUser || wldUser.rewards === BigInt(0)) return
+    if (!MiniKit.isInstalled()) return
+    await runWldTx('Solicitando cobro de recompensas WLD…', async () => {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{ address: WLD_CONTRACT, abi: WLD_CLAIM_ABI as any, functionName: 'requestClaim', args: [] }],
+      })
+      return finalPayload
+    })
+  }
+
+  const doWLDTriggerQueue = async () => {
+    if (!MiniKit.isInstalled()) return
+    await runWldTx('Procesando cola WLD…', async () => {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{ address: WLD_CONTRACT, abi: WLD_TRIGGER_ABI as any, functionName: 'triggerQueue', args: [] }],
+      })
+      return finalPayload
+    })
+  }
+
   // ─── MiniKit helper for BNB transactions ─────────────────────────────────────
+  // NOTE: BNB Chain transactions do NOT go through MiniKit (World Chain only).
+  // World App would reject them — BNB contracts are on chainId 56, not 480.
+  // All BNB transactions require an imported BNB private key (getSigner below).
   const runMiniKitTx = async (
     label: string,
     txList: object[],
@@ -437,7 +574,9 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
   }
 
   // ─── Actions ─────────────────────────────────────────────────────────────────
-  const isMiniKit = walletMode === 'minikit'
+  // BNB Chain transactions CANNOT go through MiniKit (World App only signs World Chain).
+  // isMiniKit is always false for BNB operations — private key is required.
+  const isMiniKit = false
 
   // Deposit
   const doDeposit = () => {
@@ -708,11 +847,28 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
   }
 
   // ─── No private key warning ───────────────────────────────────────────────────
-  const noKey = !bnbPrivateKey && walletMode !== 'minikit'
+  // All BNB transactions require a BNB private key (World App cannot sign on BSC).
+  const noKey = !bnbPrivateKey
 
   // ─── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4 pb-24">
+
+      {/* ══ Panel switcher ═══════════════════════════════════════════════════ */}
+      <div className="flex rounded-xl bg-[oklch(0.10_0.018_245)] border border-[oklch(0.22_0.025_245)] p-1 gap-1">
+        <button onClick={() => setActivePanel('sushi')}
+          className={cn('flex-1 py-2 rounded-lg text-[10px] font-black transition-colors flex items-center justify-center gap-1.5', activePanel === 'sushi' ? 'bg-[#e84142] text-white' : 'text-[oklch(0.50_0.012_230)] hover:text-foreground')}>
+          🍣 SUSHI <span className="text-[8px] opacity-70">BNB</span>
+        </button>
+        <button onClick={() => setActivePanel('wld')}
+          className={cn('flex-1 py-2 rounded-lg text-[10px] font-black transition-colors flex items-center justify-center gap-1.5', activePanel === 'wld' ? 'text-white' : 'text-[oklch(0.50_0.012_230)] hover:text-foreground')}
+          style={activePanel === 'wld' ? { background: 'linear-gradient(135deg,#1d4ed8,#3b82f6)' } : {}}>
+          💛 WLD <span className="text-[8px] opacity-70">World Chain</span>
+        </button>
+      </div>
+
+      {/* ══ SUSHI Panel (BNB Chain) ══════════════════════════════════════════ */}
+      {activePanel === 'sushi' && (<>
 
       {/* ── Confirmation modal ─────────────────────────────────────────────── */}
       {confirm && (
@@ -1184,6 +1340,246 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
           </div>
         </div>
       )}
+
+      </>)} {/* ── end SUSHI panel ── */}
+
+      {/* ══ WLD Panel (World Chain) ══════════════════════════════════════════ */}
+      {activePanel === 'wld' && (<>
+
+        {/* ── WLD Header ───────────────────────────────────────────────────── */}
+        <div className="relative rounded-2xl overflow-hidden p-4" style={{ background: 'linear-gradient(135deg,#1e3a8a,#3b82f615,#0a0a14)' }}>
+          <div className="absolute inset-0 opacity-10" style={{ background: 'radial-gradient(circle at 80% 50%, #3b82f6, transparent 60%)' }} />
+          <div className="relative flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl border border-[#3b82f6]/30" style={{ background: '#3b82f615' }}>💛</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[9px] font-bold text-[#3b82f6]/80 uppercase tracking-wider">WLD Staking · World Chain</p>
+              <h2 className="text-lg font-black text-foreground leading-tight">WLD Stake V2</h2>
+              <p className="text-[8px] text-[oklch(0.45_0.01_230)] truncate font-mono">
+                {wldGlobal ? `${(wldGlobal.aprBps / 100).toFixed(0)}% APR · fee ${(wldGlobal.feeBps / 100).toFixed(0)}%` : '100% APR · fee 5%'}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[8px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">World Chain</span>
+              <button onClick={() => wldAddr && loadWLD(wldAddr)} disabled={wldLoading}
+                className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
+                <RefreshCw className={cn('w-3.5 h-3.5 text-[oklch(0.45_0.01_230)]', wldLoading && 'animate-spin')} />
+              </button>
+            </div>
+          </div>
+
+          {/* Global stats mini-row */}
+          <div className="relative mt-3 grid grid-cols-3 gap-2">
+            <div className="rounded-xl bg-black/20 border border-white/5 px-2 py-2 text-center">
+              <p className="text-[7px] text-[oklch(0.45_0.01_230)] uppercase tracking-wider">Total Staked</p>
+              <p className="text-xs font-black font-mono text-[#3b82f6]">{wldGlobal ? fmtWldShort(wldGlobal.totalStaked) : '—'} WLD</p>
+            </div>
+            <div className="rounded-xl bg-black/20 border border-white/5 px-2 py-2 text-center">
+              <p className="text-[7px] text-[oklch(0.45_0.01_230)] uppercase tracking-wider">Fund Pool</p>
+              <p className="text-xs font-black font-mono text-emerald-400">{wldGlobal ? fmtWldShort(wldGlobal.fundPool) : '—'} WLD</p>
+            </div>
+            <div className="rounded-xl bg-black/20 border border-white/5 px-2 py-2 text-center">
+              <p className="text-[7px] text-[oklch(0.45_0.01_230)] uppercase tracking-wider">Stakers</p>
+              <p className="text-xs font-black font-mono text-foreground">{wldGlobal ? wldGlobal.stakerCount : '—'}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Global financials ─────────────────────────────────────────────── */}
+        <div className="rounded-2xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] p-4 space-y-2.5">
+          <p className="text-[9px] font-bold text-[oklch(0.45_0.01_230)] uppercase tracking-wider">Estadísticas Globales</p>
+          {[
+            { label: 'Total WLD depositado (fundPool)', val: wldGlobal ? fmtWld(wldGlobal.totalFunded, 2) + ' WLD' : '—' },
+            { label: 'Total WLD pagado (retiros + cobros)', val: wldGlobal ? fmtWld(wldGlobal.totalFeeCollected + BigInt(0), 2) + ' WLD' : '—' },
+            { label: 'Pendiente retiros / cobros', val: wldGlobal ? `${fmtWld(wldGlobal.totalPendingWithdrawals, 2)} / ${fmtWld(wldGlobal.totalPendingClaims, 2)} WLD` : '—' },
+            { label: 'Cola retiros / cobros procesados', val: wldGlobal ? `${wldGlobal.withdrawQueueLen} / ${wldGlobal.claimQueueLen} (idx ${wldGlobal.nextWithdrawIdx}/${wldGlobal.nextClaimIdx})` : '—' },
+          ].map(({ label, val }) => (
+            <div key={label} className="flex items-center justify-between gap-2">
+              <span className="text-[9px] text-[oklch(0.45_0.01_230)] leading-snug">{label}</span>
+              <span className="text-[9px] font-bold font-mono text-foreground shrink-0">{val}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* ── WLD TX Progress ───────────────────────────────────────────────── */}
+        <TxProgress step={wldTxStep} />
+
+        {/* ── User section ─────────────────────────────────────────────────── */}
+        {walletMode === 'minikit' && wldAddr ? (
+          <div className="space-y-3">
+
+            {/* User balance card */}
+            <div className="rounded-2xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] p-4 space-y-3">
+              <p className="text-[9px] font-bold text-[oklch(0.45_0.01_230)] uppercase tracking-wider">Tu Posición WLD</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-black/30 border border-white/5 p-3 text-center">
+                  <p className="text-[7px] text-[oklch(0.45_0.01_230)] uppercase mb-1">Stakeado</p>
+                  <p className="text-xl font-black font-mono text-[#3b82f6]">{wldUser ? fmtWld(wldUser.staked, 2) : wldLoading ? '…' : '0.00'}</p>
+                  <p className="text-[8px] text-[oklch(0.40_0.01_230)]">WLD</p>
+                </div>
+                <div className="rounded-xl bg-black/30 border border-white/5 p-3 text-center">
+                  <p className="text-[7px] text-[oklch(0.45_0.01_230)] uppercase mb-1">Recompensas</p>
+                  <p className="text-xl font-black font-mono text-emerald-400">{wldUser ? fmtWld(wldUser.rewards, 4) : wldLoading ? '…' : '0.0000'}</p>
+                  <p className="text-[8px] text-[oklch(0.40_0.01_230)]">WLD</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-[9px] px-1">
+                <span className="text-[oklch(0.45_0.01_230)]">Balance en wallet</span>
+                <span className="font-bold font-mono text-foreground">{wldUser ? fmtWld(wldUser.wldBal, 4) : '—'} WLD</span>
+              </div>
+            </div>
+
+            {/* Pending requests */}
+            {wldUser?.hasWithdraw && wldUser.withdrawReq && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
+                <p className="text-[9px] font-bold text-amber-400">⏳ Retiro pendiente en cola</p>
+                <div className="flex items-center justify-between text-[9px]">
+                  <span className="text-[oklch(0.45_0.01_230)]">Monto neto</span>
+                  <span className="font-bold font-mono text-amber-400">{fmtWld(wldUser.withdrawReq.netAmount, 4)} WLD</span>
+                </div>
+                <div className="flex items-center justify-between text-[9px]">
+                  <span className="text-[oklch(0.45_0.01_230)]">Listo en</span>
+                  <span className="font-mono text-[oklch(0.50_0.012_230)]">{countdown(wldUser.withdrawReq.readyAt)}</span>
+                </div>
+                {wldUser.withdrawPos > 0 && (
+                  <p className="text-[8px] text-[oklch(0.40_0.01_230)]">Posición en cola: #{wldUser.withdrawPos}</p>
+                )}
+              </div>
+            )}
+
+            {wldUser?.hasClaim && wldUser.claimReq && (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 space-y-1">
+                <p className="text-[9px] font-bold text-emerald-400">⏳ Cobro de recompensas en cola</p>
+                <div className="flex items-center justify-between text-[9px]">
+                  <span className="text-[oklch(0.45_0.01_230)]">Monto neto</span>
+                  <span className="font-bold font-mono text-emerald-400">{fmtWld(wldUser.claimReq.netAmount, 4)} WLD</span>
+                </div>
+                <div className="flex items-center justify-between text-[9px]">
+                  <span className="text-[oklch(0.45_0.01_230)]">Listo en</span>
+                  <span className="font-mono text-[oklch(0.50_0.012_230)]">{countdown(wldUser.claimReq.readyAt)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Stake WLD */}
+            <div className="rounded-2xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-foreground">Stakear WLD</p>
+                <p className="text-[9px] text-[oklch(0.45_0.01_230)]">Balance: <span className="font-bold text-foreground">{wldUser ? fmtWld(wldUser.wldBal, 4) : '—'}</span></p>
+              </div>
+              <div className="relative">
+                <input type="number" value={wldStakeAmt} onChange={e => setWldStakeAmt(e.target.value)}
+                  placeholder="0.0 WLD"
+                  className="w-full bg-[oklch(0.14_0.02_245)] border border-[oklch(0.22_0.025_245)] rounded-xl px-3 py-2.5 text-sm font-mono text-foreground focus:outline-none focus:border-[#3b82f6]/50 placeholder:text-[oklch(0.35_0.01_230)]" />
+                <button onClick={() => wldUser && setWldStakeAmt(fmtWld(wldUser.wldBal, 6))}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-bold text-[#3b82f6] hover:text-blue-300">MAX</button>
+              </div>
+              <div className="flex items-start gap-1.5 text-[8px] text-[oklch(0.45_0.01_230)]">
+                <Info className="w-3 h-3 shrink-0 mt-0.5" />
+                <p>Usa Permit2 (sin approve separado). Fee: {wldGlobal ? (wldGlobal.feeBps / 100).toFixed(0) : 5}%. Queue: retiro 48h, cobro 24h.</p>
+              </div>
+              <button onClick={doWLDStake} disabled={wldTxPending || !wldStakeAmt || parseFloat(wldStakeAmt) <= 0}
+                className="w-full py-3 rounded-xl text-sm font-black flex items-center justify-center gap-2 disabled:opacity-40 transition-all"
+                style={{ background: 'linear-gradient(135deg,#1d4ed8,#3b82f6)', color: 'white', boxShadow: '0 0 16px rgba(59,130,246,0.3)' }}>
+                {wldTxPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '💛'}
+                STAKEAR WLD
+              </button>
+            </div>
+
+            {/* Request Withdrawal */}
+            {wldUser && wldUser.staked > BigInt(0) && !wldUser.hasWithdraw && (
+              <div className="rounded-2xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] p-4 space-y-3">
+                <p className="text-xs font-bold text-foreground">Solicitar Retiro</p>
+                <div className="relative">
+                  <input type="number" value={wldWdAmt} onChange={e => setWldWdAmt(e.target.value)}
+                    placeholder={`Máx: ${fmtWld(wldUser.staked, 4)} WLD`}
+                    className="w-full bg-[oklch(0.14_0.02_245)] border border-[oklch(0.22_0.025_245)] rounded-xl px-3 py-2.5 text-sm font-mono text-foreground focus:outline-none focus:border-amber-500/50 placeholder:text-[oklch(0.35_0.01_230)]" />
+                  <button onClick={() => setWldWdAmt(fmtWld(wldUser.staked, 6))}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-bold text-amber-400 hover:text-amber-300">MAX</button>
+                </div>
+                <div className="flex items-start gap-1.5 text-[8px] text-[oklch(0.45_0.01_230)]">
+                  <Clock className="w-3 h-3 shrink-0 mt-0.5" />
+                  <p>El retiro toma 48h en cola. Fee: {wldGlobal ? (wldGlobal.feeBps / 100).toFixed(0) : 5}%. Solo 1 retiro pendiente por wallet.</p>
+                </div>
+                <button onClick={doWLDRequestWithdraw} disabled={wldTxPending}
+                  className="w-full py-2.5 rounded-xl text-xs font-bold border border-amber-500/40 bg-amber-500/8 text-amber-400 hover:bg-amber-500/15 disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+                  {wldTxPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '📤'}
+                  SOLICITAR RETIRO WLD
+                </button>
+              </div>
+            )}
+
+            {/* Request Claim */}
+            {wldUser && wldUser.rewards > BigInt(0) && !wldUser.hasClaim && (
+              <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
+                <p className="text-xs font-bold text-foreground">Cobrar Recompensas</p>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-[oklch(0.45_0.01_230)] text-[10px]">Recompensas acumuladas</span>
+                  <span className="font-black font-mono text-emerald-400">{fmtWld(wldUser.rewards, 6)} WLD</span>
+                </div>
+                <div className="flex items-start gap-1.5 text-[8px] text-[oklch(0.45_0.01_230)]">
+                  <Clock className="w-3 h-3 shrink-0 mt-0.5" />
+                  <p>El cobro toma 24h en cola. Fee: {wldGlobal ? (wldGlobal.feeBps / 100).toFixed(0) : 5}%. Solo 1 cobro pendiente por wallet.</p>
+                </div>
+                <button onClick={doWLDRequestClaim} disabled={wldTxPending}
+                  className="w-full py-2.5 rounded-xl text-sm font-black flex items-center justify-center gap-2 disabled:opacity-40 transition-all"
+                  style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: 'white' }}>
+                  {wldTxPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '🏆'}
+                  COBRAR RECOMPENSAS
+                </button>
+              </div>
+            )}
+
+            {/* Trigger queue (public) */}
+            <button onClick={doWLDTriggerQueue} disabled={wldTxPending}
+              className="w-full py-2 rounded-xl text-[9px] font-bold border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] text-[oklch(0.45_0.01_230)] hover:border-blue-500/30 hover:text-blue-300 disabled:opacity-40 transition-colors flex items-center justify-center gap-1.5">
+              {wldTxPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRight className="w-3 h-3" />}
+              Procesar cola (público)
+            </button>
+          </div>
+        ) : (
+          /* No World App connected */
+          <div className="rounded-2xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] p-6 space-y-3 text-center">
+            <div className="text-4xl">🌐</div>
+            <p className="text-sm font-bold text-foreground">Conecta con World App</p>
+            <p className="text-[10px] text-[oklch(0.50_0.012_230)] leading-relaxed">
+              WLD Staking funciona en World Chain con tu World Wallet.<br/>
+              Abre esta app dentro de World App para hacer stake de WLD.
+            </p>
+            <div className="mt-3 flex items-start gap-1.5 p-3 rounded-xl bg-blue-500/8 border border-blue-500/25 text-left">
+              <Info className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+              <p className="text-[9px] text-blue-300 leading-relaxed">
+                Las estadísticas globales se muestran arriba. Para ver tu posición y hacer transacciones, accede desde World App.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Contract info */}
+        <div className="rounded-xl bg-[oklch(0.10_0.018_245)] border border-[oklch(0.20_0.025_245)] p-3 space-y-1.5 text-[9px]">
+          <p className="font-bold text-[oklch(0.50_0.012_230)] uppercase tracking-wider text-[8px]">Info del Contrato WLD</p>
+          <div className="flex items-center justify-between">
+            <span className="text-[oklch(0.45_0.01_230)]">Contrato (World Chain)</span>
+            <a href={`https://worldscan.org/address/${WLD_CONTRACT}`} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1 text-blue-400 hover:text-blue-300 font-mono">
+              {WLD_CONTRACT.slice(0,8)}…<ExternalLink className="w-2.5 h-2.5" />
+            </a>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[oklch(0.45_0.01_230)]">APR</span>
+            <span className="font-bold text-emerald-400">{wldGlobal ? (wldGlobal.aprBps / 100).toFixed(0) : 100}%</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[oklch(0.45_0.01_230)]">Fee de retiro / cobro</span>
+            <span className="font-bold text-foreground">{wldGlobal ? (wldGlobal.feeBps / 100).toFixed(0) : 5}%</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[oklch(0.45_0.01_230)]">Total fee cobrado</span>
+            <span className="font-mono text-foreground">{wldGlobal ? fmtWld(wldGlobal.totalFeeCollected, 4) : '—'} WLD</span>
+          </div>
+        </div>
+
+      </>)} {/* ── end WLD panel ── */}
+
     </div>
   )
 }

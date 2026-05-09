@@ -23,7 +23,7 @@ ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain eco
 ## Where Things Live
 - `components/acua-app.tsx` — Main shell, nav, network switcher, BNB panels orchestration
 - `components/bnb-wallet-panel.tsx` — Full BNB exchange: Balances/Send/Receive(QR)/History(BSCScan)/Swap(PancakeSwap V2)
-- `components/bnb-sushi-panel.tsx` — SUSHI staking BNB: cook/deposit/withdraw/claimRewards + TX history
+- `components/bnb-sushi-panel.tsx` — SUSHI + WLD staking panel (tab switcher): SUSHI BNB cook/deposit/withdraw/claimRewards, WLD 2.0 Permit2 stake/withdraw/claim via World App
 - `components/bnb-bridge-panel.tsx` — Bridge UI: 4 tabs, cancel/refund visible per request, admin config
 - `components/ai-agent.tsx` — Draggable floating AI chatbot (pointer events + snap-to-corner), 24-topic KB
 - `contracts-hh/contracts/AcuaBridgeBNB.sol` — BNB bridge v3 + peerContract + receiveFee()
@@ -53,7 +53,7 @@ ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain eco
 - **SUSHI Staking BNB**: `0x945B4b199Baf8F41E11E79df32D9919bd1fd1c08` — withdraw() NO PARAM (withdraws all)
 - **SUSHI token**: `0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38` (same address on both chains)
 - **WLD token**: `0x2cFc85d8E48F8EAB294be644d9E25C3030863003` on World Chain
-- **WLDStakeV2**: NOT DEPLOYED — `contracts-hh/contracts/WLDStakeV2.sol` — 100% APR default, Permit2 deposits, same queue structure as SushiStakeV2. Deploy and set address in `contracts-hh/deployed-wld-v2.json`
+- **WLDStakeV2**: `0x664dc60740888A25C77141CbcE7D4eD7dF2C44f7` on World Chain — 100% APR, 5% fee, Permit2 deposits, 48h withdraw / 24h claim queue. Address saved in `contracts-hh/deployed-wld-v2.json` and read by `lib/wld-stake-v2.ts`
 - **Bridge contracts**: NOT DEPLOYED — placeholder addresses, flip DEPLOYED=false→true after deploy
 
 ## User Preferences
