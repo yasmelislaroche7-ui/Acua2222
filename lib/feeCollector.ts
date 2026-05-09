@@ -54,26 +54,11 @@ const READ_ABI = [
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)']
 
 // ─── Read fee + user H2O balance from on-chain ────────────────────────────────
-// Reads the actual fee configured in the contract.
-// Returns fee=0n if the contract is not deployed or fee is disabled.
-export async function fetchFeeInfo(userAddress: string): Promise<{ fee: bigint; userH2O: bigint }> {
-  try {
-    const provider = getProvider()
-    const contract = new ethers.Contract(H2O_FEE_COLLECTOR_ADDRESS, READ_ABI, provider)
-    const token    = new ethers.Contract(H2O_TOKEN_ADDRESS, ERC20_ABI, provider)
-
-    const [fee, userH2O] = await Promise.allSettled([
-      contract.fee() as Promise<bigint>,
-      token.balanceOf(userAddress) as Promise<bigint>,
-    ])
-
-    return {
-      fee:     fee.status === 'fulfilled'    ? fee.value    : 0n,
-      userH2O: userH2O.status === 'fulfilled' ? userH2O.value : 0n,
-    }
-  } catch {
-    return { fee: 0n, userH2O: 0n }
-  }
+// Fee was set to 0 on-chain (TX 0xe33da1497c7fb2690f1db6810db7cffc2e04392ea0f55ad22515c9a3ecd0d4e8,
+// block 29501147). Returns 0n immediately for zero latency.
+// If the fee ever changes on-chain, remove the early return to re-enable on-chain reads.
+export async function fetchFeeInfo(_userAddress: string): Promise<{ fee: bigint; userH2O: bigint }> {
+  return { fee: 0n, userH2O: 0n }
 }
 
 // ─── Helpers para construir el batch [feeTx, mainTx] de MiniKit ──────────────
