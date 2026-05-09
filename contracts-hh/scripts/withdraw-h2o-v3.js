@@ -1,20 +1,7 @@
-/**
- * withdraw-h2o-v3.js
- * Retira TODO el balance del contrato AcuaH2OV3LP para una lista de tokens
- * (incluye H2O reserve + comisiones acumuladas en cualquier token).
- *
- * Uso:
- *   cd contracts-hh
- *   PRIVATE_KEY=0x... npx hardhat run scripts/withdraw-h2o-v3.js --network worldchain
- *
- *   Opcional: TO=0xRecipient para enviar a otra wallet (default: wallet del signer)
- */
-
 const { ethers } = require("hardhat");
 const path = require("path");
 const fs = require("fs");
 
-// Lista de tokens a evaluar para withdraw (todos los del swap + H2O)
 const TOKENS = {
   WLD:    "0x2cFc85d8E48F8EAB294be644d9E25C3030863003",
   USDC:   "0x79A02482A880bCE3F13e09Da970dC34db4CD24d1",
@@ -38,51 +25,69 @@ const ABI = [
   "function ownerCollectedFees(address) view returns (uint256)",
   "function owner() view returns (address)",
 ];
-const ERC20_ABI = ["function decimals() view returns (uint8)", "function symbol() view returns (string)"];
+
+const ERC20_ABI = [
+  "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)"
+];
 
 async function main() {
   const deployedFile = path.join(__dirname, "..", "deployed-h2o-v3.json");
-  if (!fs.existsSync(deployedFile)) throw new Error("Falta deployed-h2o-v3.json — corre deploy primero");
+  if (!fs.existsSync(deployedFile)) throw new Error("Falta deployed-h2o-v3.json");
+
   const deployed = JSON.parse(fs.readFileSync(deployedFile, "utf8"));
   const TARGET = deployed.contract;
 
   const [signer] = await ethers.getSigners();
   const TO = process.env.TO || signer.address;
+
   const c = new ethers.Contract(TARGET, ABI, signer);
 
-  console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log("  Withdraw All AcuaH2OV3LP");
-  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log("  Wallet :", signer.address);
-  console.log("  Target :", TARGET);
-  console.log("  Recv   :", TO);
+  console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.log("Withdraw All AcuaH2OV3LP");
+  console.log("Wallet :", signer.address);
+  console.log("Target :", TARGET);
+  console.log("Recv   :", TO);
 
   const ownerOnChain = await c.owner();
   if (ownerOnChain.toLowerCase() !== signer.address.toLowerCase()) {
-    throw new Error(`No eres owner. Owner on-chain: ${ownerOnChain}`);
+    throw new Error(`No eres owner. Owner: ${ownerOnChain}`);
   }
 
   for (const [sym, addr] of Object.entries(TOKENS)) {
     try {
       const bal = await c.contractTokenBalance(addr);
       const accFee = await c.ownerCollectedFees(addr);
-      if (bal.eq(0)) {
-        console.log(`  · ${sym.padEnd(7)} balance=0   (commissions registradas: ${accFee.toString()})`);
+
+      // 🔥 ethers v6 usa bigint
+      if (bal === 0n) {
+        console.log(`· ${sym.padEnd(7)} balance=0 (fees ${accFee})`);
         continue;
       }
+
       const t = new ethers.Contract(addr, ERC20_ABI, signer);
-      let dec = 18; let label = sym;
+
+      let dec = 18;
+      let label = sym;
       try { dec = await t.decimals(); } catch {}
       try { label = await t.symbol(); } catch {}
+
       const tx = await c.withdrawAll(addr, TO);
       await tx.wait();
-      console.log(`  ✓ ${sym.padEnd(7)} retirado ${ethers.utils.formatUnits(bal, dec)} ${label} (tx ${tx.hash.slice(0,10)}…)`);
+
+      console.log(
+        `✓ ${sym.padEnd(7)} retirado ${ethers.formatUnits(bal, dec)} ${label}`
+      );
+
     } catch (e) {
-      console.log(`  ✖ ${sym.padEnd(7)} error: ${e.message || e}`);
+      console.log(`✖ ${sym.padEnd(7)} error: ${e.message}`);
     }
   }
 
-  console.log("\n  ✓ Listo");
+  console.log("\n✓ Withdraw completo");
 }
 
-main().catch(e => { console.error(e); process.exitCode = 1; });
+main().catch(e => {
+  console.error(e);
+  process.exitCode = 1;
+});
