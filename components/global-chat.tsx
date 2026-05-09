@@ -11,14 +11,8 @@ import { cn } from '@/lib/utils'
 import { getProvider } from '@/lib/new-contracts'
 
 // ─── Contract ────────────────────────────────────────────────────────────────
-// After deploying AcuaGlobalChat, paste the address here.
-let _chatAddr = ''
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const d = require('../contracts-hh/deployed-chat.json')
-  if (d?.contract) _chatAddr = d.contract
-} catch { /* pre-deploy */ }
-const CHAT_ADDR = _chatAddr
+// After deploying AcuaGlobalChat, set the address here:
+const CHAT_ADDR = ''
 
 const CHAT_ABI = [
   'function postMessage(string calldata text) external returns (uint256 id)',

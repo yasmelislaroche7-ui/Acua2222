@@ -758,34 +758,70 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
         </div>
       )}
 
-      {/* ── Global stats row ─────────────────────────────────────────────── */}
+      {/* ── Global stats: SUSHI 2.0 + WLD 2.0 juntos ────────────────────── */}
       {loading ? (
         <div className="flex items-center justify-center py-4">
           <Loader2 className="w-5 h-5 animate-spin" style={{ color: SUSHI_COLOR }} />
         </div>
       ) : (
-        <div className="flex gap-2">
-          <StatCard
-            label="Total Staked"
-            value={fmtSushiShort(stats?.totalStaked ?? 0n)}
-            sub={`${stats?.stakerCount ?? 0} usuarios`}
-            color="text-foreground"
-            icon={<Users className="w-3 h-3" />}
-          />
-          <StatCard
-            label="Fondo"
-            value={fmtSushiShort(fundPool)}
-            sub="disponible pagos"
-            color={fundPool >= pendingWithdraw + pendingClaim ? 'text-green-400' : 'text-amber-400'}
-            icon={<CircleDollarSign className="w-3 h-3" />}
-          />
-          <StatCard
-            label="En Cola"
-            value={fmtSushiShort(pendingWithdraw + pendingClaim)}
-            sub={`${(stats?.withdrawQueueLen ?? 0) - (stats?.nextWithdrawIdx ?? 0) + (stats?.claimQueueLen ?? 0) - (stats?.nextClaimIdx ?? 0)} solicitudes`}
-            color="text-amber-400"
-            icon={<Clock className="w-3 h-3" />}
-          />
+        <div className="space-y-2">
+          {/* ─ SUSHI row ─ */}
+          <div className="flex items-center gap-1.5 px-0.5">
+            <span className="text-[9px] font-black text-[oklch(0.50_0.01_230)] uppercase tracking-widest">🍣 SUSHI</span>
+            <div className="flex-1 h-px bg-[oklch(0.18_0.02_245)]" />
+          </div>
+          <div className="flex gap-2">
+            <StatCard
+              label="Total Staked"
+              value={fmtSushiShort(stats?.totalStaked ?? 0n)}
+              sub={`${stats?.stakerCount ?? 0} usuarios`}
+              color="text-foreground"
+              icon={<Users className="w-3 h-3" />}
+            />
+            <StatCard
+              label="Fondo SUSHI"
+              value={fmtSushiShort(fundPool)}
+              sub="disponible pagos"
+              color={fundPool >= pendingWithdraw + pendingClaim ? 'text-green-400' : 'text-amber-400'}
+              icon={<CircleDollarSign className="w-3 h-3" />}
+            />
+            <StatCard
+              label="Cola SUSHI"
+              value={fmtSushiShort(pendingWithdraw + pendingClaim)}
+              sub={`${(stats?.withdrawQueueLen ?? 0) - (stats?.nextWithdrawIdx ?? 0) + (stats?.claimQueueLen ?? 0) - (stats?.nextClaimIdx ?? 0)} solicitudes`}
+              color="text-amber-400"
+              icon={<Clock className="w-3 h-3" />}
+            />
+          </div>
+
+          {/* ─ WLD 2.0 row ─ */}
+          <div className="flex items-center gap-1.5 px-0.5 pt-1">
+            <span className="text-[9px] font-black text-blue-400/80 uppercase tracking-widest">💛 WLD 2.0</span>
+            <div className="flex-1 h-px bg-[oklch(0.18_0.02_245)]" />
+          </div>
+          <div className="flex gap-2">
+            <StatCard
+              label="WLD Staked"
+              value={fmtWldShort(wldStats?.totalStaked ?? 0n)}
+              sub={`${wldStats?.stakerCount ?? 0} usuarios`}
+              color="text-blue-400"
+              icon={<Users className="w-3 h-3" />}
+            />
+            <StatCard
+              label="Fondo WLD"
+              value={fmtWldShort(wldFundPool)}
+              sub="disponible pagos"
+              color={wldFundPool >= wldPendingWithdraw + wldPendingClaim ? 'text-green-400' : 'text-amber-400'}
+              icon={<CircleDollarSign className="w-3 h-3" />}
+            />
+            <StatCard
+              label="Cola WLD"
+              value={fmtWldShort(wldPendingWithdraw + wldPendingClaim)}
+              sub={`${(wldStats?.withdrawQueueLen ?? 0) - (wldStats?.nextWithdrawIdx ?? 0) + (wldStats?.claimQueueLen ?? 0) - (wldStats?.nextClaimIdx ?? 0)} solicitudes`}
+              color="text-amber-400"
+              icon={<Clock className="w-3 h-3" />}
+            />
+          </div>
         </div>
       )}
 
