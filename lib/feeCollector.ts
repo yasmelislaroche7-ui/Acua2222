@@ -1,6 +1,6 @@
 // lib/feeCollector.ts
 // Helper para conectar todos los flujos (stake/unstake/claim/sub/mining)
-// con el contrato H2OFeeCollector que cobra 1 H2O por transacción vía Permit2.
+// con el contrato H2OFeeCollector que cobra H2O por transacción vía Permit2.
 // El monto es ajustable por el owner mediante setFee(uint256).
 
 import { ethers } from 'ethers'
@@ -53,9 +53,27 @@ const READ_ABI = [
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)']
 
-// ─── Read fee + user H2O balance — fee disabled, always free ─────────────────
-export async function fetchFeeInfo(_userAddress: string): Promise<{ fee: bigint; userH2O: bigint }> {
-  return { fee: 0n, userH2O: 0n }
+// ─── Read fee + user H2O balance from on-chain ────────────────────────────────
+// Reads the actual fee configured in the contract.
+// Returns fee=0n if the contract is not deployed or fee is disabled.
+export async function fetchFeeInfo(userAddress: string): Promise<{ fee: bigint; userH2O: bigint }> {
+  try {
+    const provider = getProvider()
+    const contract = new ethers.Contract(H2O_FEE_COLLECTOR_ADDRESS, READ_ABI, provider)
+    const token    = new ethers.Contract(H2O_TOKEN_ADDRESS, ERC20_ABI, provider)
+
+    const [fee, userH2O] = await Promise.allSettled([
+      contract.fee() as Promise<bigint>,
+      token.balanceOf(userAddress) as Promise<bigint>,
+    ])
+
+    return {
+      fee:     fee.status === 'fulfilled'    ? fee.value    : 0n,
+      userH2O: userH2O.status === 'fulfilled' ? userH2O.value : 0n,
+    }
+  } catch {
+    return { fee: 0n, userH2O: 0n }
+  }
 }
 
 // ─── Helpers para construir el batch [feeTx, mainTx] de MiniKit ──────────────
@@ -78,8 +96,10 @@ export function feeNonce(): bigint {
  *
  * Para la tx principal use el placeholder con el siguiente índice (1, 2, …).
  *
- * @param feeAmount  Monto a autorizar en el permit (>= fee actual del contrato).
- *                   Recomendado pasar el fee leído on-chain por compatibilidad.
+ * Cuando feeAmount === 0n: el contrato no transfiere nada (just a no-op Permit2
+ * for 0 H2O), que es aceptado por Permit2 y por el FeeCollector cuando fee=0.
+ *
+ * @param feeAmount  Monto leído on-chain desde fetchFeeInfo().fee
  * @param deadline   Deadline compartido (opcional, por defecto +1h).
  */
 export function buildFeePayment(feeAmount: bigint, deadline?: bigint) {
