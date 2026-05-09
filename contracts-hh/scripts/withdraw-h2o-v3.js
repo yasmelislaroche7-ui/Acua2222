@@ -59,8 +59,8 @@ async function main() {
       const bal = await c.contractTokenBalance(addr);
       const accFee = await c.ownerCollectedFees(addr);
 
-      // 🔥 ethers v6 usa bigint
-      if (bal === 0n) {
+      // ethers v5 devuelve BigNumber — usar .isZero()
+      if (bal.isZero()) {
         console.log(`· ${sym.padEnd(7)} balance=0 (fees ${accFee})`);
         continue;
       }
@@ -76,7 +76,7 @@ async function main() {
       await tx.wait();
 
       console.log(
-        `✓ ${sym.padEnd(7)} retirado ${ethers.formatUnits(bal, dec)} ${label}`
+        `✓ ${sym.padEnd(7)} retirado ${ethers.utils.formatUnits(bal, dec)} ${label}`
       );
 
     } catch (e) {

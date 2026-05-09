@@ -20,6 +20,45 @@ import {
   type H2OV3Pool, type H2OV3Position, type PoolLiveData,
 } from '@/lib/h2o-v3'
 
+// ─── MiniKit error code → friendly Spanish message ────────────────────────────
+const TX_ERROR_MESSAGES: Record<string, string> = {
+  user_rejected:          'Cancelaste la transacción.',
+  simulation_failed:      'La simulación falló en World App. Intenta con un monto menor.',
+  input_error:            'Datos de transacción inválidos. Intenta de nuevo.',
+  generic_error:          'Error inesperado. Intenta de nuevo.',
+  invalid_contract:       'Contrato no reconocido por World App. Verifica el portal de desarrollador.',
+  disallowed_operation:   'Contrato no autorizado en World App. Agrégalo en developer.worldcoin.org.',
+  malicious_operation:    'Operación bloqueada por seguridad de World App.',
+  daily_tx_limit_reached: 'Límite diario de transacciones alcanzado. Intenta mañana.',
+  validation_error:       'Error de validación. Verifica el monto e intenta de nuevo.',
+  transaction_failed:     'La transacción falló en cadena. Puede haber liquidez insuficiente.',
+  unauthorized:           'No autorizado. Verifica que el contrato esté registrado en World App.',
+  timeout:                'Tiempo de espera agotado. Intenta de nuevo.',
+  network_error:          'Error de red. Verifica tu conexión e intenta de nuevo.',
+}
+
+function parseMiniKitTxError(payload: any): string {
+  if (!payload) return 'Sin respuesta de World App. Intenta de nuevo.'
+  const code: string = payload.error_code ?? payload.errorCode ?? ''
+  if (code && TX_ERROR_MESSAGES[code]) return TX_ERROR_MESSAGES[code]
+  const details = payload.details
+  if (details) {
+    if (typeof details === 'string' && details.length > 0) {
+      if (details.includes('insufficient')) return 'Balance o liquidez insuficiente.'
+      if (details.includes('Nothing'))      return 'Nada que reclamar en este pool.'
+      if (details.includes('Low H2O'))      return 'Reserva H2O insuficiente en el contrato.'
+      return details
+    }
+    if (typeof details === 'object') {
+      try { const s = JSON.stringify(details); if (s !== '{}') return s } catch { /* skip */ }
+    }
+  }
+  if (typeof payload.message === 'string' && payload.message.length > 0) return payload.message
+  if (typeof payload.reason  === 'string' && payload.reason.length  > 0) return payload.reason
+  if (code) return `Error de World App: ${code}`
+  return 'Transacción no completada. Intenta de nuevo.'
+}
+
 // ─── Sparkline SVG (mini chart de precio 24h) ─────────────────────────────────
 function Sparkline({ data, change, height = 28, width = 80 }: { data: number[]; change: number | null; height?: number; width?: number }) {
   if (!data || data.length < 2) {
@@ -471,6 +510,7 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
   async function doWithdraw() {
     if (!H2O_V3_ADDRESS) return setMsg('Contrato no desplegado')
     if (!position || position.liquidity === 0n) return setMsg('Sin liquidez para retirar')
+    if (!MiniKit.isInstalled()) return setMsg('World App no está disponible.')
     setLoading(true); setMsg('')
     try {
       const liqToWithdraw = (position.liquidity * BigInt(withdrawPct)) / 100n
@@ -484,12 +524,11 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
             args: [pool.poolId.toString(), liqToWithdraw.toString(), '0', '0'],
           },
         ],
-        permit2: [],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ Retiro hecho! Refrescando...')
         setTimeout(onRefresh, 2500)
-      } else { setMsg('Transacción rechazada') }
+      } else { setMsg(parseMiniKitTxError(finalPayload)) }
     } catch (e: any) { setMsg(e.message || 'Error') }
     finally { setLoading(false) }
   }
@@ -497,6 +536,7 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
   async function doClaim() {
     if (!H2O_V3_ADDRESS) return setMsg('Contrato no desplegado')
     if (!position || position.netH2O === 0n) return setMsg('Nada que reclamar')
+    if (!MiniKit.isInstalled()) return setMsg('World App no está disponible.')
     setLoading(true); setMsg('')
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
@@ -508,12 +548,11 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
             args: [pool.poolId.toString()],
           },
         ],
-        permit2: [],
       })
       if (finalPayload.status === 'success') {
         setMsg('✓ Recompensa reclamada! Refrescando...')
         setTimeout(onRefresh, 2500)
-      } else { setMsg('Transacción rechazada') }
+      } else { setMsg(parseMiniKitTxError(finalPayload)) }
     } catch (e: any) { setMsg(e.message || 'Error') }
     finally { setLoading(false) }
   }
