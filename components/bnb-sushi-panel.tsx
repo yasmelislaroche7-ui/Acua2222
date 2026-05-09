@@ -299,10 +299,6 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
   // ─── WLD owner addresses ──────────────────────────────────────────────────
   const WLD_OWNER  = '0x5474c309e985c6b4fc623acf01ade604da781e52'
   const WLD_OWNER2 = '0x5474c309e985c6b4fc623acf01ade604da781e52'
-  const isWldOwner = !!(wldAddr && (
-    wldAddr.toLowerCase() === WLD_OWNER.toLowerCase() ||
-    wldAddr.toLowerCase() === WLD_OWNER2.toLowerCase()
-  ))
 
   // ─── Load user info ──────────────────────────────────────────────────────────
   const load = useCallback(async (addr: string) => {
@@ -358,6 +354,10 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
 
   // ─── WLD (World Chain) load ───────────────────────────────────────────────
   const wldAddr = walletMode === 'minikit' ? bnbAddress : null
+  const isWldOwner = !!(wldAddr && (
+    wldAddr.toLowerCase() === WLD_OWNER.toLowerCase() ||
+    wldAddr.toLowerCase() === WLD_OWNER2.toLowerCase()
+  ))
 
   const loadWLD = useCallback(async (addr: string) => {
     setWldLoading(true)
@@ -893,6 +893,46 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
   // ─── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4 pb-24">
+
+      {/* ══ WLD + SUSHI combined summary ═════════════════════════════════════ */}
+      {(wldGlobal || wldUser) && (
+        <div className="rounded-xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] p-3 space-y-2">
+          <p className="text-[8px] font-bold text-[oklch(0.40_0.01_230)] uppercase tracking-widest">Resumen de staking</p>
+          <div className="grid grid-cols-3 gap-2">
+            {/* SUSHI staked */}
+            <div className="rounded-xl bg-black/30 border border-[#e84142]/20 p-2 text-center">
+              <p className="text-[7px] text-[oklch(0.45_0.01_230)] uppercase tracking-wide mb-0.5">SUSHI</p>
+              <p className="text-sm font-black font-mono" style={{ color: SUSHI_COLOR }}>
+                {info ? fmtSushi(info.staked, 2) : '—'}
+              </p>
+              <p className="text-[7px] text-[oklch(0.35_0.01_230)]">stakeado</p>
+            </div>
+            {/* WLD staked */}
+            <div className="rounded-xl bg-black/30 border border-[#3b82f6]/20 p-2 text-center">
+              <p className="text-[7px] text-[oklch(0.45_0.01_230)] uppercase tracking-wide mb-0.5">WLD</p>
+              <p className="text-sm font-black font-mono text-[#3b82f6]">
+                {wldUser ? fmtWldShort(wldUser.staked) : wldGlobal ? '—' : '—'}
+              </p>
+              <p className="text-[7px] text-[oklch(0.35_0.01_230)]">stakeado</p>
+            </div>
+            {/* WLD fund pool */}
+            <div className="rounded-xl bg-black/30 border border-emerald-500/20 p-2 text-center">
+              <p className="text-[7px] text-[oklch(0.45_0.01_230)] uppercase tracking-wide mb-0.5">WLD Pool</p>
+              <p className="text-sm font-black font-mono text-emerald-400">
+                {wldGlobal ? fmtWldShort(wldGlobal.fundPool) : '—'}
+              </p>
+              <p className="text-[7px] text-[oklch(0.35_0.01_230)]">fondo</p>
+            </div>
+          </div>
+          {/* WLD cola */}
+          {wldGlobal && (wldGlobal.withdrawQueueLen > 0 || wldGlobal.claimQueueLen > 0) && (
+            <div className="flex items-center justify-between px-1 text-[8px]">
+              <span className="text-amber-400">⏳ Cola retiro: {wldGlobal.withdrawQueueLen}</span>
+              <span className="text-emerald-400">Cola cobro: {wldGlobal.claimQueueLen}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ══ Panel switcher ═══════════════════════════════════════════════════ */}
       <div className="flex rounded-xl bg-[oklch(0.10_0.018_245)] border border-[oklch(0.22_0.025_245)] p-1 gap-1">

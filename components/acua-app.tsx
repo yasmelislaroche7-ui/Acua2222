@@ -31,6 +31,7 @@ import { NetworkSwitcher }       from '@/components/network-switcher'
 import { ComingSoonPanel }       from '@/components/coming-soon-panel'
 import { LanguageSwitcher }      from '@/components/language-switcher'
 import { AiAgent }               from '@/components/ai-agent'
+import { GlobalChat }            from '@/components/global-chat'
 import { BNBSushiPanel }         from '@/components/bnb-sushi-panel'
 import { BNBWalletPanel }        from '@/components/bnb-wallet-panel'
 import { BNBBridgePanel }        from '@/components/bnb-bridge-panel'
@@ -786,7 +787,7 @@ export default function AcuaApp() {
           {activeNetwork === 'wld' && activeTab === 'time'        && <MiningTimePanel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'tokens'      && <TokenDirectoryPanel />}
           {activeNetwork === 'wld' && activeTab === 'sushi-v2'   && <SushiV2Panel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'swap'        && <SwapPanel userAddress={addr} isAdmin={isMainOwner} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
+          {activeNetwork === 'wld' && activeTab === 'swap'        && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'info'        && <InfoPanel />}
 
           {activeNetwork === 'wld' && activeTab === 'monitor' && (
@@ -842,6 +843,9 @@ export default function AcuaApp() {
 
       {/* ── Floating AI Agent "Agente H2O" ────────────────────────────── */}
       <AiAgent />
+
+      {/* ── Global Chat flotante ──────────────────────────────────────── */}
+      <GlobalChat userAddress={addr} />
 
     </div>
   )

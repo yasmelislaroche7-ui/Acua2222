@@ -861,6 +861,72 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
     fetched?: boolean
   }>>({})
 
+  // ── Wallet actions: send / receive / history ───────────────────────────────
+  const [walletAction, setWalletAction]   = useState<'none'|'send'|'receive'|'history'>('none')
+  const [sendToken,   setSendToken]       = useState<TokenItem>(DEFAULT_TOKENS[0])
+  const [sendTo,      setSendTo]          = useState('')
+  const [sendAmt,     setSendAmt]         = useState('')
+  const [sending,     setSending]         = useState(false)
+  const [sendMsg,     setSendMsg]         = useState<{ ok: boolean; text: string } | null>(null)
+  const [txHistory,   setTxHistory]       = useState<{ hash: string; from: string; to: string; value: string; token: string; time: number }[]>([])
+  const [histLoading, setHistLoading]     = useState(false)
+  const [histLoaded,  setHistLoaded]      = useState(false)
+
+  // ── QR receive ─────────────────────────────────────────────────────────────
+  // Uses Google Charts for QR (no extra package). WorldScan link also shown.
+  function qrUrl(addr: string) {
+    return `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encodeURIComponent(addr)}&choe=UTF-8`
+  }
+
+  // ── Send-token state (function defined after loadBalances to avoid hoisting issue)
+  const sendTokenRef = useRef(sendToken)
+  useEffect(() => { sendTokenRef.current = sendToken }, [sendToken])
+
+  // ── Fetch TX history from WorldScan (public API) ────────────────────────────
+  const loadHistory = useCallback(async () => {
+    if (!userAddress || histLoading) return
+    setHistLoading(true)
+    try {
+      // WorldScan public API — ERC20 transfers for the user
+      const url = `https://worldscan.org/api?module=account&action=tokentx&address=${userAddress}&startblock=0&endblock=99999999&sort=desc&offset=25&page=1`
+      const res = await fetch(url)
+      const json = await res.json()
+      if (json.status === '1' && Array.isArray(json.result)) {
+        const entries = json.result.slice(0, 25).map((r: any) => ({
+          hash:  r.hash,
+          from:  r.from,
+          to:    r.to,
+          value: ethers.formatUnits(r.value ?? '0', parseInt(r.tokenDecimal || '18')),
+          token: r.tokenSymbol ?? '?',
+          time:  parseInt(r.timeStamp) * 1000,
+        }))
+        setTxHistory(entries)
+      } else {
+        // Fallback: try native ETH txns
+        const url2 = `https://worldscan.org/api?module=account&action=txlist&address=${userAddress}&startblock=0&endblock=99999999&sort=desc&offset=10&page=1`
+        const res2 = await fetch(url2)
+        const json2 = await res2.json()
+        if (json2.status === '1' && Array.isArray(json2.result)) {
+          const entries2 = json2.result.slice(0, 10).map((r: any) => ({
+            hash:  r.hash,
+            from:  r.from,
+            to:    r.to,
+            value: ethers.formatEther(r.value ?? '0'),
+            token: 'WLD',
+            time:  parseInt(r.timeStamp) * 1000,
+          }))
+          setTxHistory(entries2)
+        }
+      }
+      setHistLoaded(true)
+    } catch { setHistLoaded(true) }
+    finally { setHistLoading(false) }
+  }, [userAddress, histLoading])
+
+  useEffect(() => {
+    if (walletAction === 'history' && !histLoaded) loadHistory()
+  }, [walletAction, histLoaded, loadHistory])
+
   // Volume panel
   const [volOpen,    setVolOpen]    = useState(false)   // colapsado por defecto (compacto)
   const [loadingVol, setLoadingVol] = useState(false)
@@ -877,6 +943,38 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
   const [wddPending, setWddPending]   = useState<bigint>(0n)   // valor "live" tickeando por segundo
   const [claimingWDD, setClaimingWDD] = useState(false)
   const [wddMsg, setWddMsg]           = useState<{ ok: boolean; text: string } | null>(null)
+
+  // ── Auto-detect tokens with balance on World Chain ─────────────────────────
+  // Scans DexScreener for the user's wallet tokens on World Chain.
+  // New tokens are merged into customTokens so they appear in picker + wallet.
+  const detectWalletTokens = useCallback(async () => {
+    if (!userAddress) return
+    try {
+      // Use Alchemy token balances API (World Chain supports eth_call ERC20)
+      // Fallback: check all DEFAULT_TOKENS for non-zero balance
+      const p = getProvider()
+      const checks = await Promise.allSettled(
+        DEFAULT_TOKENS.map(async t => {
+          const c = new ethers.Contract(t.address, ERC20_ABI, p)
+          const bal = BigInt((await c.balanceOf(userAddress)).toString())
+          return { token: t, bal }
+        })
+      )
+      // If user has balance on a DEFAULT_TOKEN, it's already in the list.
+      // For custom tokens the user added manually, no extra scan needed.
+      // Just log non-zero defaults so we can surface them first.
+      const withBal: string[] = []
+      checks.forEach(r => {
+        if (r.status === 'fulfilled' && r.value.bal > 0n) {
+          withBal.push(r.value.token.address.toLowerCase())
+        }
+      })
+      // Reorder: tokens with balance first (by storing in localStorage for next render)
+      if (withBal.length > 0) {
+        try { localStorage.setItem('acua_with_balance', JSON.stringify(withBal)) } catch {}
+      }
+    } catch {}
+  }, [userAddress])
 
   // ── Load balances + prices ──────────────────────────────────────────────────
   const loadBalances = useCallback(async () => {
@@ -902,7 +1000,44 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
     finally { setLoadingBal(false) }
   }, [userAddress, allTokens.length]) // eslint-disable-line
 
-  useEffect(() => { loadBalances() }, [loadBalances])
+  useEffect(() => { loadBalances(); detectWalletTokens() }, [loadBalances]) // eslint-disable-line
+
+  // ── Send token (MiniKit ERC20 transfer) — declared after loadBalances ───────
+  const doSendToken = useCallback(async () => {
+    const text = sendAmt.trim()
+    if (!text || !sendTo || !sendTo.startsWith('0x')) return
+    if (!MiniKit.isInstalled()) {
+      setSendMsg({ ok: false, text: 'Abre dentro de World App para enviar.' })
+      return
+    }
+    setSending(true); setSendMsg(null)
+    try {
+      const TRANSFER_ABI = [{
+        name: 'transfer', type: 'function', stateMutability: 'nonpayable',
+        inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }],
+        outputs: [{ type: 'bool' }],
+      }]
+      const tok = sendTokenRef.current
+      const parsed = ethers.parseUnits(text, tok.decimals)
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: tok.address,
+          abi: TRANSFER_ABI as any,
+          functionName: 'transfer',
+          args: [sendTo, parsed.toString()],
+        }],
+      })
+      if (finalPayload?.status === 'success') {
+        setSendAmt(''); setSendTo('')
+        setSendMsg({ ok: true, text: `✓ Enviado ${text} ${tok.symbol}` })
+        setTimeout(() => loadBalances(), 3000)
+      } else {
+        setSendMsg({ ok: false, text: parseMiniKitTxError(finalPayload) })
+      }
+    } catch (e: any) {
+      setSendMsg({ ok: false, text: e?.message ?? 'Error al enviar' })
+    } finally { setSending(false) }
+  }, [sendAmt, sendTo, loadBalances]) // eslint-disable-line
 
   // Auto-refresh prices every 30s
   useEffect(() => {
@@ -1611,6 +1746,7 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
           {/* ─── WALLET VIEW ─── */}
           {view === 'wallet' && (
             <div className="space-y-2">
+              {/* ── Wallet total value ── */}
               {Object.keys(prices).length > 0 && (() => {
                 let total = 0
                 allTokens.forEach(t => {
@@ -1619,12 +1755,176 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
                   total += parseFloat(ethers.formatUnits(getBal(t), t.decimals)) * p
                 })
                 return total > 0 ? (
-                  <div className="rounded-xl p-3 text-center mb-3" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}>
+                  <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}>
                     <p className="text-[10px] text-white/40 uppercase tracking-widest">Valor total</p>
                     <p className="text-2xl font-bold text-indigo-300 font-mono">${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    <a href={`https://worldscan.org/address/${userAddress}`} target="_blank" rel="noopener noreferrer"
+                      className="text-[9px] text-indigo-400/50 hover:text-indigo-300 transition-colors mt-0.5 flex items-center justify-center gap-1">
+                      Ver en WorldScan <ArrowRight className="w-2.5 h-2.5" />
+                    </a>
                   </div>
                 ) : null
               })()}
+
+              {/* ── Action row: Send / Receive / History ── */}
+              <div className="grid grid-cols-3 gap-1.5">
+                {([
+                  { key: 'send',    icon: '↑', label: 'Enviar',   color: 'rgba(239,68,68,0.15)',    border: 'rgba(239,68,68,0.3)',    text: '#f87171' },
+                  { key: 'receive', icon: '↓', label: 'Recibir',  color: 'rgba(16,185,129,0.15)',   border: 'rgba(16,185,129,0.3)',   text: '#34d399' },
+                  { key: 'history', icon: '≡', label: 'Historial',color: 'rgba(99,102,241,0.15)',   border: 'rgba(99,102,241,0.3)',   text: '#a5b4fc' },
+                ] as const).map(act => (
+                  <button key={act.key}
+                    onClick={() => setWalletAction(walletAction === act.key ? 'none' : act.key)}
+                    className="flex flex-col items-center gap-1 py-2.5 rounded-xl text-[10px] font-bold transition-all hover:scale-[1.02] active:scale-[0.98]"
+                    style={{
+                      background: walletAction === act.key ? act.color : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${walletAction === act.key ? act.border : 'rgba(255,255,255,0.07)'}`,
+                      color: walletAction === act.key ? act.text : 'rgba(255,255,255,0.45)',
+                    }}>
+                    <span className="text-base font-black">{act.icon}</span>
+                    {act.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── SEND panel ── */}
+              {walletAction === 'send' && (
+                <div className="rounded-xl p-3 space-y-2.5" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                  <p className="text-[10px] font-bold text-red-300 uppercase tracking-widest">Enviar token</p>
+
+                  {/* Token picker */}
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setPickerFor('from')}
+                      className="flex items-center gap-2 rounded-xl px-3 py-2 transition-all hover:scale-105"
+                      style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      <TokenLogo token={sendToken} size="sm" />
+                      <span className="text-sm font-bold text-white whitespace-nowrap">{sendToken.symbol}</span>
+                      <ChevronDown className="w-3 h-3 text-white/40" />
+                    </button>
+                    <div className="flex-1 text-right">
+                      <p className="text-[9px] text-white/40">Saldo: {formatToken(getBal(sendToken), sendToken.decimals, 4)}</p>
+                    </div>
+                  </div>
+
+                  {/* Amount */}
+                  <div className="relative">
+                    <input type="number" min="0" step="any" value={sendAmt}
+                      onChange={e => setSendAmt(e.target.value)} placeholder="Cantidad"
+                      className="w-full text-lg font-bold font-mono bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder:text-white/20 outline-none focus:border-red-500/40 pr-16" />
+                    <button onClick={() => setSendAmt(formatToken(getBal(sendToken), sendToken.decimals, 6))}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-bold px-2 py-0.5 rounded-md"
+                      style={{ background: 'rgba(239,68,68,0.2)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
+                      MAX
+                    </button>
+                  </div>
+
+                  {/* Recipient */}
+                  <input value={sendTo} onChange={e => setSendTo(e.target.value)}
+                    placeholder="Dirección destino: 0x..."
+                    className="w-full text-xs font-mono bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder:text-white/20 outline-none focus:border-red-500/40" />
+
+                  {sendMsg && (
+                    <div className={cn('rounded-xl px-3 py-2 text-[10px] font-medium',
+                      sendMsg.ok ? 'bg-green-500/15 text-green-300 border border-green-500/25'
+                                 : 'bg-red-500/15 text-red-300 border border-red-500/25')}>
+                      {sendMsg.text}
+                    </div>
+                  )}
+
+                  <button onClick={doSendToken}
+                    disabled={sending || !sendAmt || !sendTo || !sendTo.startsWith('0x')}
+                    className="w-full h-10 rounded-xl text-sm font-bold text-white transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    style={{ background: 'linear-gradient(135deg, #ef4444, #b91c1c)', boxShadow: '0 0 12px rgba(239,68,68,0.25)' }}>
+                    {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : '↑'}
+                    {sending ? 'Enviando...' : `Enviar ${sendToken.symbol}`}
+                  </button>
+                </div>
+              )}
+
+              {/* ── RECEIVE panel ── */}
+              {walletAction === 'receive' && (
+                <div className="rounded-xl p-4 space-y-3 text-center" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                  <p className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest">Tu dirección World Chain</p>
+                  {/* QR code */}
+                  <div className="flex justify-center">
+                    <div className="rounded-2xl p-2 bg-white inline-block">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={qrUrl(userAddress)} alt="QR dirección" width={160} height={160} className="rounded-lg block" />
+                    </div>
+                  </div>
+                  {/* Address */}
+                  <div className="rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <p className="text-[10px] font-mono text-white/70 break-all leading-relaxed">{userAddress}</p>
+                  </div>
+                  {/* Copy + WorldScan */}
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => navigator.clipboard?.writeText(userAddress)}
+                      className="flex-1 h-9 rounded-xl text-[10px] font-bold text-emerald-300 transition-all hover:scale-[1.01]"
+                      style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                      Copiar dirección
+                    </button>
+                    <a href={`https://worldscan.org/address/${userAddress}`} target="_blank" rel="noopener noreferrer"
+                      className="flex-1 h-9 rounded-xl text-[10px] font-bold text-indigo-300 flex items-center justify-center gap-1 transition-all hover:scale-[1.01]"
+                      style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)' }}>
+                      WorldScan <ArrowRight className="w-3 h-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* ── HISTORY panel ── */}
+              {walletAction === 'history' && (
+                <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div className="flex items-center justify-between px-3 py-2.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest">Historial World Chain</p>
+                    <button onClick={() => { setHistLoaded(false); setTxHistory([]); setTimeout(loadHistory, 100) }}
+                      disabled={histLoading}
+                      className="flex items-center gap-1 text-[9px] text-white/30 hover:text-white/60 transition-colors">
+                      <RefreshCw className={cn('w-2.5 h-2.5', histLoading && 'animate-spin')} /> Actualizar
+                    </button>
+                  </div>
+                  {histLoading && (
+                    <div className="flex justify-center py-6"><Loader2 className="w-4 h-4 animate-spin text-indigo-400" /></div>
+                  )}
+                  {!histLoading && txHistory.length === 0 && histLoaded && (
+                    <div className="py-6 text-center text-[10px] text-white/30">Sin transacciones recientes en WorldScan</div>
+                  )}
+                  {!histLoading && txHistory.length === 0 && !histLoaded && (
+                    <div className="py-6 text-center">
+                      <button onClick={loadHistory} className="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1 mx-auto">
+                        <Clock className="w-3 h-3" /> Cargar historial
+                      </button>
+                    </div>
+                  )}
+                  {txHistory.map((tx, i) => {
+                    const isSent = tx.from.toLowerCase() === userAddress.toLowerCase()
+                    const short = (a: string) => `${a.slice(0,6)}…${a.slice(-4)}`
+                    const date  = new Date(tx.time).toLocaleDateString('es', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    return (
+                      <div key={tx.hash + i} className="flex items-center gap-3 px-3 py-2.5"
+                        style={{ borderBottom: i < txHistory.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                        <div className={cn('w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold',
+                          isSent ? 'bg-red-500/15 text-red-400' : 'bg-emerald-500/15 text-emerald-400')}>
+                          {isSent ? '↑' : '↓'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-white">
+                            {isSent ? 'Enviaste' : 'Recibiste'} {parseFloat(tx.value).toFixed(4)} {tx.token}
+                          </p>
+                          <p className="text-[9px] text-white/30">
+                            {isSent ? `→ ${short(tx.to)}` : `← ${short(tx.from)}`} · {date}
+                          </p>
+                        </div>
+                        <a href={`https://worldscan.org/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
+                          className="w-6 h-6 flex items-center justify-center rounded-lg text-white/25 hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors shrink-0">
+                          <ArrowRight className="w-3 h-3" />
+                        </a>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
               {loadingBal && !Object.keys(balances).length && <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-indigo-400" /></div>}
               {allTokens.map(token => {
                 const tokenKey = token.address.toLowerCase()
