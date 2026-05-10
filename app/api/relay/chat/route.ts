@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid message text' }, { status: 400 })
       }
       const tx = await contract.postRelayed(sender, text, nonce, sig, {
-        gasLimit: 250_000n,
+        gasLimit: 600_000n,
         maxFeePerGas:         maxFee,
         maxPriorityFeePerGas: maxPrio,
       })
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Missing msgId' }, { status: 400 })
       }
       const tx = await contract.deleteRelayed(sender, msgId, nonce, sig, {
-        gasLimit: 120_000n,
+        gasLimit: 300_000n,
         maxFeePerGas:         maxFee,
         maxPriorityFeePerGas: maxPrio,
       })
