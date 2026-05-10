@@ -997,6 +997,43 @@
       "artifacts": [
         "AcuaGlobalChat"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaGlobalChatV2.sol": {
+      "lastModificationDate": 1778452933600,
+      "contentHash": "6b2acfeb75bbc669e307514a67e035ab",
+      "sourceName": "contracts/AcuaGlobalChatV2.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaGlobalChatV2"
+      ]
     }
   }
 }
