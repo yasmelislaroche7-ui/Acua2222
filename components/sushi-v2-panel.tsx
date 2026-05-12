@@ -892,7 +892,7 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
       )}
 
       {/* ── Stake Form ───────────────────────────────────────────────────── */}
-      <SectionCard title="Depositar WLD" badge={`APR ${aprPct}%`}>
+      <SectionCard title="Depositar SUSHI" badge={`APR ${aprPct}%`}>
         <div className="flex flex-col gap-3">
           <InputRow
             label={`Cantidad a depositar (comisión ${feePct}%)`}
