@@ -5,6 +5,13 @@ export const WORLD_CHAIN_RPC = 'https://worldchain-mainnet.g.alchemy.com/public'
 export const WORLD_CHAIN_ID = 480
 export const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
 
+// ── Fallback RPCs (ordered by preference) ─────────────────────────────────────
+const RPC_LIST = [
+  'https://worldchain-mainnet.g.alchemy.com/public',
+  'https://worldchain-mainnet.gateway.tenderly.co',
+  'https://rpc.worldchain.io',
+]
+
 // ─── Token Addresses ──────────────────────────────────────────────────────────
 export const TOKENS = {
   wCOP:  '0x8a1d45e102e886510e891d2ec656a708991e2d76',
@@ -56,7 +63,7 @@ export const STAKING_TOKENS: TokenMeta[] = [
   { symbol: 'USDC',   name: 'USD Coin',      address: TOKENS.USDC,   stakingContract: STAKING_CONTRACTS.USDC,   color: '#2563eb', decimals: 6,  logoUrl: 'https://assets.coingecko.com/coins/images/6319/small/usdc.png' },
   { symbol: 'wCOP',   name: 'Wrapped COP',   address: TOKENS.wCOP,   stakingContract: STAKING_CONTRACTS.wCOP,   color: '#f59e0b', decimals: 18, logoUrl: '/tokens/wcop.jpg' },
   { symbol: 'wARS',   name: 'Wrapped ARS',   address: TOKENS.wARS,   stakingContract: STAKING_CONTRACTS.wARS,   color: '#10b981', decimals: 18, logoUrl: '/tokens/wars.jpg' },
-  { symbol: 'BTCH2O', name: 'BTC H2O',       address: TOKENS.BTCH2O, stakingContract: STAKING_CONTRACTS.BTCH2O, color: '#f59e0b', decimals: 18, logoUrl: '/tokens/btch2o.jpg' },
+  { symbol: 'BTCH2O', name: 'BTC H2O',       address: TOKENS.BTCH2O, stakingContract: STAKING_CONTRACTS.BTCH2O, color: '#f59e0b', decimals: 18, logoUrl: '/tokens/btch2o.jpg'  },
   { symbol: 'AIR',    name: 'AIR Token',     address: TOKENS.AIR,    stakingContract: STAKING_CONTRACTS.AIR,    color: '#8b5cf6', decimals: 18, logoUrl: '/tokens/air.jpg' },
 ]
 
@@ -159,9 +166,21 @@ export const PERMIT_TUPLE_INPUT = {
   ],
 } as const
 
-// ─── Provider ─────────────────────────────────────────────────────────────────
-export function getProvider() {
-  return new ethers.JsonRpcProvider(WORLD_CHAIN_RPC)
+// ─── Provider singleton (one connection, reused across all calls) ─────────────
+let _provider: ethers.JsonRpcProvider | null = null
+
+export function getProvider(): ethers.JsonRpcProvider {
+  if (!_provider) {
+    _provider = new ethers.JsonRpcProvider(WORLD_CHAIN_RPC, WORLD_CHAIN_ID, {
+      staticNetwork: ethers.Network.from(WORLD_CHAIN_ID),
+      batchMaxCount: 10,
+    })
+  }
+  return _provider
+}
+
+export function resetProvider() {
+  _provider = null
 }
 
 // ─── Fetchers ─────────────────────────────────────────────────────────────────

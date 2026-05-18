@@ -211,9 +211,7 @@ export function isKnownToken(addr: string): boolean {
   return !!TOKEN_META_BY_ADDR[k]
 }
 
-// Alchemy endpoint del usuario — mucho mas rapido y con limites altos vs /public
-export const WORLD_CHAIN_RPC =
-  'https://worldchain-mainnet.g.alchemy.com/v2/bVo646pb8L7_W_nahCoqW'
+export const WORLD_CHAIN_RPC = 'https://worldchain-mainnet.g.alchemy.com/public'
 
 // Single shared provider — reusing one HTTP keepalive evita rate limits y latencia
 let _provider: ethers.JsonRpcProvider | null = null
@@ -221,7 +219,7 @@ export function getProvider(): ethers.JsonRpcProvider {
   if (!_provider) {
     _provider = new ethers.JsonRpcProvider(WORLD_CHAIN_RPC, {
       name: 'worldchain', chainId: 480,
-    }, { staticNetwork: true, batchMaxCount: 8 })
+    }, { staticNetwork: true, batchMaxCount: 10 })
   }
   return _provider
 }

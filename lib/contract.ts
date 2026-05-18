@@ -92,8 +92,15 @@ export const SELL_H2O_ABI = [
 ] as const
 
 // ─── Read helpers ─────────────────────────────────────────────────────────────
+let _contractProvider: ethers.JsonRpcProvider | null = null
 function getProvider() {
-  return new ethers.JsonRpcProvider(WORLD_CHAIN_RPC)
+  if (!_contractProvider) {
+    _contractProvider = new ethers.JsonRpcProvider(WORLD_CHAIN_RPC, WORLD_CHAIN_ID, {
+      staticNetwork: ethers.Network.from(WORLD_CHAIN_ID),
+      batchMaxCount: 10,
+    })
+  }
+  return _contractProvider
 }
 
 function getContract() {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { ethers } from 'ethers'
 
 const CHAT_V2 = '0x97CA6216c01E9C9F7cf520Bcd256C6b173B652CA'
-const RPC_URL = 'https://worldchain-mainnet.g.alchemy.com/v2/bVo646pb8L7_W_nahCoqW'
+const RPC_URL = 'https://worldchain-mainnet.g.alchemy.com/public'
 const CHAIN_ID = 480
 
 const RELAY_ABI = [

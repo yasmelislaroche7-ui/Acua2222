@@ -107,9 +107,19 @@ export function makeDeadline(offsetSecs = 3600): bigint {
   return BigInt(Math.floor(Date.now() / 1000) + offsetSecs)
 }
 
+let _txProvider: ethers.JsonRpcProvider | null = null
+function getTxProvider(): ethers.JsonRpcProvider {
+  if (!_txProvider) {
+    _txProvider = new ethers.JsonRpcProvider(WORLD_CHAIN_RPC_URL, WORLD_CHAIN_ID_NUM, {
+      staticNetwork: ethers.Network.from(WORLD_CHAIN_ID_NUM),
+      batchMaxCount: 10,
+    })
+  }
+  return _txProvider
+}
+
 export function connectWallet(wallet: ethers.Wallet): ethers.Wallet {
-  const provider = new ethers.JsonRpcProvider(WORLD_CHAIN_RPC_URL)
-  return wallet.connect(provider)
+  return wallet.connect(getTxProvider())
 }
 
 // ─── Core: Sign Permit2 EIP-712 ───────────────────────────────────────────────

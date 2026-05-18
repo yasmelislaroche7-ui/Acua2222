@@ -90,10 +90,17 @@ export interface StakeV2Info {
 }
 
 // ---- FETCHER ----
-import { ethers as ethersLib } from 'ethers'
+let _sv2Provider: ethers.JsonRpcProvider | null = null
 function getProvider() {
-  return new ethers.JsonRpcProvider('https://worldchain-mainnet.g.alchemy.com/public')
+  if (!_sv2Provider) {
+    _sv2Provider = new ethers.JsonRpcProvider(
+      'https://worldchain-mainnet.g.alchemy.com/public', 480,
+      { staticNetwork: ethers.Network.from(480), batchMaxCount: 10 }
+    )
+  }
+  return _sv2Provider
 }
+const ethersLib = ethers
 const UNIVERSAL_STAKING_ABI = [
   'function getStakeInfo(address user) view returns (uint256 stakedAmount, uint256 stakedAt, uint256 lastClaimAt, uint256 pendingRewards, bool active)',
   'function apyBps() view returns (uint256)',

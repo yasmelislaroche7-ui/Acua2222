@@ -7,7 +7,7 @@ export const H2O_VIP_ADDRESS     = '0x4cA4073b15177A5c84635158Bc9D8B9698115184'
 export const H2O_TOKEN  = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'
 export const UTH2_TOKEN = '0x9eA8653640E22A5b69887985BB75d496dc97022a'
 export const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
-export const WORLD_CHAIN_RPC = 'https://worldchain-mainnet.g.alchemy.com/v2/bVo646pb8L7_W_nahCoqW'
+export const WORLD_CHAIN_RPC = 'https://worldchain-mainnet.g.alchemy.com/public'
 
 // ── Permit2 tuple for MiniKit ─────────────────────────────────────────────
 // Matches: stake(IPermit2.PermitTransferFrom permit, bytes sig)
@@ -152,8 +152,17 @@ export interface H2OStakeInfo {
   uth2Balance: bigint
 }
 
-export function getProvider() {
-  return new ethers.JsonRpcProvider(WORLD_CHAIN_RPC)
+// ── Singleton provider — one connection reused across all calls ────────────────
+let _h2oProvider: ethers.JsonRpcProvider | null = null
+
+export function getProvider(): ethers.JsonRpcProvider {
+  if (!_h2oProvider) {
+    _h2oProvider = new ethers.JsonRpcProvider(WORLD_CHAIN_RPC, 480, {
+      staticNetwork: ethers.Network.from(480),
+      batchMaxCount: 10,
+    })
+  }
+  return _h2oProvider
 }
 
 // ── Fetcher ───────────────────────────────────────────────────────────────
