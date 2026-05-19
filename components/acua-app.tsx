@@ -507,6 +507,31 @@ function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; acti
   )
 }
 
+// ─── Panel bloqueado: requiere clave importada ───────────────────────────────
+function ImportedKeyRequired({ network, color }: { network: string; color: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 py-14 px-6 text-center">
+      <div className="w-14 h-14 rounded-full flex items-center justify-center text-2xl"
+        style={{ background: `${color}18`, border: `1.5px solid ${color}40` }}>
+        🔒
+      </div>
+      <div>
+        <p className="text-[13px] font-bold mb-1" style={{ color }}>
+          {network} · Clave requerida
+        </p>
+        <p className="text-[11px] text-[oklch(0.55_0.012_230)] leading-relaxed max-w-[240px]">
+          Esta red requiere tu clave privada para firmar transacciones.
+          Importa tu wallet usando el selector de redes <span className="font-bold text-white">↗</span> en la parte superior.
+        </p>
+      </div>
+      <p className="text-[9px] text-[oklch(0.40_0.01_230)] leading-relaxed max-w-[220px]">
+        Tu clave de World Wallet es la misma dirección EVM en todas las redes.
+        Puedes importarla desde Ajustes → Clave de recuperación de World App.
+      </p>
+    </div>
+  )
+}
+
 // ─── BNB Sub-navigation tabs ─────────────────────────────────────────────────
 function BNBSubNav({ active, onChange }: { active: BNBTab; onChange: (t: BNBTab) => void }) {
   const tabs: { id: BNBTab; label: string; color: string }[] = [
@@ -741,8 +766,8 @@ export default function AcuaApp() {
               🔑 {bnbAddress.slice(0, 8)}…{bnbAddress.slice(-4)}
             </span>
           ) : (
-            <span className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              🌐 World Wallet
+            <span className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+              🔒 Importa tu clave
             </span>
           )}
         </div>
@@ -752,22 +777,22 @@ export default function AcuaApp() {
       <main className="flex-1 overflow-y-auto min-h-0">
         <div className="px-3 py-3">
 
-          {/* ── Polygon: Coming Soon ─── */}
+          {/* ── Polygon: requiere clave importada ─── */}
           {activeNetwork === 'polygon' && (
-            <ComingSoonPanel network="polygon" />
+            <ImportedKeyRequired network="Polygon" color="#8247e5" />
           )}
 
           {/* ── BNB panels ──────────────────────────────────────────── */}
           {activeNetwork === 'bnb' && (() => {
-            // Auto-share imported wallet's private key for BNB operations.
-            // When the user imports a wallet from the main connect screen,
-            // importedSigner.privateKey is the same EVM key that works on BNB Chain.
-            // bnbPrivateKey is only set when the user explicitly imports via NetworkSwitcher.
+            // BNB Chain solo funciona con clave privada importada.
+            // La misma clave EVM que el usuario importa en el selector de redes
+            // funciona en BNB Chain (misma dirección, distinto chainId).
             const effectiveBnbKey: string | null =
               bnbPrivateKey ??
               (wallet.walletMode === 'imported' && wallet.importedSigner
                 ? (wallet.importedSigner as unknown as { privateKey: string }).privateKey
                 : null)
+            if (!effectiveBnbKey) return <ImportedKeyRequired network="BNB Chain" color="#f0b90b" />
             return (<>
               {activeBNBTab === 'bnb-stake' && (
                 <BNBSushiPanel bnbAddress={bnbAddress ?? addr} bnbPrivateKey={effectiveBnbKey} walletMode={wallet.walletMode} />

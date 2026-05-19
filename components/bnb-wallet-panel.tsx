@@ -169,40 +169,14 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
   const [histLoading, setHistLoading] = useState(false)
   const [histView, setHistView]       = useState<HistView>('all')
 
-  // ── Signer — usa clave importada o window.ethereum (World Wallet) ──────────
-  // La misma clave privada que protege la World Wallet controla la misma
-  // dirección en TODAS las redes EVM, incluyendo BNB Chain (chain ID 56).
-  // Cuando no hay clave importada, usamos window.ethereum (inyectado por World
-  // App) cambiando al chain ID 56. El usuario aprueba el tx en World App.
-  const getBnbSigner = async (): Promise<ethers.Wallet | ethers.JsonRpcSigner> => {
-    if (bnbPrivateKey) {
-      const provider = new ethers.JsonRpcProvider(BNB_RPC)
-      provider.getFeeData = async () => new ethers.FeeData(null, null, GAS_WEI)
-      return new ethers.Wallet(bnbPrivateKey, provider)
-    }
-    const eth = typeof window !== 'undefined' ? (window as any).ethereum : null
-    if (!eth) throw new Error('Sin proveedor Web3. Importa tu clave privada en el selector de redes para firmar en BNB Chain.')
-    // Cambiar a BNB Smart Chain (chain ID 56 = 0x38)
-    try {
-      await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x38' }] })
-    } catch (err: any) {
-      if (err?.code === 4902 || err?.code === -32603) {
-        await eth.request({
-          method: 'wallet_addEthereumChain',
-          params: [{
-            chainId: '0x38',
-            chainName: 'BNB Smart Chain',
-            nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
-            rpcUrls: ['https://bsc-dataseed.binance.org/', 'https://bsc-dataseed1.bnbchain.org/'],
-            blockExplorerUrls: ['https://bscscan.com'],
-          }],
-        })
-      } else {
-        throw err
-      }
-    }
-    const bp = new ethers.BrowserProvider(eth)
-    return await bp.getSigner()
+  // ── Signer — solo clave privada importada ─────────────────────────────────
+  // BNB Chain (chainId 56) requiere clave privada importada.
+  // World Wallet no puede firmar en BNB directamente.
+  const getBnbSigner = async (): Promise<ethers.Wallet> => {
+    if (!bnbPrivateKey) throw new Error('Importa tu clave privada para firmar en BNB Chain.')
+    const provider = new ethers.JsonRpcProvider(BNB_RPC)
+    provider.getFeeData = async () => new ethers.FeeData(null, null, GAS_WEI)
+    return new ethers.Wallet(bnbPrivateKey, provider)
   }
 
   // ── Load balances ──────────────────────────────────────────────────────────
@@ -394,8 +368,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
     </div>
   )
 
-  const hasEthProvider = typeof window !== 'undefined' && !!(window as any).ethereum
-  const noKey      = !bnbPrivateKey && !hasEthProvider
+  const noKey = !bnbPrivateKey
   const sendBal    = balances.find(b => b.symbol === sendToken)?.balance ?? 0n
   const swapFromBal = balances.find(b => b.symbol === swapFrom)?.balance ?? 0n
   const allHist    = [...histNormal, ...histTokens].sort((a, b) => parseInt(b.timeStamp) - parseInt(a.timeStamp))
@@ -430,7 +403,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
         </div>
         <div className="flex items-center justify-between px-0.5">
           <span className="text-[8px] text-[oklch(0.45_0.01_230)]">
-            {bnbPrivateKey ? '🔑 Clave privada BNB activa' : hasEthProvider ? '🌐 World Wallet · BNB Chain' : '👁 Solo lectura'}
+            {bnbPrivateKey ? '🔑 Clave privada BNB activa' : '👁 Solo lectura'}
           </span>
           <span className="text-[8px] text-[oklch(0.35_0.01_230)]">PancakeSwap V2 · BSCScan</span>
         </div>
