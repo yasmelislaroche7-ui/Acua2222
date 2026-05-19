@@ -38,4 +38,8 @@ externalPort = 80
 
 [userenv.shared]
 NEXT_PUBLIC_WORLD_APP_ID = "app_60f2dc429532dcfa014c16d52ddc00fe"
-ALCHEMY_API_KEY = "bVo646pb8L7_W_nahCoqW"
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["npm", "start"]
+build = ["npm", "run", "build"]
