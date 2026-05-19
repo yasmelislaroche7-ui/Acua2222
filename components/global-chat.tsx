@@ -284,6 +284,27 @@ export function GlobalChat({
     return BigInt((await c.getNonce(addr)).toString())
   }
 
+  // ── Relay helper (reused in both paths) ───────────────────────────────────
+  const sendViaRelay = useCallback(async (text: string): Promise<boolean> => {
+    if (!signerForRelay) {
+      setStatusMsg({ ok: false, text: 'Cargando firma…' }); return false
+    }
+    const sender = signerForRelay.address
+    const nonce  = await getOnChainNonce(sender)
+    const sig    = await signPostPayload(signerForRelay, text, nonce)
+    const result = await callRelay({ action: 'post', sender, text, nonce: nonce.toString(), sig })
+    if (result.ok) {
+      setInput(''); setCooldownLeft(30)
+      setStatusMsg({ ok: true, text: isImported ? '✓ Publicado · relay' : '✓ Publicado · modo anónimo' })
+      setTimeout(() => { loadMsgs(); setStatusMsg(null) }, 2500)
+      return true
+    } else {
+      setStatusMsg({ ok: false, text: result.error ?? 'Error al publicar' })
+      if (result.error?.includes('30') || result.error?.toLowerCase().includes('cooldown')) setCooldownLeft(30)
+      return false
+    }
+  }, [signerForRelay, isImported, loadMsgs])
+
   // ── Post message ──────────────────────────────────────────────────────────
   const postMsg = useCallback(async () => {
     const text = input.trim()
@@ -293,7 +314,7 @@ export function GlobalChat({
     }
     setPosting(true); setStatusMsg(null)
     try {
-      // ── Path 1: MiniKit in World App (real wallet, direct tx) ─────────────
+      // ── Path 1: MiniKit in World App — intenta directo, cae a relay si no está whitelisteado
       if (hasMiniKit && userAddress) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
@@ -305,32 +326,23 @@ export function GlobalChat({
           setInput(''); setCooldownLeft(30)
           setStatusMsg({ ok: true, text: '✓ Publicado en World Chain' })
           setTimeout(() => { loadMsgs(); setStatusMsg(null) }, 2500)
-        } else {
-          const code = (finalPayload as any)?.error_code ?? ''
-          setStatusMsg({ ok: false, text: code || 'Error al publicar' })
+          return
         }
+        const code = (finalPayload as any)?.error_code ?? ''
+        // Usuario canceló → no hacer fallback
+        if (code === 'user_rejected') {
+          setStatusMsg({ ok: false, text: 'Cancelado' }); return
+        }
+        // Contrato no whitelisteado u otro error → caer al relay automáticamente
+        await sendViaRelay(text)
         return
       }
-      // ── Path 2: Relay (imported wallet OR anonymous session key) ──────────
-      if (!signerForRelay) {
-        setStatusMsg({ ok: false, text: 'Cargando firma…' }); return
-      }
-      const sender = signerForRelay.address
-      const nonce  = await getOnChainNonce(sender)
-      const sig    = await signPostPayload(signerForRelay, text, nonce)
-      const result = await callRelay({ action: 'post', sender, text, nonce: nonce.toString(), sig })
-      if (result.ok) {
-        setInput(''); setCooldownLeft(30)
-        setStatusMsg({ ok: true, text: isImported ? '✓ Publicado gratis · relay' : '✓ Publicado · modo anónimo' })
-        setTimeout(() => { loadMsgs(); setStatusMsg(null) }, 2500)
-      } else {
-        setStatusMsg({ ok: false, text: result.error ?? 'Error al publicar' })
-        if (result.error?.includes('30') || result.error?.toLowerCase().includes('cooldown')) setCooldownLeft(30)
-      }
+      // ── Path 2: Relay directo (wallet importada o sesión anónima) ─────────
+      await sendViaRelay(text)
     } catch (e: any) {
       setStatusMsg({ ok: false, text: e?.shortMessage ?? e?.message ?? 'Error inesperado' })
     } finally { setPosting(false) }
-  }, [input, loadMsgs, userAddress, isImported, signerForRelay, posting, cooldownLeft, hasMiniKit])
+  }, [input, loadMsgs, userAddress, posting, cooldownLeft, hasMiniKit, sendViaRelay])
 
   // ── Delete message ─────────────────────────────────────────────────────────
   const deleteMsg = useCallback(async (msg: ChatMsg) => {
