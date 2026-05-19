@@ -1,416 +1,746 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { MiniKit } from '@worldcoin/minikit-js'
+import { ethers } from 'ethers'
 import {
-  Droplets, Zap, Users, Copy, Check, Clock, Gift,
-  ArrowDownToLine, ArrowUpFromLine, Coins, Flame,
-  ChevronRight, Star, Shield, TrendingUp, Sparkles, Heart, ExternalLink,
+  Droplets, Zap, Users, Copy, Check, Gift,
+  ArrowDownToLine, ArrowUpFromLine, Coins, RefreshCw,
+  ChevronRight, Star, Shield, TrendingUp, Sparkles, Heart,
+  ExternalLink, Loader2, AlertCircle, CheckCircle2, Lock,
+  Info, Crown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  H2O_STAKING_ADDRESS, H2O_TOKEN, H2O_VIP_ADDRESS,
+  PERMIT_TUPLE_INPUT, STAKE_ABI_FRAG, UNSTAKE_ABI_FRAG,
+  CLAIM_ABI_FRAG, CLAIM_REF_ABI_FRAG, REGISTER_REF_ABI_FRAG,
+  BUY_VIP_PERMIT2_ABI_FRAG,
+  fetchH2OStakeInfo, calcAPY, formatToken, shortenAddress, randomNonce,
+  type H2OStakeInfo,
+} from '@/lib/h2oStaking'
 
-// ─── Launch date: 1 June 2026 ─────────────────────────────────────────────────
-const LAUNCH_DATE = new Date('2026-06-01T00:00:00Z')
+const WORLDSCAN = 'https://worldscan.org'
+const CYAN = 'oklch(0.72 0.20 195)'
 
-// ─── Countdown hook ───────────────────────────────────────────────────────────
-function useCountdown(target: Date) {
-  const [remaining, setRemaining] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0, done: false })
-
-  useEffect(() => {
-    const tick = () => {
-      const diff = target.getTime() - Date.now()
-      if (diff <= 0) { setRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0, done: true }); return }
-      const s = Math.floor(diff / 1000)
-      setRemaining({
-        days: Math.floor(s / 86400),
-        hours: Math.floor((s % 86400) / 3600),
-        minutes: Math.floor((s % 3600) / 60),
-        seconds: s % 60,
-        done: false,
-      })
-    }
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [target])
-
-  return remaining
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function fmtH2O(amount: bigint, prec = 4) {
+  return formatToken(amount, 18, prec)
 }
 
-// ─── CountdownUnit ────────────────────────────────────────────────────────────
-function CountdownUnit({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="relative">
-        <div className="w-14 h-14 rounded-2xl bg-black/40 border border-cyan-400/30 flex items-center justify-center backdrop-blur">
-          <span className="text-2xl font-black text-cyan-300 font-mono tabular-nums">
-            {String(value).padStart(2, '0')}
-          </span>
-        </div>
-        <div className="absolute inset-0 rounded-2xl bg-cyan-400/5 animate-pulse" />
-      </div>
-      <span className="text-[10px] font-semibold text-cyan-400/60 uppercase tracking-widest">{label}</span>
-    </div>
-  )
+function bpsPct(bps: bigint) {
+  return (Number(bps) / 100).toFixed(2) + '%'
 }
 
-// ─── StatCard ─────────────────────────────────────────────────────────────────
-function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub?: string }) {
-  return (
-    <div className="flex-1 rounded-2xl bg-white/5 border border-white/10 p-3 flex flex-col gap-1">
-      <div className="flex items-center gap-1.5 text-muted-foreground">
-        {icon}
-        <span className="text-[11px] font-medium">{label}</span>
-      </div>
-      <span className="text-lg font-black text-foreground">{value}</span>
-      {sub && <span className="text-[10px] text-muted-foreground">{sub}</span>}
-    </div>
-  )
+function makeDeadline(secs = 3600) {
+  return BigInt(Math.floor(Date.now() / 1000) + secs)
 }
 
-// ─── ActionButton (disabled "coming soon") ────────────────────────────────────
-function ActionBtn({
-  icon, label, description, color,
-}: {
-  icon: React.ReactNode; label: string; description: string; color: string
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function Skeleton({ className }: { className?: string }) {
+  return <div className={cn('rounded animate-pulse bg-white/8', className)} />
+}
+
+function StatRow({ label, value, sub, loading }: {
+  label: string; value: string; sub?: string; loading?: boolean
 }) {
   return (
-    <div className={cn(
-      'relative flex items-center gap-3 p-4 rounded-2xl border cursor-not-allowed opacity-70',
-      'bg-white/5 border-white/10',
-    )}>
-      <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', color)}>
-        {icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-foreground">{label}</span>
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-400 border border-amber-400/30">
-            PRÓXIMAMENTE
-          </span>
-        </div>
-        <span className="text-xs text-muted-foreground">{description}</span>
-      </div>
-      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+    <div className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+      <span className="text-xs text-white/50">{label}</span>
+      {loading
+        ? <Skeleton className="h-4 w-20" />
+        : (
+          <div className="text-right">
+            <span className="text-xs font-bold text-white">{value}</span>
+            {sub && <p className="text-[10px] text-white/30">{sub}</p>}
+          </div>
+        )}
     </div>
   )
 }
 
-// ─── ReferralSection ──────────────────────────────────────────────────────────
-function ReferralSection({ userAddress }: { userAddress: string }) {
-  const [copied, setCopied] = useState(false)
-  const shortAddr = userAddress ? userAddress.slice(0, 8) + '...' : ''
+function StatusBar({ ok, text }: { ok: boolean; text: string }) {
+  return (
+    <div className={cn(
+      'flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium',
+      ok
+        ? 'bg-green-500/10 text-green-300 border border-green-500/20'
+        : 'bg-red-500/10 text-red-300 border border-red-500/20'
+    )}>
+      {ok
+        ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+        : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+      {text}
+    </div>
+  )
+}
+
+// Live ticking earned counter
+function EarnedCounter({ base, rewardRate, totalStaked, periodFinish, loading }: {
+  base: bigint; rewardRate: bigint; totalStaked: bigint; periodFinish: bigint; loading: boolean
+}) {
+  const [display, setDisplay] = useState(parseFloat(ethers.formatEther(base)))
+  const baseRef = useRef(base)
+  baseRef.current = base
+
+  useEffect(() => {
+    setDisplay(parseFloat(ethers.formatEther(base)))
+  }, [base])
+
+  useEffect(() => {
+    const now = BigInt(Math.floor(Date.now() / 1000))
+    if (rewardRate === 0n || totalStaked === 0n || periodFinish < now) return
+    const perSec = Number(rewardRate) / Number(totalStaked)
+    const id = setInterval(() => {
+      setDisplay(p => p + perSec)
+    }, 1000)
+    return () => clearInterval(id)
+  }, [rewardRate, totalStaked, periodFinish])
+
+  if (loading) return <Skeleton className="h-8 w-28" />
+  if (display <= 0) return <span className="text-2xl font-black text-white/30">0</span>
+  return (
+    <span className="text-2xl font-black text-cyan-300 font-mono tabular-nums">
+      {display < 0.000001 ? '< 0.000001' : display.toFixed(8)}
+    </span>
+  )
+}
+
+// ─── Main Panel ───────────────────────────────────────────────────────────────
+export function NewH2OPanel({ userAddress }: { userAddress: string }) {
+  const [info, setInfo]           = useState<H2OStakeInfo | null>(null)
+  const [loading, setLoading]     = useState(false)
+  const [stakeAmt, setStakeAmt]   = useState('')
+  const [unstakeAmt, setUnstakeAmt] = useState('')
+  const [refAddr, setRefAddr]     = useState('')
+  const [vipMonths, setVipMonths] = useState('1')
+  const [busy, setBusy]           = useState(false)
+  const [status, setStatus]       = useState<{ ok: boolean; text: string } | null>(null)
+  const [tab, setTab]             = useState<'stake' | 'vip' | 'ref'>('stake')
+  const [copied, setCopied]       = useState(false)
+
+  const load = useCallback(async () => {
+    if (!userAddress) return
+    setLoading(true)
+    try {
+      const d = await fetchH2OStakeInfo(userAddress)
+      setInfo(d)
+    } catch (e) {
+      console.error('[H2O-V2] fetch error', e)
+    } finally {
+      setLoading(false)
+    }
+  }, [userAddress])
+
+  useEffect(() => { load() }, [load])
+
+  // Auto-refresh every 30s
+  useEffect(() => {
+    const id = setInterval(load, 30_000)
+    return () => clearInterval(id)
+  }, [load])
+
+  const showStatus = (ok: boolean, text: string) => {
+    setStatus({ ok, text })
+    setTimeout(() => setStatus(null), 5000)
+  }
+
+  // ── Stake ──
+  async function doStake() {
+    if (!stakeAmt || parseFloat(stakeAmt) <= 0) return showStatus(false, 'Ingresa monto a stakear')
+    if (!MiniKit.isInstalled()) return showStatus(false, 'Abre en World App para hacer stake')
+    setBusy(true)
+    try {
+      const amtWei = ethers.parseEther(stakeAmt)
+      const nonce = randomNonce()
+      const deadline = makeDeadline()
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS,
+          abi: STAKE_ABI_FRAG,
+          functionName: 'stake',
+          args: [
+            {
+              permitted: { token: H2O_TOKEN, amount: amtWei.toString() },
+              nonce: nonce.toString(),
+              deadline: deadline.toString(),
+            },
+            'PERMIT2_SIGNATURE_PLACEHOLDER_DO_NOT_MODIFY',
+          ],
+        }],
+        permit2: [{
+          permitted: { token: H2O_TOKEN, amount: amtWei.toString() },
+          spender: H2O_STAKING_ADDRESS,
+          nonce: nonce.toString(),
+          deadline: deadline.toString(),
+        }],
+      })
+      if (finalPayload.status === 'success') {
+        showStatus(true, 'Stake enviado')
+        setStakeAmt('')
+        setTimeout(load, 3000)
+      } else {
+        showStatus(false, (finalPayload as any).error_code ?? 'Error en stake')
+      }
+    } catch (e: any) {
+      showStatus(false, e?.message ?? 'Error inesperado')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ── Unstake ──
+  async function doUnstake() {
+    if (!unstakeAmt || parseFloat(unstakeAmt) <= 0) return showStatus(false, 'Ingresa monto a retirar')
+    if (!MiniKit.isInstalled()) return showStatus(false, 'Abre en World App para hacer unstake')
+    setBusy(true)
+    try {
+      const amtWei = ethers.parseEther(unstakeAmt)
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS,
+          abi: UNSTAKE_ABI_FRAG,
+          functionName: 'unstake',
+          args: [amtWei.toString()],
+        }],
+      })
+      if (finalPayload.status === 'success') {
+        showStatus(true, 'Unstake enviado')
+        setUnstakeAmt('')
+        setTimeout(load, 3000)
+      } else {
+        showStatus(false, (finalPayload as any).error_code ?? 'Error en unstake')
+      }
+    } catch (e: any) {
+      showStatus(false, e?.message ?? 'Error inesperado')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ── Claim Rewards ──
+  async function doClaim() {
+    if (!MiniKit.isInstalled()) return showStatus(false, 'Abre en World App para reclamar')
+    setBusy(true)
+    try {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS,
+          abi: CLAIM_ABI_FRAG,
+          functionName: 'claimRewards',
+          args: [],
+        }],
+      })
+      if (finalPayload.status === 'success') {
+        showStatus(true, 'Recompensas reclamadas')
+        setTimeout(load, 3000)
+      } else {
+        showStatus(false, (finalPayload as any).error_code ?? 'Error al reclamar')
+      }
+    } catch (e: any) {
+      showStatus(false, e?.message ?? 'Error inesperado')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ── Claim Referral ──
+  async function doClaimRef() {
+    if (!MiniKit.isInstalled()) return showStatus(false, 'Abre en World App para reclamar')
+    setBusy(true)
+    try {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS,
+          abi: CLAIM_REF_ABI_FRAG,
+          functionName: 'claimRefRewards',
+          args: [],
+        }],
+      })
+      if (finalPayload.status === 'success') {
+        showStatus(true, 'Recompensas de referidos reclamadas')
+        setTimeout(load, 3000)
+      } else {
+        showStatus(false, (finalPayload as any).error_code ?? 'Error al reclamar')
+      }
+    } catch (e: any) {
+      showStatus(false, e?.message ?? 'Error inesperado')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ── Register Referrer ──
+  async function doRegisterRef() {
+    if (!refAddr || !ethers.isAddress(refAddr)) return showStatus(false, 'Dirección inválida')
+    if (!MiniKit.isInstalled()) return showStatus(false, 'Abre en World App')
+    setBusy(true)
+    try {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_STAKING_ADDRESS,
+          abi: REGISTER_REF_ABI_FRAG,
+          functionName: 'registerReferrer',
+          args: [refAddr],
+        }],
+      })
+      if (finalPayload.status === 'success') {
+        showStatus(true, 'Referrer registrado')
+        setRefAddr('')
+        setTimeout(load, 3000)
+      } else {
+        showStatus(false, (finalPayload as any).error_code ?? 'Error al registrar')
+      }
+    } catch (e: any) {
+      showStatus(false, e?.message ?? 'Error inesperado')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ── Buy VIP ──
+  async function doBuyVIP() {
+    const months = parseInt(vipMonths) || 1
+    if (!MiniKit.isInstalled()) return showStatus(false, 'Abre en World App para comprar VIP')
+    if (!info) return
+    setBusy(true)
+    try {
+      const priceWei = info.vipPrice * BigInt(months)
+      const nonce = randomNonce()
+      const deadline = makeDeadline()
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_VIP_ADDRESS,
+          abi: BUY_VIP_PERMIT2_ABI_FRAG,
+          functionName: 'buyVIPWithPermit2',
+          args: [
+            months.toString(),
+            {
+              permitted: { token: H2O_TOKEN, amount: priceWei.toString() },
+              nonce: nonce.toString(),
+              deadline: deadline.toString(),
+            },
+            'PERMIT2_SIGNATURE_PLACEHOLDER_DO_NOT_MODIFY',
+          ],
+        }],
+        permit2: [{
+          permitted: { token: H2O_TOKEN, amount: priceWei.toString() },
+          spender: H2O_VIP_ADDRESS,
+          nonce: nonce.toString(),
+          deadline: deadline.toString(),
+        }],
+      })
+      if (finalPayload.status === 'success') {
+        showStatus(true, `VIP activado por ${months} mes(es)`)
+        setTimeout(load, 3000)
+      } else {
+        showStatus(false, (finalPayload as any).error_code ?? 'Error al comprar VIP')
+      }
+    } catch (e: any) {
+      showStatus(false, e?.message ?? 'Error inesperado')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const apy = info ? calcAPY(info.rewardRate, info.totalStaked, info.periodFinish) : '—'
+  const vipActive = info && info.vipExpiry > BigInt(Math.floor(Date.now() / 1000))
   const refLink = `https://acua.app/stake?ref=${userAddress}`
 
-  const handleCopy = () => {
+  const handleCopyRef = () => {
     navigator.clipboard.writeText(refLink).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
   }
 
-  return (
-    <div className="rounded-3xl overflow-hidden border border-violet-500/30 bg-gradient-to-br from-violet-950/60 via-purple-900/40 to-indigo-950/60">
-      {/* Header */}
-      <div className="px-5 pt-5 pb-4">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-8 h-8 rounded-xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center">
-            <Users className="w-4 h-4 text-violet-400" />
-          </div>
-          <span className="text-base font-black text-foreground">Referidos</span>
-          <span className="ml-auto text-xs font-bold px-2 py-0.5 rounded-full bg-violet-500/20 border border-violet-500/30 text-violet-400">
-            PRÓXIMO
-          </span>
-        </div>
-        <p className="text-sm font-bold text-violet-300 mt-2">
-          Invita a tus amigos y gana el 10% de sus ganancias
-        </p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Cuando tu amigo o tú reclamen recompensas, <span className="text-foreground font-semibold">ambos ganan</span> automáticamente.
-          Las ganancias se reparten entre las wallets conectadas en ese momento.
-        </p>
-      </div>
-
-      {/* How it works */}
-      <div className="mx-4 mb-4 rounded-2xl bg-white/5 border border-white/10 p-3 space-y-2">
-        {[
-          { icon: <Zap className="w-3.5 h-3.5 text-amber-400" />, text: 'Comparte tu link único de referido' },
-          { icon: <Users className="w-3.5 h-3.5 text-cyan-400" />, text: 'Tu amigo se une con tu link y hace stake' },
-          { icon: <Gift className="w-3.5 h-3.5 text-violet-400" />, text: 'Ambos ganan 10% de cada claim mientras estén conectados' },
-          { icon: <Star className="w-3.5 h-3.5 text-yellow-400" />, text: 'Ganancias permanentes, sin límite de referidos' },
-        ].map((item, i) => (
-          <div key={i} className="flex items-start gap-2">
-            <div className="mt-0.5">{item.icon}</div>
-            <span className="text-xs text-muted-foreground">{item.text}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Referral link */}
-      <div className="px-4 pb-5">
-        <div className="flex items-center gap-2 rounded-xl bg-black/30 border border-white/10 p-3">
-          <span className="flex-1 text-xs font-mono text-muted-foreground truncate">
-            acua.app/stake?ref={shortAddr}
-          </span>
-          <button
-            onClick={handleCopy}
-            className="shrink-0 flex items-center gap-1.5 text-xs font-semibold text-violet-400 hover:text-violet-300 transition-colors"
-          >
-            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            {copied ? 'Copiado' : 'Copiar'}
-          </button>
-        </div>
-        <p className="text-[10px] text-center text-muted-foreground mt-2">
-          Sistema activo con el lanzamiento del nuevo H2O
-        </p>
-      </div>
-    </div>
-  )
-}
-
-// ─── Feature Badge ────────────────────────────────────────────────────────────
-function FeatureBadge({ icon, text }: { icon: React.ReactNode; text: string }) {
-  return (
-    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
-      {icon}
-      <span className="text-[11px] font-medium text-muted-foreground">{text}</span>
-    </div>
-  )
-}
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-export function NewH2OPanel({ userAddress }: { userAddress: string }) {
-  const { days, hours, minutes, seconds, done } = useCountdown(LAUNCH_DATE)
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4 pb-6">
 
-      {/* ── HERO CARD ──────────────────────────────────────────────────────── */}
+      {/* ── HERO — Balances Card ────────────────────────────────────────── */}
       <div className="relative rounded-3xl overflow-hidden border border-cyan-500/30">
-        {/* Animated background */}
         <div className="absolute inset-0 bg-gradient-to-br from-cyan-950 via-teal-900/80 to-blue-950" />
-        <div className="absolute inset-0">
+        <div className="absolute inset-0 pointer-events-none">
           <div className="absolute top-0 left-1/4 w-48 h-48 rounded-full bg-cyan-500/10 blur-3xl animate-pulse" />
           <div className="absolute bottom-0 right-1/4 w-32 h-32 rounded-full bg-teal-400/10 blur-2xl animate-pulse" style={{ animationDelay: '1s' }} />
         </div>
 
-        {/* Content */}
         <div className="relative z-10 p-5">
-          {/* Top row */}
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-8 h-8 rounded-xl bg-cyan-400/20 border border-cyan-400/40 flex items-center justify-center">
-                  <Droplets className="w-4 h-4 text-cyan-400" />
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-cyan-400/20 border border-cyan-400/40 flex items-center justify-center">
+                <Droplets className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div>
+                <p className="text-sm font-black text-white tracking-wide">H2O 2.0</p>
+                <p className="text-[10px] text-cyan-300/60">Stake · Referidos · VIP</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {vipActive && (
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/30">
+                  <Crown className="w-3 h-3 text-amber-400" />
+                  <span className="text-[9px] font-bold text-amber-400">VIP</span>
                 </div>
-                <span className="text-sm font-black text-foreground tracking-wide">H2O 2.0</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-400/20 border border-cyan-400/30 text-cyan-400 uppercase tracking-wider">
-                  Nuevo
-                </span>
-              </div>
-              <p className="text-xs text-cyan-300/70 ml-10">Stake · Referidos · Auto-sostenible</p>
-            </div>
-            <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-400/20 border border-amber-400/30">
-              <Flame className="w-3 h-3 text-amber-400" />
-              <span className="text-[10px] font-bold text-amber-400">MIGRACIÓN</span>
+              )}
+              <button
+                onClick={load}
+                disabled={loading}
+                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+              >
+                <RefreshCw className={cn('w-3.5 h-3.5 text-cyan-400', loading && 'animate-spin')} />
+              </button>
             </div>
           </div>
 
-          {/* APY highlight */}
-          <div className="flex items-center gap-3 mb-5">
-            <div className="flex-1">
-              <span className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-teal-400">
-                12%
-              </span>
-              <span className="text-lg font-bold text-cyan-300/70 ml-1">APY</span>
-              <p className="text-xs text-muted-foreground mt-0.5">Nuevo token H2O · Comisiones configurables</p>
+          {/* Main stats grid */}
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {/* Staked */}
+            <div className="rounded-2xl bg-black/30 border border-cyan-400/20 p-3">
+              <p className="text-[9px] text-cyan-400/60 uppercase font-semibold tracking-wider mb-1">H2O Stakeado</p>
+              {loading && !info
+                ? <Skeleton className="h-7 w-24 mb-1" />
+                : <p className="text-xl font-black text-white font-mono">{fmtH2O(info?.staked ?? 0n)}</p>}
+              <p className="text-[9px] text-white/30">H2O</p>
             </div>
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Shield className="w-3 h-3 text-green-400" />
-                <span className="text-green-400">Permit2</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <TrendingUp className="w-3 h-3 text-cyan-400" />
-                <span className="text-cyan-400">Auto-fondeo</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Users className="w-3 h-3 text-violet-400" />
-                <span className="text-violet-400">Referidos</span>
-              </div>
+            {/* Wallet balance */}
+            <div className="rounded-2xl bg-black/30 border border-cyan-400/20 p-3">
+              <p className="text-[9px] text-cyan-400/60 uppercase font-semibold tracking-wider mb-1">Balance H2O</p>
+              {loading && !info
+                ? <Skeleton className="h-7 w-24 mb-1" />
+                : <p className="text-xl font-black text-white font-mono">{fmtH2O(info?.h2oBalance ?? 0n)}</p>}
+              <p className="text-[9px] text-white/30">disponible</p>
             </div>
           </div>
 
-          {/* Countdown */}
+          {/* Earned */}
           <div className="rounded-2xl bg-black/30 border border-cyan-400/20 p-4">
-            <div className="flex items-center gap-1.5 mb-3">
-              <Clock className="w-3.5 h-3.5 text-cyan-400/70" />
-              <span className="text-xs font-semibold text-cyan-400/70 uppercase tracking-wider">
-                {done ? 'Lanzado en Puff' : 'Lanzamiento en Puff'}
-              </span>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <Gift className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-[10px] font-semibold text-amber-400/80 uppercase tracking-wider">Para reclamar</span>
+              </div>
+              <a href={`${WORLDSCAN}/address/${H2O_STAKING_ADDRESS}`} target="_blank" rel="noopener noreferrer"
+                className="text-[9px] font-mono text-cyan-400/40 hover:text-cyan-300 flex items-center gap-0.5">
+                contrato <ExternalLink className="w-2.5 h-2.5" />
+              </a>
             </div>
-            {done ? (
-              <div className="flex items-center justify-center gap-2 py-2">
-                <Sparkles className="w-5 h-5 text-cyan-400" />
-                <span className="text-xl font-black text-cyan-300">¡Lanzado!</span>
-                <Sparkles className="w-5 h-5 text-cyan-400" />
-              </div>
-            ) : (
-              <div className="flex items-center justify-center gap-3">
-                <CountdownUnit value={days} label="días" />
-                <span className="text-2xl font-black text-cyan-400/40 mb-4">:</span>
-                <CountdownUnit value={hours} label="horas" />
-                <span className="text-2xl font-black text-cyan-400/40 mb-4">:</span>
-                <CountdownUnit value={minutes} label="min" />
-                <span className="text-2xl font-black text-cyan-400/40 mb-4">:</span>
-                <CountdownUnit value={seconds} label="seg" />
-              </div>
+            <EarnedCounter
+              base={info?.earned ?? 0n}
+              rewardRate={info?.rewardRate ?? 0n}
+              totalStaked={info?.totalStaked ?? 0n}
+              periodFinish={info?.periodFinish ?? 0n}
+              loading={loading && !info}
+            />
+            <p className="text-[9px] text-white/30 mt-1">H2O · APY: {apy}</p>
+          </div>
+
+          {/* Claim button */}
+          <button
+            onClick={doClaim}
+            disabled={busy || !info || info.earned === 0n}
+            className={cn(
+              'mt-3 w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all',
+              info && info.earned > 0n
+                ? 'bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30 active:scale-95'
+                : 'bg-white/5 border border-white/10 text-white/30 cursor-not-allowed'
             )}
-          </div>
+          >
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
+            Reclamar Recompensas
+            {info && <span className="text-[10px] opacity-60">({bpsPct(info.claimFeeBps)} fee)</span>}
+          </button>
         </div>
       </div>
 
-      {/* ── STATS ROW ──────────────────────────────────────────────────────── */}
-      <div className="flex gap-2">
-        <StatCard
-          icon={<Coins className="w-3 h-3" />}
-          label="Depósito"
-          value="5%"
-          sub="comisión configurable"
-        />
-        <StatCard
-          icon={<ArrowUpFromLine className="w-3 h-3" />}
-          label="Retiro"
-          value="7%"
-          sub="comisión configurable"
-        />
-        <StatCard
-          icon={<Zap className="w-3 h-3" />}
-          label="Referido"
-          value="10%"
-          sub="ambos ganan"
-        />
-      </div>
+      {/* ── STATUS BAR ──────────────────────────────────────────────────── */}
+      {status && <StatusBar ok={status.ok} text={status.text} />}
 
-      {/* ── FEATURES ROW ───────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-2">
-        <FeatureBadge icon={<Shield className="w-3 h-3 text-green-400" />} text="Permit2" />
-        <FeatureBadge icon={<Droplets className="w-3 h-3 text-cyan-400" />} text="Cualquiera puede fondear" />
-        <FeatureBadge icon={<Zap className="w-3 h-3 text-amber-400" />} text="Auto-sostenible" />
-        <FeatureBadge icon={<TrendingUp className="w-3 h-3 text-violet-400" />} text="Nuevo H2O" />
-      </div>
-
-      {/* ── ACTIONS (disabled - coming soon) ───────────────────────────────── */}
-      <div className="space-y-2">
-        <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider px-1">Acciones</h3>
-        <ActionBtn
-          icon={<ArrowDownToLine className="w-4 h-4 text-cyan-400" />}
-          label="Stake H2O"
-          description="Deposita nuevo H2O y genera recompensas"
-          color="bg-cyan-400/15 border border-cyan-400/20"
-        />
-        <ActionBtn
-          icon={<ArrowUpFromLine className="w-4 h-4 text-violet-400" />}
-          label="Unstake H2O"
-          description="Retira tu stake (comisión 7%)"
-          color="bg-violet-400/15 border border-violet-400/20"
-        />
-        <ActionBtn
-          icon={<Gift className="w-4 h-4 text-amber-400" />}
-          label="Claim Recompensas"
-          description="Reclama tus ganancias + recompensas de referidos"
-          color="bg-amber-400/15 border border-amber-400/20"
-        />
-      </div>
-
-      {/* ── REFERRAL SECTION ───────────────────────────────────────────────── */}
-      <ReferralSection userAddress={userAddress} />
-
-      {/* ── INFO CARD ──────────────────────────────────────────────────────── */}
-      <div className="rounded-2xl bg-white/5 border border-white/10 p-4 space-y-2">
-        <div className="flex items-center gap-2 mb-3">
-          <Sparkles className="w-4 h-4 text-amber-400" />
-          <span className="text-sm font-bold text-foreground">Sistema Auto-sostenible</span>
-        </div>
-        {[
-          'Cualquier usuario, contrato u owner puede fondear el pool de recompensas.',
-          'Las comisiones se distribuyen automáticamente: pool de recompensas + posición del owner.',
-          'Contratos conectables y desconectables en tiempo real para mayor seguridad.',
-          'Nuevo swap integrado con Uniswap v2, v3 y v4 sin límites.',
-          'Compatible con Permit2 para World App y wallets normales.',
-        ].map((item, i) => (
-          <div key={i} className="flex items-start gap-2">
-            <div className="w-1 h-1 rounded-full bg-cyan-400 mt-1.5 shrink-0" />
-            <span className="text-xs text-muted-foreground">{item}</span>
-          </div>
+      {/* ── TABS ────────────────────────────────────────────────────────── */}
+      <div className="flex gap-1 p-1 rounded-xl bg-black/30 border border-white/8">
+        {([
+          { id: 'stake', label: 'Stake / Unstake', icon: <Droplets className="w-3.5 h-3.5" /> },
+          { id: 'vip',   label: 'VIP',             icon: <Crown className="w-3.5 h-3.5" /> },
+          { id: 'ref',   label: 'Referidos',        icon: <Users className="w-3.5 h-3.5" /> },
+        ] as const).map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={cn(
+              'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all',
+              tab === t.id
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                : 'text-white/40 hover:text-white/60'
+            )}
+          >
+            {t.icon} {t.label}
+          </button>
         ))}
       </div>
 
-      {/* ── DONATION CARD ──────────────────────────────────────────────────── */}
-      <DonationCard />
-
-    </div>
-  )
-}
-
-// ─── Donation Card ────────────────────────────────────────────────────────────
-const DONATION_ADDRESS = '0xc2ef127734f296952de75c1b58a6cec605cc2e59'
-
-function DonationCard() {
-  const [copied, setCopied] = useState(false)
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(DONATION_ADDRESS).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
-  }
-
-  return (
-    <div className="rounded-3xl overflow-hidden border border-amber-500/25 bg-gradient-to-br from-amber-950/50 via-orange-900/30 to-yellow-950/50">
-      <div className="px-5 pt-5 pb-2">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
-            <Heart className="w-4 h-4 text-amber-400" />
+      {/* ── TAB: STAKE / UNSTAKE ─────────────────────────────────────────── */}
+      {tab === 'stake' && (
+        <div className="space-y-3">
+          {/* Info row */}
+          <div className="rounded-xl border border-white/8 bg-white/4 divide-y divide-white/5">
+            <StatRow label="Total stakeado en pool" value={fmtH2O(info?.totalStaked ?? 0n) + ' H2O'} loading={loading && !info} />
+            <StatRow label="APY actual" value={apy} loading={loading && !info} />
+            <StatRow label="Fee depósito" value={info ? bpsPct(info.depositFeeBps) : '—'} loading={loading && !info} />
+            <StatRow label="Fee retiro" value={info ? bpsPct(info.withdrawFeeBps) : '—'} loading={loading && !info} />
           </div>
-          <div>
-            <span className="text-sm font-black text-foreground">Apoya el Ecosistema Acua</span>
-            <p className="text-[10px] text-amber-400/70">Donaciones en WLD</p>
+
+          {/* Stake input */}
+          <div className="rounded-xl border border-cyan-500/20 bg-black/20 p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <ArrowDownToLine className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="text-xs font-bold text-cyan-300">Depositar H2O</span>
+            </div>
+            <div className="relative">
+              <input
+                type="number"
+                placeholder="0.0"
+                value={stakeAmt}
+                onChange={e => setStakeAmt(e.target.value)}
+                className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-cyan-500/50 pr-16"
+              />
+              <button
+                onClick={() => info && setStakeAmt(ethers.formatEther(info.h2oBalance))}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-cyan-400 hover:text-cyan-300"
+              >
+                MAX
+              </button>
+            </div>
+            <p className="text-[10px] text-white/30">
+              Disponible: {fmtH2O(info?.h2oBalance ?? 0n)} H2O
+            </p>
+            <button
+              onClick={doStake}
+              disabled={busy || !stakeAmt}
+              className={cn(
+                'w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all',
+                stakeAmt
+                  ? 'bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/30 active:scale-95'
+                  : 'bg-white/5 border border-white/10 text-white/25 cursor-not-allowed'
+              )}
+            >
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowDownToLine className="w-4 h-4" />}
+              Stake H2O
+            </button>
+          </div>
+
+          {/* Unstake input */}
+          {info && info.staked > 0n && (
+            <div className="rounded-xl border border-violet-500/20 bg-black/20 p-4 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <ArrowUpFromLine className="w-3.5 h-3.5 text-violet-400" />
+                <span className="text-xs font-bold text-violet-300">Retirar H2O</span>
+              </div>
+              <div className="relative">
+                <input
+                  type="number"
+                  placeholder="0.0"
+                  value={unstakeAmt}
+                  onChange={e => setUnstakeAmt(e.target.value)}
+                  className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-violet-500/50 pr-16"
+                />
+                <button
+                  onClick={() => info && setUnstakeAmt(ethers.formatEther(info.staked))}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-violet-400 hover:text-violet-300"
+                >
+                  MAX
+                </button>
+              </div>
+              <p className="text-[10px] text-white/30">
+                Stakeado: {fmtH2O(info.staked)} H2O · Fee retiro: {bpsPct(info.withdrawFeeBps)}
+              </p>
+              <button
+                onClick={doUnstake}
+                disabled={busy || !unstakeAmt}
+                className={cn(
+                  'w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all',
+                  unstakeAmt
+                    ? 'bg-violet-500/20 border border-violet-500/30 text-violet-300 hover:bg-violet-500/30 active:scale-95'
+                    : 'bg-white/5 border border-white/10 text-white/25 cursor-not-allowed'
+                )}
+              >
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUpFromLine className="w-4 h-4" />}
+                Unstake H2O
+              </button>
+            </div>
+          )}
+
+          {/* No wallet / not in World App notice */}
+          {!MiniKit.isInstalled() && (
+            <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 bg-amber-500/8 border border-amber-500/20 text-amber-300/70 text-xs">
+              <Lock className="w-3.5 h-3.5 shrink-0" />
+              Abre en World App para stake · Balances visibles en modo lectura
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: VIP ─────────────────────────────────────────────────────── */}
+      {tab === 'vip' && (
+        <div className="space-y-3">
+          <div className="rounded-xl border border-amber-500/20 bg-black/20 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Crown className="w-4 h-4 text-amber-400" />
+              <span className="text-sm font-bold text-amber-300">Estado VIP</span>
+            </div>
+            <div className="divide-y divide-white/5">
+              <StatRow
+                label="Estado"
+                value={vipActive ? '✅ Activo' : '❌ Inactivo'}
+                sub={vipActive && info ? `Expira: ${new Date(Number(info.vipExpiry) * 1000).toLocaleDateString()}` : undefined}
+                loading={loading && !info}
+              />
+              <StatRow
+                label="Precio VIP (1 mes)"
+                value={info ? fmtH2O(info.vipPrice) + ' H2O' : '—'}
+                loading={loading && !info}
+              />
+              <StatRow
+                label="VIP Recompensas pendientes"
+                value={info ? fmtH2O(info.ownerVipPending) + ' H2O' : '—'}
+                loading={loading && !info}
+              />
+            </div>
+          </div>
+
+          {info && info.vipPrice > 0n && (
+            <div className="rounded-xl border border-amber-500/20 bg-black/20 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-white/60">Meses a comprar:</span>
+                <div className="flex gap-1">
+                  {[1, 3, 6, 12].map(m => (
+                    <button
+                      key={m}
+                      onClick={() => setVipMonths(m.toString())}
+                      className={cn(
+                        'px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors',
+                        vipMonths === m.toString()
+                          ? 'bg-amber-500/20 border-amber-500/30 text-amber-300'
+                          : 'bg-white/5 border-white/10 text-white/40 hover:text-white/60'
+                      )}
+                    >
+                      {m}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-white/40">
+                Total: <span className="text-amber-300 font-bold">{fmtH2O(info.vipPrice * BigInt(vipMonths))} H2O</span>
+              </p>
+              <button
+                onClick={doBuyVIP}
+                disabled={busy}
+                className="w-full py-2.5 rounded-xl font-bold text-sm bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30 active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crown className="w-4 h-4" />}
+                Activar VIP · {vipMonths} mes(es)
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: REFERIDOS ───────────────────────────────────────────────── */}
+      {tab === 'ref' && (
+        <div className="space-y-3">
+          {/* Stats */}
+          <div className="rounded-xl border border-violet-500/20 bg-black/20 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Users className="w-4 h-4 text-violet-400" />
+              <span className="text-sm font-bold text-violet-300">Mis Referidos</span>
+            </div>
+            <div className="divide-y divide-white/5">
+              <StatRow label="Referidos activos" value={info ? info.refCount.toString() : '—'} loading={loading && !info} />
+              <StatRow
+                label="Recompensas referido"
+                value={info ? fmtH2O(info.refPending) + ' H2O' : '—'}
+                loading={loading && !info}
+              />
+              <StatRow
+                label="Mi referrer"
+                value={info && info.referrer !== ethers.ZeroAddress ? shortenAddress(info.referrer) : 'Ninguno'}
+                loading={loading && !info}
+              />
+            </div>
+
+            {info && info.refPending > 0n && (
+              <button
+                onClick={doClaimRef}
+                disabled={busy}
+                className="mt-3 w-full py-2 rounded-xl font-bold text-xs bg-violet-500/20 border border-violet-500/30 text-violet-300 hover:bg-violet-500/30 active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Gift className="w-3.5 h-3.5" />}
+                Reclamar recompensas de referidos
+              </button>
+            )}
+          </div>
+
+          {/* Register referrer */}
+          {info && info.referrer === ethers.ZeroAddress && (
+            <div className="rounded-xl border border-violet-500/20 bg-black/20 p-4 space-y-3">
+              <p className="text-xs font-semibold text-violet-300">Registrar tu referrer</p>
+              <input
+                type="text"
+                placeholder="0x..."
+                value={refAddr}
+                onChange={e => setRefAddr(e.target.value)}
+                className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-violet-500/50 font-mono"
+              />
+              <button
+                onClick={doRegisterRef}
+                disabled={busy || !refAddr}
+                className={cn(
+                  'w-full py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all',
+                  refAddr
+                    ? 'bg-violet-500/20 border border-violet-500/30 text-violet-300 hover:bg-violet-500/30 active:scale-95'
+                    : 'bg-white/5 border-white/10 text-white/25 cursor-not-allowed'
+                )}
+              >
+                {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                Registrar referrer
+              </button>
+            </div>
+          )}
+
+          {/* Share link */}
+          <div className="rounded-xl border border-violet-500/20 bg-black/20 p-4">
+            <p className="text-xs font-semibold text-violet-300 mb-2">Tu link de referido</p>
+            <div className="flex items-center gap-2 rounded-xl bg-black/30 border border-white/10 p-3">
+              <span className="flex-1 text-[11px] font-mono text-white/50 truncate">
+                acua.app/stake?ref={userAddress ? userAddress.slice(0, 10) + '…' : '0x…'}
+              </span>
+              <button
+                onClick={handleCopyRef}
+                className="shrink-0 flex items-center gap-1 text-xs font-bold text-violet-400 hover:text-violet-300 transition-colors"
+              >
+                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? 'Copiado' : 'Copiar'}
+              </button>
+            </div>
+            <p className="text-[9px] text-white/25 mt-2 text-center">Ganas 10% de los claims de tus referidos</p>
           </div>
         </div>
+      )}
 
-        <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-          ¿Te gusta Acua Staking? Dona <span className="text-amber-400 font-semibold">WLD</span> a esta dirección para ayudar al ecosistema, financiar el desarrollo y mantener los pools de recompensas activos para toda la comunidad.
-        </p>
-
-        <div className="flex items-center gap-1 mt-3 mb-1">
-          <div className="w-1 h-1 rounded-full bg-amber-400" />
-          <span className="text-[9px] font-bold text-amber-400/60 uppercase tracking-widest">Dirección de donación · WLD</span>
-        </div>
+      {/* ── CONTRACT INFO ────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 rounded-xl px-3 py-2 bg-black/20 border border-white/8">
+        <Shield className="w-3 h-3 text-green-400 shrink-0" />
+        <span className="text-[9px] text-white/30 font-mono truncate">
+          {H2O_STAKING_ADDRESS}
+        </span>
+        <a href={`${WORLDSCAN}/address/${H2O_STAKING_ADDRESS}`} target="_blank" rel="noopener noreferrer"
+          className="shrink-0 text-cyan-400/50 hover:text-cyan-300">
+          <ExternalLink className="w-3 h-3" />
+        </a>
       </div>
 
-      <div className="px-5 pb-5">
-        <div className="flex items-center gap-2 rounded-xl bg-black/30 border border-amber-500/20 p-3">
-          <span className="flex-1 text-[11px] font-mono text-amber-200/70 break-all leading-relaxed">
-            {DONATION_ADDRESS}
-          </span>
-          <button
-            onClick={handleCopy}
-            className="shrink-0 flex items-center gap-1.5 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors"
-          >
-            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copiado' : 'Copiar'}</span>
-          </button>
-        </div>
-        <div className="flex items-center gap-1.5 mt-2.5">
-          <ExternalLink className="w-3 h-3 text-amber-400/50" />
-          <p className="text-[10px] text-muted-foreground">
-            Red: <span className="text-foreground/70">World Chain (480)</span> · Token: <span className="text-foreground/70">WLD</span>
-          </p>
-        </div>
-        <p className="text-[10px] text-center text-amber-400/50 mt-3">
-          💧 Cada donación ayuda a mantener el ecosistema Acua vivo
-        </p>
-      </div>
     </div>
   )
 }
