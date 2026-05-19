@@ -540,19 +540,11 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
   // costs to 0.0008 BNB+. We override getFeeData so every tx through this
   // signer is capped at 1.1 gwei regardless of what the RPC returns.
   const getSigner = (): ethers.Wallet => {
-    if (!bnbPrivateKey) throw new Error('Para firmar en BNB Chain importa tu wallet con clave privada en el selector de redes.')
+    if (!bnbPrivateKey) throw new Error('Sin clave BNB — toca "Cambiar →" para conectar tu wallet.')
     const provider = new ethers.JsonRpcProvider(BNB_RPC)
-    const origGetFeeData = provider.getFeeData.bind(provider)
-    provider.getFeeData = async () => {
-      try {
-        const d = await origGetFeeData()
-        const cap = GAS_PRICE_WEI + GAS_PRICE_WEI / 10n  // 1.1 gwei
-        const gp  = d.gasPrice !== null && d.gasPrice > cap ? cap : d.gasPrice
-        return new ethers.FeeData(null, null, gp)
-      } catch {
-        return new ethers.FeeData(null, null, GAS_PRICE_WEI)
-      }
-    }
+    // BSC uses legacy (type-0) transactions. Every tx call in this component passes
+    // an explicit gasPrice so ethers.js never needs to call eth_feeHistory.
+    provider.getFeeData = async () => new ethers.FeeData(null, null, GAS_PRICE_WEI)
     return new ethers.Wallet(bnbPrivateKey, provider)
   }
 
@@ -887,7 +879,10 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
   }
 
   // ─── No private key warning ───────────────────────────────────────────────────
-  // All BNB transactions require a BNB private key (World App cannot sign on BSC).
+  // BNB Chain transactions cannot go through MiniKit (World App only signs World Chain).
+  // bnbPrivateKey is required for all BNB operations. When walletMode='imported' the
+  // parent (acua-app.tsx) auto-derives it from importedSigner.privateKey, so noKey
+  // should be false for imported wallets.
   const noKey = !bnbPrivateKey
 
   // ─── Render ───────────────────────────────────────────────────────────────────
@@ -960,7 +955,7 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
         {/* Account change hint */}
         <div className="relative mt-2 flex items-center justify-between gap-2 px-2.5 py-1 rounded-xl bg-white/4 border border-white/8">
           <p className="text-[8px] text-[oklch(0.45_0.01_230)]">
-            {isMiniKit ? '🌐 World Wallet · MiniKit' : noKey ? '👁 Solo lectura · sin clave privada BNB' : '🔑 Clave privada BNB activa'}
+            {noKey ? '⚠️ Sin clave BNB · toca Cambiar →' : '🔑 Clave BNB activa · listo para operar'}
           </p>
           <button
             onClick={() => {

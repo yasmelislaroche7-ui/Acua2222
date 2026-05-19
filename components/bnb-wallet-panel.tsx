@@ -179,7 +179,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
 
   // ── Signer ─────────────────────────────────────────────────────────────────
   const getSigner = () => {
-    if (!bnbPrivateKey) throw new Error('Importa tu clave privada BNB en el selector de redes (arriba derecha) para firmar transacciones.')
+    if (!bnbPrivateKey) throw new Error('Sin clave BNB — abre el selector de redes (↗) para conectar tu wallet.')
     const provider = new ethers.JsonRpcProvider(BNB_RPC)
     provider.getFeeData = async () => new ethers.FeeData(null, null, GAS_WEI)
     return new ethers.Wallet(bnbPrivateKey, provider)
@@ -250,7 +250,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
       if (tk.address === NATIVE) {
         setSendStep({ label: `Enviando ${sendAmt} BNB…` })
         const tx = await signer.sendTransaction({
-          to: sendTo, value: ethers.parseEther(sendAmt), gasLimit: 21_000n, gasPrice: GAS_WEI,
+          to: sendTo, value: ethers.parseEther(sendAmt.replace(',', '.')), gasLimit: 21_000n, gasPrice: GAS_WEI,
         })
         setSendStep({ label: 'Confirmando…', hash: tx.hash })
         await tx.wait()
@@ -258,7 +258,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
       } else {
         setSendStep({ label: `Enviando ${sendAmt} ${tk.symbol}…` })
         const c = new ethers.Contract(tk.address, ERC20_ABI, signer)
-        const tx = await c.transfer(sendTo, ethers.parseUnits(sendAmt, tk.decimals), {
+        const tx = await c.transfer(sendTo, ethers.parseUnits(sendAmt.replace(',', '.'), tk.decimals), {
           gasLimit: 65_000n, gasPrice: GAS_WEI,
         })
         setSendStep({ label: 'Confirmando…', hash: tx.hash })
@@ -313,7 +313,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
       const toAddr   = toTk.address   === NATIVE ? WBNB : toTk.address
       const path     = (fromAddr === WBNB || toAddr === WBNB) ? [fromAddr, toAddr] : [fromAddr, WBNB, toAddr]
       const deadline = Math.floor(Date.now() / 1000) + 1200
-      const amtIn    = ethers.parseUnits(swapAmt, fromTk.decimals)
+      const amtIn    = ethers.parseUnits(swapAmt.replace(',', '.'), fromTk.decimals)
       const rawOut   = swapOutRaw ?? ethers.parseUnits(parseFloat(swapOut ?? '0').toFixed(6), toTk.decimals)
       const amtOutMin = rawOut * 98n / 100n
       const dest     = bnbAddress!
@@ -426,8 +426,8 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
     </div>
   )
 
-  const isMiniKit  = walletMode === 'minikit'
-  const noKey      = !bnbPrivateKey && !isMiniKit
+  const isMiniKit  = false  // MiniKit cannot sign BNB Chain (chainId 56) transactions
+  const noKey      = !bnbPrivateKey
   const sendBal    = balances.find(b => b.symbol === sendToken)?.balance ?? 0n
   const swapFromBal = balances.find(b => b.symbol === swapFrom)?.balance ?? 0n
   const allHist    = [...histNormal, ...histTokens].sort((a, b) => parseInt(b.timeStamp) - parseInt(a.timeStamp))

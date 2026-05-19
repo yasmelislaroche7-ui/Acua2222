@@ -758,20 +758,33 @@ export default function AcuaApp() {
           )}
 
           {/* ── BNB panels ──────────────────────────────────────────── */}
-          {activeNetwork === 'bnb' && activeBNBTab === 'bnb-stake' && (
-            <BNBSushiPanel bnbAddress={bnbAddress ?? addr} bnbPrivateKey={bnbPrivateKey} walletMode={wallet.walletMode} />
-          )}
-          {activeNetwork === 'bnb' && activeBNBTab === 'bnb-wallet' && (
-            <BNBWalletPanel bnbAddress={bnbAddress ?? addr} bnbPrivateKey={bnbPrivateKey} walletMode={wallet.walletMode} />
-          )}
-          {activeNetwork === 'bnb' && activeBNBTab === 'bnb-bridge' && (
-            <BNBBridgePanel
-              wldAddress={addr}
-              bnbAddress={bnbAddress}
-              bnbPrivateKey={bnbPrivateKey}
-              isOwner={isMainOwner}
-            />
-          )}
+          {activeNetwork === 'bnb' && (() => {
+            // Auto-share imported wallet's private key for BNB operations.
+            // When the user imports a wallet from the main connect screen,
+            // importedSigner.privateKey is the same EVM key that works on BNB Chain.
+            // bnbPrivateKey is only set when the user explicitly imports via NetworkSwitcher.
+            const effectiveBnbKey: string | null =
+              bnbPrivateKey ??
+              (wallet.walletMode === 'imported' && wallet.importedSigner
+                ? (wallet.importedSigner as unknown as { privateKey: string }).privateKey
+                : null)
+            return (<>
+              {activeBNBTab === 'bnb-stake' && (
+                <BNBSushiPanel bnbAddress={bnbAddress ?? addr} bnbPrivateKey={effectiveBnbKey} walletMode={wallet.walletMode} />
+              )}
+              {activeBNBTab === 'bnb-wallet' && (
+                <BNBWalletPanel bnbAddress={bnbAddress ?? addr} bnbPrivateKey={effectiveBnbKey} walletMode={wallet.walletMode} />
+              )}
+              {activeBNBTab === 'bnb-bridge' && (
+                <BNBBridgePanel
+                  wldAddress={addr}
+                  bnbAddress={bnbAddress}
+                  bnbPrivateKey={effectiveBnbKey}
+                  isOwner={isMainOwner}
+                />
+              )}
+            </>)
+          })()}
 
           {/* ── WLD / World Chain app ─────────────── */}
           {activeNetwork === 'wld' && activeTab === 'h2o' && (
