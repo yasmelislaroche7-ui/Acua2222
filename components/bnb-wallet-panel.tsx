@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import { ethers } from 'ethers'
-import { MiniKit } from '@worldcoin/minikit-js'
 import {
   Wallet, RefreshCw, Copy, Check, ExternalLink, Loader2,
   Send, QrCode, History, ArrowUpRight, ArrowDownLeft,
@@ -13,13 +12,6 @@ import { BNB_TOKENS, BNB_RPC, ERC20_ABI } from '@/lib/sushibnb-abi'
 import { useLang } from '@/context/lang-context'
 import { cn } from '@/lib/utils'
 import type { WalletMode } from '@/lib/tx-signer'
-
-// ── MiniKit JSON ABIs (for BNB signing via World Wallet) ───────────────────────
-const MK_ERC20_TRANSFER = [{ name: 'transfer', type: 'function', inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ type: 'bool' }] }]
-const MK_ERC20_APPROVE  = [{ name: 'approve',  type: 'function', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ type: 'bool' }] }]
-const MK_SWAP_ETH_FOR_TOKENS   = [{ name: 'swapExactETHForTokens',   type: 'function', stateMutability: 'payable', inputs: [{ name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }], outputs: [{ name: '', type: 'uint256[]' }] }]
-const MK_SWAP_TOKENS_FOR_ETH   = [{ name: 'swapExactTokensForETH',   type: 'function', inputs: [{ name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }], outputs: [{ name: '', type: 'uint256[]' }] }]
-const MK_SWAP_TOKENS_FOR_TOKENS= [{ name: 'swapExactTokensForTokens',type: 'function', inputs: [{ name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }], outputs: [{ name: '', type: 'uint256[]' }] }]
 
 // ── PancakeSwap V2 ─────────────────────────────────────────────────────────────
 const PANCAKE_V2 = '0x10ED43C718714eb63d5aA57B78B54704E256024E'
@@ -177,12 +169,40 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
   const [histLoading, setHistLoading] = useState(false)
   const [histView, setHistView]       = useState<HistView>('all')
 
-  // ── Signer ─────────────────────────────────────────────────────────────────
-  const getSigner = () => {
-    if (!bnbPrivateKey) throw new Error('Sin clave BNB — abre el selector de redes (↗) para conectar tu wallet.')
-    const provider = new ethers.JsonRpcProvider(BNB_RPC)
-    provider.getFeeData = async () => new ethers.FeeData(null, null, GAS_WEI)
-    return new ethers.Wallet(bnbPrivateKey, provider)
+  // ── Signer — usa clave importada o window.ethereum (World Wallet) ──────────
+  // La misma clave privada que protege la World Wallet controla la misma
+  // dirección en TODAS las redes EVM, incluyendo BNB Chain (chain ID 56).
+  // Cuando no hay clave importada, usamos window.ethereum (inyectado por World
+  // App) cambiando al chain ID 56. El usuario aprueba el tx en World App.
+  const getBnbSigner = async (): Promise<ethers.Wallet | ethers.JsonRpcSigner> => {
+    if (bnbPrivateKey) {
+      const provider = new ethers.JsonRpcProvider(BNB_RPC)
+      provider.getFeeData = async () => new ethers.FeeData(null, null, GAS_WEI)
+      return new ethers.Wallet(bnbPrivateKey, provider)
+    }
+    const eth = typeof window !== 'undefined' ? (window as any).ethereum : null
+    if (!eth) throw new Error('Sin proveedor Web3. Importa tu clave privada en el selector de redes para firmar en BNB Chain.')
+    // Cambiar a BNB Smart Chain (chain ID 56 = 0x38)
+    try {
+      await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x38' }] })
+    } catch (err: any) {
+      if (err?.code === 4902 || err?.code === -32603) {
+        await eth.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: '0x38',
+            chainName: 'BNB Smart Chain',
+            nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+            rpcUrls: ['https://bsc-dataseed.binance.org/', 'https://bsc-dataseed1.bnbchain.org/'],
+            blockExplorerUrls: ['https://bscscan.com'],
+          }],
+        })
+      } else {
+        throw err
+      }
+    }
+    const bp = new ethers.BrowserProvider(eth)
+    return await bp.getSigner()
   }
 
   // ── Load balances ──────────────────────────────────────────────────────────
@@ -224,29 +244,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
     try {
       const tk = getToken(sendToken)
 
-      if (isMiniKit) {
-        setSendStep({ label: `Enviando ${sendAmt} ${tk.symbol} via World Wallet…` })
-        let txList: object[]
-        if (tk.address === NATIVE) {
-          // BNB native transfer — MiniKit can't do raw ETH send directly, use a minimal payable call
-          // Fall back: send as a value-bearing empty tx by wrapping in a dummy call.
-          // Most World App versions support native value sends.
-          txList = [{ address: sendTo, abi: [{ name: 'transfer', type: 'receive', stateMutability: 'payable', inputs: [], outputs: [] }], functionName: 'transfer', args: [], value: ethers.parseEther(sendAmt).toString() }]
-        } else {
-          txList = [{ address: tk.address, abi: MK_ERC20_TRANSFER, functionName: 'transfer', args: [sendTo, ethers.parseUnits(sendAmt, tk.decimals).toString()] }]
-        }
-        const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({ transaction: txList as any })
-        if ((finalPayload as any).status === 'success') {
-          setSendStep({ label: `✓ ${sendAmt} ${tk.symbol} enviados`, done: true })
-          setSendAmt(''); setSendTo('')
-          if (bnbAddress) loadBalances(bnbAddress)
-        } else {
-          setSendStep({ label: 'Error', error: (finalPayload as any).message ?? 'Transacción rechazada' })
-        }
-        return
-      }
-
-      const signer = getSigner()
+      const signer = await getBnbSigner()
       if (tk.address === NATIVE) {
         setSendStep({ label: `Enviando ${sendAmt} BNB…` })
         const tx = await signer.sendTransaction({
@@ -318,37 +316,7 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
       const amtOutMin = rawOut * 98n / 100n
       const dest     = bnbAddress!
 
-      if (isMiniKit) {
-        const txList: object[] = []
-        // Check approval for non-native tokens
-        if (fromTk.address !== NATIVE) {
-          const provider = new ethers.JsonRpcProvider(BNB_RPC)
-          const erc20 = new ethers.Contract(fromTk.address, ERC20_ABI, provider)
-          const allow: bigint = await erc20.allowance(dest, PANCAKE_V2)
-          if (allow < amtIn) {
-            txList.push({ address: fromTk.address, abi: MK_ERC20_APPROVE, functionName: 'approve', args: [PANCAKE_V2, ethers.MaxUint256.toString()] })
-          }
-        }
-        setSwapStep({ label: `Swap ${swapAmt} ${fromTk.symbol} → ${toTk.symbol} via World Wallet…` })
-        if (fromTk.address === NATIVE) {
-          txList.push({ address: PANCAKE_V2, abi: MK_SWAP_ETH_FOR_TOKENS, functionName: 'swapExactETHForTokens', args: [amtOutMin.toString(), path, dest, deadline.toString()], value: amtIn.toString() })
-        } else if (toTk.address === NATIVE) {
-          txList.push({ address: PANCAKE_V2, abi: MK_SWAP_TOKENS_FOR_ETH, functionName: 'swapExactTokensForETH', args: [amtIn.toString(), amtOutMin.toString(), path, dest, deadline.toString()] })
-        } else {
-          txList.push({ address: PANCAKE_V2, abi: MK_SWAP_TOKENS_FOR_TOKENS, functionName: 'swapExactTokensForTokens', args: [amtIn.toString(), amtOutMin.toString(), path, dest, deadline.toString()] })
-        }
-        const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({ transaction: txList as any })
-        if ((finalPayload as any).status === 'success') {
-          setSwapStep({ label: `✓ Swap: ${swapAmt} ${fromTk.symbol} → ~${swapOut} ${toTk.symbol}`, done: true })
-          setSwapAmt(''); setSwapOut(null); setSwapOutRaw(null)
-          if (bnbAddress) loadBalances(bnbAddress)
-        } else {
-          setSwapStep({ label: 'Error', error: (finalPayload as any).message ?? 'Transacción rechazada' })
-        }
-        return
-      }
-
-      const signer = getSigner()
+      const signer = await getBnbSigner()
       const router = new ethers.Contract(PANCAKE_V2, ROUTER_ABI, signer)
 
       if (fromTk.address !== NATIVE) {
@@ -426,8 +394,8 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
     </div>
   )
 
-  const isMiniKit  = false  // MiniKit cannot sign BNB Chain (chainId 56) transactions
-  const noKey      = !bnbPrivateKey
+  const hasEthProvider = typeof window !== 'undefined' && !!(window as any).ethereum
+  const noKey      = !bnbPrivateKey && !hasEthProvider
   const sendBal    = balances.find(b => b.symbol === sendToken)?.balance ?? 0n
   const swapFromBal = balances.find(b => b.symbol === swapFrom)?.balance ?? 0n
   const allHist    = [...histNormal, ...histTokens].sort((a, b) => parseInt(b.timeStamp) - parseInt(a.timeStamp))
@@ -461,7 +429,9 @@ export function BNBWalletPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBWal
           </div>
         </div>
         <div className="flex items-center justify-between px-0.5">
-          <span className="text-[8px] text-[oklch(0.45_0.01_230)]">{isMiniKit ? '🌐 World Wallet · MiniKit' : noKey ? '👁 Solo lectura' : '🔑 Clave privada BNB activa'}</span>
+          <span className="text-[8px] text-[oklch(0.45_0.01_230)]">
+            {bnbPrivateKey ? '🔑 Clave privada BNB activa' : hasEthProvider ? '🌐 World Wallet · BNB Chain' : '👁 Solo lectura'}
+          </span>
           <span className="text-[8px] text-[oklch(0.35_0.01_230)]">PancakeSwap V2 · BSCScan</span>
         </div>
       </div>
