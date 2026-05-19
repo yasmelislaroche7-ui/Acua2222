@@ -225,7 +225,9 @@ export function GlobalChat({
       const count = BigInt((await c.messageCount()).toString())
       setMsgCount(Number(count))
       if (count === 0n) { setMsgs([]); return }
-      const fromId = count > 50n ? count - 50n : 0n
+      // getMessages(fromId, count): devuelve hasta 'count' mensajes desde 'fromId' hacia atrás
+      // fromId debe ser el ID del último mensaje (count - 1)
+      const fromId = count - 1n
       const raw    = await c.getMessages(fromId.toString(), '50')
       const parsed: ChatMsg[] = Array.from(raw).map((m: any) => ({
         id:        BigInt(m.id.toString()),
@@ -235,6 +237,7 @@ export function GlobalChat({
         deleted:   m.deleted as boolean,
         relayed:   m.relayed as boolean,
       })).filter((m: ChatMsg) => !m.deleted)
+        .reverse()  // el contrato devuelve del más nuevo al más viejo; revertir para mostrar cronológico
       setMsgs(parsed)
       if (prevCountRef.current > 0 && Number(count) > prevCountRef.current)
         setNewCount(n => n + Number(count) - prevCountRef.current)
