@@ -22,6 +22,9 @@
     "withdraw:volume-rewards": "hardhat run scripts/withdraw-volume-rewards.js --network worldchain",
     "deploy:sushi-v2": "hardhat run scripts/deploy-sushi-v2.js --network worldchain",
     "deploy:wld-v2": "hardhat run scripts/deploy-wld-v2.js --network worldchain",
+    "fund": "hardhat run scripts/fund.js --network worldchain",
+    "fund:h2o": "hardhat run scripts/fund-h2o-staking.js --network worldchain",
+    "fund:h2o-v3": "hardhat run scripts/fund-h2o-v3.js --network worldchain",
     "fund:volume-rewards": "hardhat run scripts/fund-volume-rewards.js --network worldchain",
     "withdraw:swap-router-fees": "hardhat run scripts/withdraw-swap-router-fees.js --network worldchain",
     "verify": "hardhat verify --network worldchain"
