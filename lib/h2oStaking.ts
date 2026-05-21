@@ -273,3 +273,7 @@ export function randomNonce(): bigint {
   }
   return BigInt(Math.floor(Math.random() * 2 ** 32))
 }
+
+// Alias exports for legacy service files
+export const OLD_STAKING_ABI = STAKE_ABI_FRAG
+export const NEW_STAKING_ABI = STAKE_ABI_FRAG

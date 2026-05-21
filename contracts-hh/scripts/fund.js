@@ -24,7 +24,7 @@ async function fundToken(symbol, tokenAddress, amountHuman) {
 async function main() {
 
   // ⚠️ EDITA AQUI LOS MONTOS QUE QUIERAS FONDEAR
-  // Deja en "0" los tokens que NO quieres fondear — serán ignorados automáticamente.
+  // puedes poner 1, 1000, 50000, etc
 
   const tokens = [
     { symbol: "H2O",   address: "0x17392e5483983945dEB92e0518a8F2C4eB6bA59d", amount: "0" },
@@ -36,13 +36,7 @@ async function main() {
     { symbol: "UTH2",  address: "0x9eA8653640E22A5b69887985BB75d496dc97022a", amount: "0" },
   ];
 
-  const toFund = tokens.filter(t => parseFloat(t.amount) > 0);
-  if (toFund.length === 0) {
-    console.log("⚠️  No hay tokens con monto > 0. Edita los amounts en fund.js y vuelve a correr.");
-    return;
-  }
-
-  for (const t of toFund) {
+  for (const t of tokens) {
     await fundToken(t.symbol, t.address, t.amount);
   }
 

@@ -1310,7 +1310,7 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
       ══════════════════════════════════════════════════════════════════════ */}
       {(volData?.uth2Amount ?? 0n) > 0n || wddPending > 0n ? (
         <div className="rounded-xl mb-2 overflow-hidden" style={{ background: 'rgba(0,30,60,0.7)', border: '1px solid rgba(0,163,255,0.12)' }}>
-          <div className="flex items-center gap-0 divide-x" style={{ divideColor: 'rgba(0,163,255,0.08)' }}>
+          <div className="flex items-center gap-0 divide-x divide-[rgba(0,163,255,0.08)]">
             {/* UTH2 */}
             {volData && volData.uth2Amount > 0n && (
               <div className="flex-1 flex items-center gap-2 px-3 py-2">

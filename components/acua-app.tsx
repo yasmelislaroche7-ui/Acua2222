@@ -819,7 +819,7 @@ export default function AcuaApp() {
           {activeNetwork === 'wld' && activeTab === 'h2o-new'    && <NewH2OPanel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'stake-v2'   && <StakeV2Panel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'h2o-v3'     && <H2OV3Panel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'stake-plus'  && <MultiStakingPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
+          {activeNetwork === 'wld' && activeTab === 'stake-plus'  && <MultiStakingPanel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'uth2'        && <MiningUTH2Panel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
           {activeNetwork === 'wld' && activeTab === 'wld'         && <MiningWLDPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
           {activeNetwork === 'wld' && activeTab === 'time'        && <MiningTimePanel userAddress={addr} />}

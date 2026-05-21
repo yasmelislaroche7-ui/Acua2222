@@ -11,8 +11,8 @@ export function MiniKitProvider({ children }: { children: React.ReactNode }) {
     try {
       MiniKit.install(WORLD_APP_ID)
       if (typeof window !== 'undefined' && (window as any).WorldApp) {
-        console.log('[MiniKit] instalado correctamente — appId=%s isInstalled=%s walletAddress=%s',
-          WORLD_APP_ID, MiniKit.isInstalled(), MiniKit.walletAddress)
+        console.log('[MiniKit] instalado correctamente — appId=%s isInstalled=%s',
+          WORLD_APP_ID, MiniKit.isInstalled())
       }
     } catch (err) {
       console.error('[MiniKit] error al instalar:', err)

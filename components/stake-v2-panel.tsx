@@ -30,7 +30,7 @@ export const STAKE_V2_TOKENS: StakeV2Token[] = stakingV2Addresses.tokens.map((t)
   name: `${t.symbol} Staking V2`,
   symbol: t.symbol,
   tokenAddress: t.token,
-  stakingContract: stakingV2Addresses.contracts[t.key],
+  stakingContract: (stakingV2Addresses.contracts as Record<string, string>)[t.key],
   rewardSymbol: t.symbol, // El reward es el mismo token staked
   color: '#8b5cf6', // Personaliza si deseas
   decimals: t.decimals,

@@ -36,7 +36,7 @@ export function WalletManager({ onImport }: WalletManagerProps) {
   const handleImport = () => {
     setError('')
     try {
-      let wallet: ethers.Wallet
+      let wallet: ethers.Wallet | ethers.HDNodeWallet
       if (importType === 'seed') {
         wallet = ethers.Wallet.fromPhrase(inputValue.trim())
       } else {

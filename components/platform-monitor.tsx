@@ -213,7 +213,7 @@ export function PlatformMonitor({
   useEffect(() => { load() }, [load])
 
   // User-level data
-  const userStaked  = stakeInfo?.staked  ?? 0n
+  const userStaked  = stakeInfo?.stakedAmount  ?? 0n
   const userPending = stakeInfo?.pending ?? 0n
   const h2oP        = stats?.h2oPrice  ?? 0.0215
   const userValueH2O = parseFloat(ethers.formatEther(h2oBalance + userStaked + userPending)) * h2oP
