@@ -86,7 +86,24 @@ function slippageLabel(bps: number): string {
   if (bps <= 30)  return '0.3%'
   if (bps <= 50)  return '0.5%'
   if (bps <= 100) return '1%'
-  return '2%'
+  if (bps <= 200) return '2%'
+  return `${(bps / 100).toFixed(1)}%`
+}
+
+// Impact-aware auto slippage: at least the pair base, plus 1.5× actual impact, capped 15%
+function getSmartSlippageBps(
+  fromAddr: string, toAddr: string,
+  impactBps: number | null,
+  retryCount = 0
+): number {
+  const base = getAdaptiveSlippageBps(fromAddr, toAddr)
+  let slip = base
+  if (impactBps !== null && impactBps > 0) {
+    slip = Math.max(base, Math.round(impactBps * 1.6))
+  }
+  // Each retry doubles the headroom
+  if (retryCount > 0) slip = Math.round(slip * Math.pow(2, retryCount))
+  return Math.min(slip, 1500)   // hard cap at 15%
 }
 
 const WETH_ADDR = '0x4200000000000000000000000000000000000006'
@@ -416,7 +433,7 @@ async function getBestRouteQuote(
   const provider = getProvider()
   const router   = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, provider)
   const poolAbi  = ['function liquidity() view returns (uint128)']
-  const MIN_SWAP_POOL_LIQ = 100_000_000_000n
+  const MIN_SWAP_POOL_LIQ = 10_000_000_000n  // lowered to find more routes
 
   let best: QuoteResult | null = null
 
@@ -658,10 +675,7 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
   const [swapMsg,   setSwapMsg]   = useState<{ ok: boolean; text: string } | null>(null)
   const [pickerFor, setPickerFor] = useState<'from' | 'to' | null>(null)
   const [impact,    setImpact]    = useState<number | null>(null)
-  const [slipWarning, setSlipWarning] = useState<{ bps: number; level: 'warn' | 'high' } | null>(null)
-  const [slippageMode, setSlippageMode]   = useState<'auto' | 'custom' | 'none'>('auto')
-  const [customSlipPct, setCustomSlipPct] = useState('5')
-  const [showSlipConfig, setShowSlipConfig] = useState(false)
+  const [slippageRetry, setSlippageRetry] = useState(0)  // 0=normal, 1+=retry with more headroom
 
   // ── Token expansion / stats ─────────────────────────────────────────────────
   const [expandedToken, setExpandedToken] = useState<string | null>(null)
@@ -844,7 +858,7 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
   }, [prices]) // eslint-disable-line
 
   useEffect(() => {
-    setQuote(null); setSwapMsg(null); setImpact(null); setSlipWarning(null)
+    setQuote(null); setSwapMsg(null); setImpact(null); setSlippageRetry(0)
     if (quoteTimer.current) clearTimeout(quoteTimer.current)
     quoteTimer.current = setTimeout(() => runQuote(fromToken, toToken, fromAmt), 500)
   }, [fromAmt, fromToken, toToken]) // eslint-disable-line
@@ -1021,7 +1035,7 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
     if (!isImported && !MiniKit.isInstalled()) {
       setSwapMsg({ ok: false, text: 'Abre dentro de World App para hacer swaps.' }); return
     }
-    setSwapping(true); setSwapMsg(null); setSwapStep(''); setSlipWarning(null)
+    setSwapping(true); setSwapMsg(null); setSwapStep('')
     try {
       const userBal = balances[fromToken.address.toLowerCase()] ?? 0n
       let rawAmt: bigint
@@ -1044,13 +1058,8 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
         activeQuote = fresh
       }
 
-      let effectiveSlipBps: number
-      if (slippageMode === 'none') effectiveSlipBps = 0
-      else if (slippageMode === 'custom') {
-        const pct = parseFloat(customSlipPct)
-        effectiveSlipBps = isNaN(pct) ? 100 : Math.min(Math.max(Math.round(pct * 100), 1), 4999)
-      } else effectiveSlipBps = getAdaptiveSlippageBps(fromToken.address, toToken.address)
-      const minOut = effectiveSlipBps === 0 ? 0n : activeQuote.amountOut * BigInt(10000 - effectiveSlipBps) / 10000n
+      const effectiveSlipBps = getSmartSlippageBps(fromToken.address, toToken.address, impact, slippageRetry)
+      const minOut = activeQuote.amountOut * BigInt(10000 - effectiveSlipBps) / 10000n
 
       setSwapStep('Obteniendo precio actualizado...')
       let priceUsd = await fetchFreshTokenPrice(fromToken)
@@ -1105,24 +1114,27 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
         const txId = (finalPayload as any).transaction_id ?? ''
         const shortId = txId ? ` · tx ${txId.slice(0, 8)}…` : ''
         setSwapMsg({ ok: true, text: `✓ Swap confirmado${shortId}` })
-        setFromAmt(''); setQuote(null); setImpact(null)
+        setFromAmt(''); setQuote(null); setImpact(null); setSlippageRetry(0)
         setTimeout(() => { loadBalances(); loadVolume() }, 3000)
       } else {
-        setSwapMsg({ ok: false, text: parseMiniKitTxError(finalPayload) })
+        const errText = parseMiniKitTxError(finalPayload)
+        const isSlipErr = errText.toLowerCase().includes('slippage') || errText.toLowerCase().includes('slippage') || (finalPayload.error_code ?? '') === 'permitted_amount_exceeds_slippage'
+        if (isSlipErr) {
+          setSlippageRetry(r => r + 1)
+          setSwapMsg({ ok: false, text: 'Precio varió al ejecutar. Toca Swap de nuevo — se usará más margen automáticamente.' })
+        } else {
+          setSwapMsg({ ok: false, text: errText })
+        }
       }
     } catch (e: any) {
       setSwapMsg({ ok: false, text: e?.shortMessage ?? e?.message ?? 'Error inesperado.' })
     } finally { setSwapping(false); setSwapStep('') }
-  }, [fromAmt, quote, fromToken, toToken, prices, wldPrices, balances, maxRawAmt, loadBalances, loadVolume, slippageMode, customSlipPct, walletMode, importedSigner]) // eslint-disable-line
+  }, [fromAmt, quote, fromToken, toToken, prices, wldPrices, balances, maxRawAmt, loadBalances, loadVolume, slippageRetry, impact, walletMode, importedSigner]) // eslint-disable-line
 
   const doSwap = useCallback(() => {
     if (!quote || !fromAmt) return
-    const impBps = impact ?? null
-    if (slippageMode !== 'none' && impBps !== null && impBps > IMPACT_WARN_BPS && !slipWarning) {
-      setSlipWarning({ bps: impBps, level: impBps > IMPACT_HIGH_BPS ? 'high' : 'warn' }); return
-    }
     executeSwap()
-  }, [quote, fromAmt, impact, slipWarning, slippageMode, executeSwap])
+  }, [quote, fromAmt, executeSwap])
 
   // ── Add custom token ─────────────────────────────────────────────────────────
   const addToken = useCallback(async () => {
@@ -1758,58 +1770,27 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
         {/* ── SWAP TAB ───────────────────────────────────────────────────── */}
         {activeTab === 'swap' && (
           <div className="p-3 space-y-2.5">
-            {/* Route + slippage bar */}
+            {/* Route + auto-slippage info bar */}
             <div className="flex items-center justify-between rounded-xl px-3 py-2" style={{ background: 'rgba(0,50,100,0.4)', border: '1px solid rgba(0,163,255,0.1)' }}>
-              <span className="text-[10px] text-white/40 flex items-center gap-1">
-                <Coins className="w-3 h-3 text-blue-400" /> 2.1% fee · Slippage:{' '}
-                {slippageMode === 'none'
-                  ? <strong className="text-red-400">Sin límite</strong>
-                  : slippageMode === 'custom'
-                    ? <strong className="text-yellow-400">{customSlipPct}%</strong>
-                    : <strong className="text-green-400">{slippageLabel(getAdaptiveSlippageBps(fromToken.address, toToken.address))}</strong>}
+              <span className="text-[10px] text-white/40 flex items-center gap-1.5">
+                <Zap className="w-3 h-3 text-green-400" />
+                <span>2.1% fee · Slippage:</span>
+                <strong className="text-green-400">
+                  {slippageLabel(getSmartSlippageBps(fromToken.address, toToken.address, impact, slippageRetry))}
+                  {slippageRetry > 0 && <span className="text-yellow-400 ml-1">↑ retry {slippageRetry}</span>}
+                </strong>
               </span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 {quote && (
                   <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(0,122,255,0.15)', color: '#60a5fa' }}>
                     {quote.label}
                   </span>
                 )}
-                <button onClick={() => setShowSlipConfig(v => !v)} className="text-[9px] text-white/30 hover:text-blue-300 px-1 py-0.5 rounded transition-colors">
-                  ⚙
-                </button>
+                <span className="text-[8px] px-1.5 py-0.5 rounded font-bold text-green-400/70" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.15)' }}>
+                  Auto
+                </span>
               </div>
             </div>
-
-            {/* Slippage config */}
-            {showSlipConfig && (
-              <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(0,30,60,0.8)', border: '1px solid rgba(0,163,255,0.15)' }}>
-                <p className="text-[10px] font-bold text-blue-300">Configurar slippage</p>
-                <div className="flex gap-1.5">
-                  {(['auto', 'custom', 'none'] as const).map(mode => (
-                    <button key={mode} onClick={() => setSlippageMode(mode)}
-                      className={cn('flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-colors',
-                        slippageMode === mode ? 'text-white' : 'text-white/40 hover:text-white/60')}
-                      style={slippageMode === mode ? { background: 'rgba(0,122,255,0.3)', border: '1px solid rgba(0,163,255,0.4)' } : { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                      {mode === 'auto' ? 'Auto' : mode === 'custom' ? 'Manual' : 'Sin límite'}
-                    </button>
-                  ))}
-                </div>
-                {slippageMode === 'custom' && (
-                  <div className="flex items-center gap-2">
-                    <input type="number" min="0.1" max="50" step="0.1" value={customSlipPct}
-                      onChange={e => setCustomSlipPct(e.target.value)}
-                      className="flex-1 text-xs font-mono rounded-lg px-3 py-1.5 text-white outline-none"
-                      style={{ background: 'rgba(0,80,255,0.08)', border: '1px solid rgba(0,163,255,0.2)' }} />
-                    <span className="text-[11px] text-white/40">%</span>
-                  </div>
-                )}
-                {slippageMode === 'none' && (
-                  <div className="flex items-center gap-1.5 text-[9px] text-red-400">
-                    <AlertTriangle className="w-3 h-3" /> Riesgo alto. Puedes recibir mucho menos.
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* FROM token */}
             <div className="rounded-2xl p-3.5 space-y-2" style={{ background: 'rgba(0,40,80,0.5)', border: '1px solid rgba(0,163,255,0.14)' }}>
@@ -1912,29 +1893,17 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
               </div>
             )}
 
-            {/* Slip warning */}
-            {slipWarning && (
-              <div className="rounded-xl p-3 space-y-2" style={{
-                background: slipWarning.level === 'high' ? 'rgba(239,68,68,0.08)' : 'rgba(234,179,8,0.08)',
-                border: `1px solid ${slipWarning.level === 'high' ? 'rgba(239,68,68,0.3)' : 'rgba(234,179,8,0.3)'}`,
+            {/* High impact inline warning (informational only, no blocker) */}
+            {impact !== null && impact > IMPACT_WARN_BPS && !swapping && quote && (
+              <div className="rounded-xl px-3 py-2 flex items-center gap-2 text-[10px]" style={{
+                background: impact > IMPACT_HIGH_BPS ? 'rgba(239,68,68,0.07)' : 'rgba(234,179,8,0.06)',
+                border: `1px solid ${impact > IMPACT_HIGH_BPS ? 'rgba(239,68,68,0.25)' : 'rgba(234,179,8,0.2)'}`,
               }}>
-                <div className="flex items-center gap-2">
-                  <ShieldAlert className={cn('w-4 h-4 shrink-0', slipWarning.level === 'high' ? 'text-red-400' : 'text-yellow-400')} />
-                  <div>
-                    <p className="text-xs font-bold text-white">Price impact alto: {(slipWarning.bps / 100).toFixed(2)}%</p>
-                    <p className="text-[10px] text-white/40">Perderás parte de tu dinero en este swap.</p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setSlipWarning(null)} className="flex-1 h-8 rounded-lg text-xs font-bold text-white/60 hover:text-white transition-colors" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    Cancelar
-                  </button>
-                  <button onClick={() => { setSlipWarning(null); executeSwap() }}
-                    className="flex-1 h-8 rounded-lg text-xs font-bold text-white"
-                    style={{ background: slipWarning.level === 'high' ? 'linear-gradient(135deg,#ef4444,#b91c1c)' : 'linear-gradient(135deg,#eab308,#ca8a04)' }}>
-                    Confirmar igual
-                  </button>
-                </div>
+                <ShieldAlert className={cn('w-3.5 h-3.5 shrink-0', impact > IMPACT_HIGH_BPS ? 'text-red-400' : 'text-yellow-400')} />
+                <span className={impact > IMPACT_HIGH_BPS ? 'text-red-300' : 'text-yellow-300'}>
+                  Impacto de precio: <strong>{(impact / 100).toFixed(2)}%</strong>
+                  {impact > IMPACT_HIGH_BPS ? ' — alto, el slippage auto cubre la diferencia.' : ' — slippage ajustado automáticamente.'}
+                </span>
               </div>
             )}
 
