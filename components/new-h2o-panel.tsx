@@ -535,8 +535,8 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
           <div className="flex items-start justify-between mb-3">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <div className="w-8 h-8 rounded-xl bg-cyan-400/20 border border-cyan-400/40 flex items-center justify-center">
-                  <Droplets className="w-4 h-4 text-cyan-400" />
+                <div className="w-8 h-8 rounded-xl overflow-hidden border border-cyan-400/40">
+                  <img src="/tokens/h2o2.webp" className="w-full h-full object-cover" alt="H2O 2.0" />
                 </div>
                 <span className="text-sm font-black text-foreground tracking-wide">H2O 2.0 Staking</span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-400/20 border border-cyan-400/30 text-cyan-400 uppercase">LIVE</span>

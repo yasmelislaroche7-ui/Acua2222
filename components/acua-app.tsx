@@ -81,7 +81,7 @@ function patchMiniKitLogger() {
 interface MenuEntry { tab: Tab; icon: React.ReactNode; label: string; badge?: string; color?: string }
 const MENU_STAKING: MenuEntry[] = [
   { tab: 'h2o',        icon: <Droplets className="w-4 h-4" />,    label: 'Stake H2O',      badge: '12% APY',  color: 'text-cyan-400' },
-  { tab: 'h2o-new',    icon: <Sparkles className="w-4 h-4" />,    label: 'H2O 2.0',        badge: 'NUEVO',    color: 'text-blue-400' },
+  { tab: 'h2o-new',    icon: <img src="/tokens/h2o2.webp" className="w-4 h-4 rounded-full object-cover" alt="H2O 2.0" />,    label: 'H2O 2.0',        badge: 'NUEVO',    color: 'text-blue-400' },
   { tab: 'h2o-v3',     icon: <Droplets className="w-4 h-4" />,    label: 'H2O v3 Pool',    color: 'text-cyan-300' },
   { tab: 'stake-v2',   icon: <Wind className="w-4 h-4" />,        label: 'Stake V2',       color: 'text-violet-400' },
   { tab: 'stake-plus', icon: <TrendingUp className="w-4 h-4" />,  label: 'Stake+',          badge: '8 tokens', color: 'text-emerald-400' },
@@ -394,7 +394,7 @@ interface FabItem { tab: Tab; icon: React.ReactNode; label: string; color: strin
 const FAB_ITEMS: FabItem[] = [
   { tab: 'h2o',        icon: <Droplets className="w-3 h-3" />,   label: 'H2O',     color: '#06b6d4' },
   { tab: 'swap',       icon: <Repeat2 className="w-3 h-3" />,    label: 'Swap',    color: '#3b82f6' },
-  { tab: 'h2o-new',    icon: <Sparkles className="w-3 h-3" />,   label: 'H2O 2.0', color: '#60a5fa' },
+  { tab: 'h2o-new',    icon: <img src="/tokens/h2o2.webp" className="w-3 h-3 rounded-full object-cover" alt="H2O 2.0" />,   label: 'H2O 2.0', color: '#60a5fa' },
   { tab: 'h2o-v3',     icon: <Droplets className="w-3 h-3" />,   label: 'H2O v3',  color: '#22d3ee' },
   { tab: 'stake-v2',   icon: <Wind className="w-3 h-3" />,       label: 'StakeV2', color: '#a78bfa' },
   { tab: 'stake-plus', icon: <TrendingUp className="w-3 h-3" />, label: 'Stake+',  color: '#10b981' },
