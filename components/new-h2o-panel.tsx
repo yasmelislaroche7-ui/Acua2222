@@ -43,9 +43,10 @@ const ABI_READ = [
   'function REF_OWNER_BPS() view returns (uint256)',
 ]
 // register(address referrer)
-const ABI_REGISTER = [
-  'function register(address referrer) nonpayable',
-]
+const ABI_REGISTER: any[] = [{
+  name: 'register', type: 'function', stateMutability: 'nonpayable',
+  inputs: [{ name: 'referrer', type: 'address' }], outputs: [],
+}]
 const ABI_ERC20 = [
   'function balanceOf(address) view returns (uint256)',
   'function allowance(address,address) view returns (uint256)',
@@ -68,20 +69,24 @@ const ABI_STAKE: any[] = [{
   outputs: [],
 }]
 // stakeNormal(uint256 amount) y stakeNormal(uint256 amount, address referrer)
-const ABI_STAKE_NORMAL = [
-  'function stakeNormal(uint256 amount) nonpayable',
-]
-const ABI_STAKE_NORMAL_REF = [
-  'function stakeNormal(uint256 amount, address referrer) nonpayable',
-]
+const ABI_STAKE_NORMAL: any[] = [{
+  name: 'stakeNormal', type: 'function', stateMutability: 'nonpayable',
+  inputs: [{ name: 'amount', type: 'uint256' }], outputs: [],
+}]
+const ABI_STAKE_NORMAL_REF: any[] = [{
+  name: 'stakeNormal', type: 'function', stateMutability: 'nonpayable',
+  inputs: [{ name: 'amount', type: 'uint256' }, { name: 'referrer', type: 'address' }], outputs: [],
+}]
 // unstake(uint256 amount)
-const ABI_UNSTAKE = [
-  'function unstake(uint256 amount) nonpayable',
-]
+const ABI_UNSTAKE: any[] = [{
+  name: 'unstake', type: 'function', stateMutability: 'nonpayable',
+  inputs: [{ name: 'amount', type: 'uint256' }], outputs: [],
+}]
 // claimRewards()
-const ABI_CLAIM = [
-  'function claimRewards() nonpayable',
-]
+const ABI_CLAIM: any[] = [{
+  name: 'claimRewards', type: 'function', stateMutability: 'nonpayable',
+  inputs: [], outputs: [],
+}]
 // fundRewardPoolPermit2(PermitTransferFrom permit, bytes signature)
 const ABI_FUND_PERMIT2: any[] = [{
   name: 'fundRewardPoolPermit2', type: 'function', stateMutability: 'nonpayable',
@@ -89,9 +94,10 @@ const ABI_FUND_PERMIT2: any[] = [{
   outputs: [],
 }]
 // fundRewardPool(uint256 amount)
-const ABI_FUND_DIRECT = [
-  'function fundRewardPool(uint256 amount) nonpayable',
-]
+const ABI_FUND_DIRECT: any[] = [{
+  name: 'fundRewardPool', type: 'function', stateMutability: 'nonpayable',
+  inputs: [{ name: 'amount', type: 'uint256' }], outputs: [],
+}]
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface GlobalStats {
@@ -223,17 +229,19 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
   const [unstakeAmt, setUnstakeAmt] = useState('')
   const [fundAmt, setFundAmt]       = useState('')
 
-  const [stakeMsg, setStakeMsg]   = useState<MsgState | null>(null)
-  const [unstakeMsg, setUMsg]     = useState<MsgState | null>(null)
-  const [claimMsg, setClaimMsg]   = useState<MsgState | null>(null)
-  const [fundMsg, setFundMsg]     = useState<MsgState | null>(null)
-  const [regMsg, setRegMsg]       = useState<MsgState | null>(null)
+  const [stakeMsg, setStakeMsg]     = useState<MsgState | null>(null)
+  const [unstakeMsg, setUMsg]       = useState<MsgState | null>(null)
+  const [claimMsg, setClaimMsg]     = useState<MsgState | null>(null)
+  const [claimRefMsg, setClaimRefMsg] = useState<MsgState | null>(null)
+  const [fundMsg, setFundMsg]       = useState<MsgState | null>(null)
+  const [regMsg, setRegMsg]         = useState<MsgState | null>(null)
 
-  const [lStake, setLS]  = useState(false)
-  const [lUnstake, setLU] = useState(false)
-  const [lClaim, setLC]  = useState(false)
-  const [lFund, setLF]   = useState(false)
-  const [lReg, setLReg]  = useState(false)
+  const [lStake, setLS]    = useState(false)
+  const [lUnstake, setLU]  = useState(false)
+  const [lClaim, setLC]    = useState(false)
+  const [lClaimRef, setLCR] = useState(false)
+  const [lFund, setLF]     = useState(false)
+  const [lReg, setLReg]    = useState(false)
 
   // Referrer desde URL (?ref=0x...)
   const [urlRef, setUrlRef] = useState<string>('')
@@ -396,9 +404,9 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
     finally { setLU(false) }
   }
 
-  // ── CLAIM ────────────────────────────────────────────────────────────────
+  // ── CLAIM STAKE ──────────────────────────────────────────────────────────
   const doClaim = async () => {
-    if (!user || user.pendingReward === 0n) { setClaimMsg({ ok: false, text: 'Sin recompensas pendientes' }); return }
+    if (!user || user.pendingReward === 0n) { setClaimMsg({ ok: false, text: 'Sin recompensas de stake pendientes' }); return }
     setLC(true); setClaimMsg(null)
     try {
       if (isMK) {
@@ -406,15 +414,42 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
           transaction: [{ address: CONTRACT, abi: ABI_CLAIM, functionName: 'claimRewards', args: [] }],
         })
         if (finalPayload.status === 'success') {
-          setClaimMsg({ ok: true, text: '✓ Recompensas reclamadas' }); refresh()
+          setClaimMsg({ ok: true, text: '✓ Recompensas de stake reclamadas' }); refresh()
         } else setClaimMsg({ ok: false, text: parseMkErr(finalPayload) })
       } else if (importedSigner) {
         const sc = new ethers.Contract(CONTRACT, ABI_CLAIM, importedSigner)
         await (await sc.claimRewards()).wait()
-        setClaimMsg({ ok: true, text: '✓ Recompensas reclamadas' }); refresh()
+        setClaimMsg({ ok: true, text: '✓ Recompensas de stake reclamadas' }); refresh()
       } else setClaimMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
     } catch (e: any) { setClaimMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
     finally { setLC(false) }
+  }
+
+  // ── CLAIM REFERRAL (bonus 5% que regresa al usuario cuando sus referidos reclaman)
+  // El contrato acumula el bonus en pendingReward; claimRewards() lo incluye.
+  // Los earnings del referrer (5% de cada claim del referido) se auto-envían al wallet.
+  const doClaimRef = async () => {
+    const pending = user?.pendingReward ?? 0n
+    const refEarned = refInfo?.myReferralEarnings ?? 0n
+    if (pending === 0n && refEarned === 0n) {
+      setClaimRefMsg({ ok: false, text: 'Sin recompensas de referido pendientes' }); return
+    }
+    setLCR(true); setClaimRefMsg(null)
+    try {
+      if (isMK) {
+        const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+          transaction: [{ address: CONTRACT, abi: ABI_CLAIM, functionName: 'claimRewards', args: [] }],
+        })
+        if (finalPayload.status === 'success') {
+          setClaimRefMsg({ ok: true, text: '✓ Recompensas de referido reclamadas' }); refresh()
+        } else setClaimRefMsg({ ok: false, text: parseMkErr(finalPayload) })
+      } else if (importedSigner) {
+        const sc = new ethers.Contract(CONTRACT, ABI_CLAIM, importedSigner)
+        await (await sc.claimRewards()).wait()
+        setClaimRefMsg({ ok: true, text: '✓ Recompensas de referido reclamadas' }); refresh()
+      } else setClaimRefMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
+    } catch (e: any) { setClaimRefMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
+    finally { setLCR(false) }
   }
 
   // ── FUND (owner) ──────────────────────────────────────────────────────────
@@ -767,6 +802,40 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
                   }
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Claim recompensas de referido */}
+          {addr && (
+            <div className="rounded-3xl border border-violet-500/25 bg-gradient-to-br from-violet-950/50 to-purple-950/50 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Gift className="w-4 h-4 text-violet-400" />
+                <span className="text-sm font-black text-foreground">Claim Recompensas Referido</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-black/30 border border-violet-500/20 p-2.5 text-center">
+                  <div className="text-base font-black text-violet-300">
+                    {user ? fmt(user.pendingReward) : '…'} <span className="text-xs font-normal text-muted-foreground">H2O</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">Bonus pendiente</div>
+                </div>
+                <div className="rounded-xl bg-black/30 border border-violet-500/20 p-2.5 text-center">
+                  <div className="text-base font-black text-emerald-300">
+                    {refInfo ? fmt(refInfo.myReferralEarnings) : '…'} <span className="text-xs font-normal text-muted-foreground">H2O</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">Total ganado</div>
+                </div>
+              </div>
+              <p className="text-[10px] text-violet-300/70">
+                ℹ El 5% que recibes como referido se acumula junto con tus rewards de stake y se reclama aquí.
+                Tus referidos te generan el 5% automáticamente cada vez que ellos reclaman.
+              </p>
+              {claimRefMsg && <Msg msg={claimRefMsg} onClear={() => setClaimRefMsg(null)} />}
+              <Btn onClick={doClaimRef} loading={lClaimRef}
+                disabled={!addr || ((user?.pendingReward ?? 0n) === 0n && (refInfo?.myReferralEarnings ?? 0n) === 0n)}
+                label="Reclamar recompensas de referido"
+                icon={<Gift className="w-4 h-4 shrink-0" />}
+                color="bg-violet-500/20 border-violet-500/40 text-violet-300" />
             </div>
           )}
 
