@@ -50,6 +50,7 @@ ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain eco
 
 ## Key Contracts
 - **H2OFeeCollector**: `0xB58B80EF6db1B508A0241ac4565fe7c29F299d60` on World Chain — fee 0.001 H2O
+- **H2OStake2**: `0x7f78b1B2c881E90D49C780461a88cb6CAC875afc` on World Chain — H2O 2.0 staking, 12% APR, 1:1, referidos integrados (15% claim fee: 5% referrer + 5% referee bonus + 5% owner2), Permit2, 48h withdraw queue. Token: `0x08131A6f780AEF79E86518c4A10c06387Ec74636`
 - **SUSHI Staking BNB**: `0x945B4b199Baf8F41E11E79df32D9919bd1fd1c08` — withdraw() NO PARAM (withdraws all)
 - **SUSHI token**: `0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38` (same address on both chains)
 - **WLD token**: `0x2cFc85d8E48F8EAB294be644d9E25C3030863003` on World Chain

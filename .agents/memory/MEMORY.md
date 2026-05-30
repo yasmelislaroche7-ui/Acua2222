@@ -1,0 +1,1 @@
+- [H2OStake2 deployment](h2ostake2.md) — H2O 2.0 staking deployed; referral fee split and Permit2 pattern for new panels.

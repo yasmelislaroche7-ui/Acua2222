@@ -45,6 +45,10 @@ export const MINING_WLD_CONTRACT  = '0xD2E227D30bC94D6FfD4eCf6b56141429C801E228'
 export const ACUA_SWAP_ROUTER_V2  = '0xA2FD6cd36a661E270FC7AdaA82D0d22f4660706d'
 export const ACUA_VOLUME_REWARDS  = '0x81D9a0c80eAD28B1A7364fa73684Cc78e497FA48'
 
+// H2O 2.0 Staking — APR-based, 1:1, referidos integrados (12% APR, 15% claim fee con ref)
+export const H2O_STAKE2_CONTRACT  = '0x7f78b1B2c881E90D49C780461a88cb6CAC875afc'
+export const H2O2_TOKEN_ADDRESS   = '0x08131A6f780AEF79E86518c4A10c06387Ec74636'
+
 // ─── Token Metadata ───────────────────────────────────────────────────────────
 export interface TokenMeta {
   symbol: string
