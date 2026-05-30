@@ -207,7 +207,7 @@ export function TnTPanel({
               address: H2O_SWAP_V1,
               abi: SWAP_TX_ABI,
               functionName: 'buyH2OWithPermit2',
-              args: [selToken, h2oWei.toString(), permitArg, '0x'],
+              args: [selToken, h2oWei.toString(), permitArg, 'PERMIT2_SIGNATURE_PLACEHOLDER_0'],
             }],
             permit2: [permit2Entry],
           })
@@ -227,7 +227,7 @@ export function TnTPanel({
               address: H2O_SWAP_V1,
               abi: SWAP_TX_ABI,
               functionName: 'sellH2OWithPermit2',
-              args: [selToken, h2oWei.toString(), permitArg, '0x'],
+              args: [selToken, h2oWei.toString(), permitArg, 'PERMIT2_SIGNATURE_PLACEHOLDER_0'],
             }],
             permit2: [permit2Entry],
           })
@@ -294,7 +294,7 @@ export function TnTPanel({
             address: H2O_SWAP_V1,
             abi: SWAP_TX_ABI,
             functionName: 'fundWithPermit2',
-            args: [fundToken, amt.toString(), permitArg, '0x'],
+            args: [fundToken, amt.toString(), permitArg, 'PERMIT2_SIGNATURE_PLACEHOLDER_0'],
           }],
           permit2: [permit2Entry],
         })
@@ -320,7 +320,7 @@ export function TnTPanel({
             address: H2O_FUNDING_PROXY,
             abi: PROXY_TX_ABI,
             functionName: 'fund',
-            args: [permitArg, '0x', amt.toString()],
+            args: [permitArg, 'PERMIT2_SIGNATURE_PLACEHOLDER_0', amt.toString()],
           }],
           permit2: [permit2Entry],
         })
