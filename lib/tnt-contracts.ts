@@ -2,10 +2,10 @@ import { ethers } from 'ethers'
 import { WORLD_CHAIN_RPC, PERMIT2_ADDRESS } from './new-contracts'
 
 // ─── Addresses ────────────────────────────────────────────────────────────────
-// Set DEPLOYED = true after deploying both contracts and filling in the addresses
-export const TNT_DEPLOYED        = false
-export const H2O_SWAP_V1         = '0x0000000000000000000000000000000000000000'
-export const H2O_FUNDING_PROXY   = '0x0000000000000000000000000000000000000000'
+// Deployed 2026-05-30 on World Chain (chainId 480)
+export const TNT_DEPLOYED        = true
+export const H2O_SWAP_V1         = '0x3a174c852B922C4182Bb5F754E63651b7065A400'
+export const H2O_FUNDING_PROXY   = '0x86cbE1063c83897A6bbFb1B62cB732eA59792BC1'
 
 // H2O viejo — base del exchange
 export const H2O_OLD_TOKEN       = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'

@@ -1112,6 +1112,87 @@
         "H2OStake3",
         "IH2O3Token"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/H2OSwapV1.sol": {
+      "lastModificationDate": 1780177867749,
+      "contentHash": "c5e810e6dea5f3e9095ac9a3e50c2253",
+      "sourceName": "contracts/H2OSwapV1.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "H2OSwapV1",
+        "IERC20S"
+      ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/H2OFundingProxy.sol": {
+      "lastModificationDate": 1780177867749,
+      "contentHash": "991a3d04acd23257d411a931999b8d6e",
+      "sourceName": "contracts/H2OFundingProxy.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "H2OFundingProxy",
+        "IERC20FP",
+        "IH2OStake2"
+      ]
     }
   }
 }
