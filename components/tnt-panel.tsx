@@ -346,17 +346,19 @@ export function TnTPanel({
     if (!TNT_DEPLOYED) { setAddMsg({ ok: false, text: '⚠ Contrato no desplegado' }); return }
     if (!ethers.isAddress(newToken)) { setAddMsg({ ok: false, text: 'Dirección inválida' }); return }
     if (!newPrice || Number(newPrice) <= 0) { setAddMsg({ ok: false, text: 'Precio inválido' }); return }
+    if (!newFee || isNaN(Number(newFee)) || Number(newFee) < 0) { setAddMsg({ ok: false, text: 'Fee bps inválido (ej: 200)' }); return }
     if (!newSymbol.trim()) { setAddMsg({ ok: false, text: 'Ingresa símbolo' }); return }
     setLAdd(true); setAddMsg(null)
     try {
       const priceWei = ethers.parseUnits(newPrice.replace(',', '.'), 18)
+      const feeBps   = Math.floor(Number(newFee)).toString()
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
             address: H2O_SWAP_V1,
             abi: SWAP_TX_ABI,
             functionName: 'addPair',
-            args: [newToken, priceWei.toString(), newFee, newSymbol.trim().toUpperCase()],
+            args: [newToken, priceWei.toString(), feeBps, newSymbol.trim().toUpperCase()],
           }],
         })
         if (finalPayload.status === 'success') {
@@ -393,13 +395,15 @@ export function TnTPanel({
 
   const doEditFee = async () => {
     if (!TNT_DEPLOYED || !editToken) { setEditMsg({ ok: false, text: 'Selecciona un par' }); return }
+    if (!editFee || isNaN(Number(editFee)) || Number(editFee) < 0) { setEditMsg({ ok: false, text: 'Ingresa fee bps válido (ej: 200)' }); return }
     setLEdit(true); setEditMsg(null)
     try {
+      const feeBps = Math.floor(Number(editFee)).toString()
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
             address: H2O_SWAP_V1, abi: SWAP_TX_ABI,
-            functionName: 'setFee', args: [editToken, editFee],
+            functionName: 'setFee', args: [editToken, feeBps],
           }],
         })
         if (finalPayload.status === 'success') {
