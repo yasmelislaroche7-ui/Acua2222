@@ -12,12 +12,12 @@ import { cn } from '@/lib/utils'
 import { WORLD_CHAIN_RPC, randomNonce } from '@/lib/new-contracts'
 
 // ─── Contract Config ──────────────────────────────────────────────────────────
-const CONTRACT = '0x0c9a246F94b51dAAB3D7De8Ea47cAd00963b04a0'
+const CONTRACT = '0x357EE95386a7a07418731F8688BAF62582E4cf51'
 const TOKEN    = '0x08131A6f780AEF79E86518c4A10c06387Ec74636'
 const DECIMALS = 18
 const APP_DOMAIN = 'https://acua.app'
 
-// ─── ABIs (NewH2OStaking) ─────────────────────────────────────────────────────
+// ─── ABIs (NewH2OStaking v2) ──────────────────────────────────────────────────
 const ABI_READ = [
   'function getStakeInfo(address user) view returns (uint256 staked, uint256 pendingReward, uint256 poolBalance, uint256 currentRewardRate)',
   'function earned(address account) view returns (uint256)',
@@ -31,8 +31,20 @@ const ABI_READ = [
   'function feeToPoolBps() view returns (uint256)',
   'function paused() view returns (bool)',
   'function getOwners() view returns (address[])',
-  'function referralContract() view returns (address)',
   'function contractBalance() view returns (uint256)',
+  // Referral v2
+  'function getReferralInfo(address user) view returns (address myReferrer, uint256 myReferralCount, uint256 myReferralEarnings)',
+  'function referredBy(address) view returns (address)',
+  'function referralCount(address) view returns (uint256)',
+  'function referralEarnings(address) view returns (uint256)',
+  'function totalReferralsPaid() view returns (uint256)',
+  'function REF_REFERRER_BPS() view returns (uint256)',
+  'function REF_BONUS_BPS() view returns (uint256)',
+  'function REF_OWNER_BPS() view returns (uint256)',
+]
+// register(address referrer)
+const ABI_REGISTER = [
+  'function register(address referrer) nonpayable',
 ]
 const ABI_ERC20 = [
   'function balanceOf(address) view returns (uint256)',
@@ -55,9 +67,12 @@ const ABI_STAKE: any[] = [{
   inputs: [PERMIT2_TUPLE, { name: 'signature', type: 'bytes' }],
   outputs: [],
 }]
-// stakeNormal(uint256 amount)
+// stakeNormal(uint256 amount) y stakeNormal(uint256 amount, address referrer)
 const ABI_STAKE_NORMAL = [
   'function stakeNormal(uint256 amount) nonpayable',
+]
+const ABI_STAKE_NORMAL_REF = [
+  'function stakeNormal(uint256 amount, address referrer) nonpayable',
 ]
 // unstake(uint256 amount)
 const ABI_UNSTAKE = [
@@ -94,6 +109,11 @@ interface UserInfo {
   pendingReward: bigint
   poolBalance: bigint
   currentRewardRate: bigint
+}
+interface RefInfo {
+  myReferrer: string
+  myReferralCount: bigint
+  myReferralEarnings: bigint
 }
 interface MsgState { ok: boolean; text: string }
 
@@ -170,14 +190,31 @@ function Btn({ onClick, loading, disabled, label, icon, color = 'bg-cyan-500/20 
     </button>
   )
 }
+function RegisterRefForm({ urlRef, loading, onRegister }: { urlRef: string; loading: boolean; onRegister: (r: string) => void }) {
+  const [val, setVal] = React.useState(urlRef)
+  React.useEffect(() => { if (urlRef) setVal(urlRef) }, [urlRef])
+  return (
+    <div className="flex gap-2">
+      <input value={val} onChange={e => setVal(e.target.value)}
+        placeholder="0x… dirección del referrer"
+        className="flex-1 rounded-xl bg-black/30 border border-white/10 px-3 py-2.5 text-xs font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-amber-500/50" />
+      <button onClick={() => onRegister(val)} disabled={!val || loading}
+        className={cn('shrink-0 px-3 rounded-xl bg-amber-500/20 border border-amber-500/30 text-xs font-bold text-amber-300',
+          (!val || loading) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-500/30')}>
+        {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Registrar'}
+      </button>
+    </div>
+  )
+}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 interface Props { userAddress: string; walletMode?: 'minikit' | 'imported' | null; importedSigner?: ethers.Signer | null }
 
 export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) {
-  const [tab, setTab] = useState<'stake' | 'stats' | 'fondear'>('stake')
+  const [tab, setTab] = useState<'stake' | 'stats' | 'ref' | 'fondear'>('stake')
   const [global, setGlobal]   = useState<GlobalStats | null>(null)
   const [user, setUser]       = useState<UserInfo | null>(null)
+  const [refInfo, setRefInfo] = useState<RefInfo | null>(null)
   const [h2oBalance, setH2oBal] = useState(0n)
   const [loading, setLoading] = useState(false)
   const [isOwner, setIsOwner] = useState(false)
@@ -190,14 +227,28 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
   const [unstakeMsg, setUMsg]     = useState<MsgState | null>(null)
   const [claimMsg, setClaimMsg]   = useState<MsgState | null>(null)
   const [fundMsg, setFundMsg]     = useState<MsgState | null>(null)
+  const [regMsg, setRegMsg]       = useState<MsgState | null>(null)
 
   const [lStake, setLS]  = useState(false)
   const [lUnstake, setLU] = useState(false)
   const [lClaim, setLC]  = useState(false)
   const [lFund, setLF]   = useState(false)
+  const [lReg, setLReg]  = useState(false)
+
+  // Referrer desde URL (?ref=0x...)
+  const [urlRef, setUrlRef] = useState<string>('')
 
   const addr = userAddress || ''
   const isMK = walletMode === 'minikit' || MiniKit.isInstalled()
+
+  // Leer ref param de URL al montar
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const r = params.get('ref') || ''
+      if (r && ethers.isAddress(r)) setUrlRef(r)
+    }
+  }, [])
 
   // ── Load data ────────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -209,7 +260,7 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
       const t = new ethers.Contract(TOKEN, ABI_ERC20, prov)
 
       const [stakeInfo, bal, totalStaked, rewardPool, rewardRate,
-             depFee, witFee, clmFee, feePool, owners, cBal] = await Promise.all([
+             depFee, witFee, clmFee, feePool, owners, cBal, refData] = await Promise.all([
         c.getStakeInfo(addr),
         t.balanceOf(addr),
         c.totalStaked(),
@@ -221,6 +272,7 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
         c.feeToPoolBps(),
         c.getOwners(),
         c.contractBalance(),
+        c.getReferralInfo(addr),
       ])
 
       setUser({
@@ -233,6 +285,11 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
         totalStaked, rewardPool, rewardRate,
         depositFeeBps: depFee, withdrawFeeBps: witFee, claimFeeBps: clmFee,
         feeToPoolBps: feePool, contractBalance: cBal,
+      })
+      setRefInfo({
+        myReferrer: refData[0],
+        myReferralCount: refData[1],
+        myReferralEarnings: refData[2],
       })
       setH2oBal(bal)
       const addrLow = addr.toLowerCase()
@@ -252,6 +309,11 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
     if (!gross) return
     if (h2oBalance < gross) { setStakeMsg({ ok: false, text: 'Balance insuficiente' }); return }
     setLS(true); setStakeMsg(null)
+
+    // Determinar si hay referrer a pasar en este TX
+    const noRef = !refInfo?.myReferrer || refInfo.myReferrer === ethers.ZeroAddress
+    const refToPass = (noRef && urlRef && urlRef.toLowerCase() !== addr.toLowerCase()) ? urlRef : ''
+
     try {
       if (isMK) {
         const nonce = randomNonce()
@@ -270,12 +332,43 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
         const tc = new ethers.Contract(TOKEN, ABI_ERC20, importedSigner)
         const allow = await tc.allowance(addr, CONTRACT)
         if (allow < gross) await (await tc.approve(CONTRACT, gross * 100n)).wait()
-        const sc = new ethers.Contract(CONTRACT, ABI_STAKE_NORMAL, importedSigner)
-        await (await sc.stakeNormal(gross)).wait()
-        setStakeMsg({ ok: true, text: `✓ ${s} H2O 2.0 stakeados` }); setStakeAmt(''); refresh()
+        if (refToPass) {
+          const sc = new ethers.Contract(CONTRACT, ABI_STAKE_NORMAL_REF, importedSigner)
+          await (await sc['stakeNormal(uint256,address)'](gross, refToPass)).wait()
+        } else {
+          const sc = new ethers.Contract(CONTRACT, ABI_STAKE_NORMAL, importedSigner)
+          await (await sc.stakeNormal(gross)).wait()
+        }
+        setStakeMsg({ ok: true, text: `✓ ${s} H2O 2.0 stakeados${refToPass ? ' (referido registrado)' : ''}` })
+        setStakeAmt(''); refresh()
       } else setStakeMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
     } catch (e: any) { setStakeMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
     finally { setLS(false) }
+  }
+
+  // ── REGISTER referrer (manual) ──────────────────────────────────────────
+  const doRegister = async (referrer: string) => {
+    if (!referrer || !ethers.isAddress(referrer)) { setRegMsg({ ok: false, text: 'Dirección inválida' }); return }
+    if (referrer.toLowerCase() === addr.toLowerCase()) { setRegMsg({ ok: false, text: 'No puedes referirte a ti mismo' }); return }
+    if (refInfo?.myReferrer && refInfo.myReferrer !== ethers.ZeroAddress) {
+      setRegMsg({ ok: false, text: 'Ya tienes un referido registrado' }); return
+    }
+    setLReg(true); setRegMsg(null)
+    try {
+      if (isMK) {
+        const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+          transaction: [{ address: CONTRACT, abi: ABI_REGISTER, functionName: 'register', args: [referrer] }],
+        })
+        if (finalPayload.status === 'success') {
+          setRegMsg({ ok: true, text: '✓ Referido registrado' }); refresh()
+        } else setRegMsg({ ok: false, text: parseMkErr(finalPayload) })
+      } else if (importedSigner) {
+        const sc = new ethers.Contract(CONTRACT, ABI_REGISTER, importedSigner)
+        await (await sc.register(referrer)).wait()
+        setRegMsg({ ok: true, text: '✓ Referido registrado' }); refresh()
+      } else setRegMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
+    } catch (e: any) { setRegMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
+    finally { setLReg(false) }
   }
 
   // ── UNSTAKE ──────────────────────────────────────────────────────────────
@@ -363,10 +456,14 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
     : '—'
 
   const TABS = [
-    { id: 'stake' as const,   icon: <Zap className="w-3.5 h-3.5" />,       label: 'Stake' },
-    { id: 'stats' as const,   icon: <TrendingUp className="w-3.5 h-3.5" />, label: 'Stats' },
+    { id: 'stake'   as const, icon: <Zap className="w-3.5 h-3.5" />,       label: 'Stake' },
+    { id: 'ref'     as const, icon: <Users className="w-3.5 h-3.5" />,      label: 'Referidos' },
+    { id: 'stats'   as const, icon: <TrendingUp className="w-3.5 h-3.5" />, label: 'Stats' },
     ...(isOwner ? [{ id: 'fondear' as const, icon: <Fuel className="w-3.5 h-3.5" />, label: 'Fondear' }] : []),
   ]
+
+  const refLink = addr ? `${APP_DOMAIN}?ref=${addr}` : ''
+  const hasReferrer = refInfo && refInfo.myReferrer && refInfo.myReferrer !== ethers.ZeroAddress
 
   return (
     <div className="space-y-4 pb-8">
@@ -545,22 +642,168 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
             </div>
             {/* Claim fee breakdown */}
             <div className="rounded-xl bg-black/20 border border-amber-500/15 p-2.5 space-y-1">
-              <div className="flex justify-between text-[10px]">
-                <span className="text-muted-foreground">Fee claim (→ owner)</span>
-                <span className="text-amber-400 font-bold">{global ? Number(global.claimFeeBps)/100 + '%' : '15%'}</span>
-              </div>
-              <div className="flex justify-between text-[10px] border-t border-white/10 pt-1">
-                <span className="text-foreground font-bold">Tú recibes</span>
-                <span className="text-emerald-300 font-black">
-                  {global ? (100 - Number(global.claimFeeBps)/100).toFixed(0) + '%' : '85%'}
-                </span>
-              </div>
+              <div className="text-[10px] font-bold text-amber-400/80 uppercase tracking-wider mb-1">Fee claim (15% siempre)</div>
+              {hasReferrer ? (
+                <>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-muted-foreground">→ Referrer ({shortAddr(refInfo!.myReferrer)})</span>
+                    <span className="text-violet-400 font-bold">5%</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-muted-foreground">→ Owner</span>
+                    <span className="text-amber-400 font-bold">5%</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-muted-foreground">→ Bonus devuelto a ti</span>
+                    <span className="text-emerald-400 font-bold">+5%</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] border-t border-white/10 pt-1">
+                    <span className="text-foreground font-bold">Tú recibes</span>
+                    <span className="text-emerald-300 font-black">90%</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-muted-foreground">→ Owner (sin referido)</span>
+                    <span className="text-amber-400 font-bold">15%</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] border-t border-white/10 pt-1">
+                    <span className="text-foreground font-bold">Tú recibes</span>
+                    <span className="text-yellow-300 font-black">85%</span>
+                  </div>
+                  <div className="text-[10px] text-violet-300/80 pt-0.5">
+                    💡 Con referido recibirías 90% — ve a la pestaña Referidos
+                  </div>
+                </>
+              )}
             </div>
             {claimMsg && <Msg msg={claimMsg} onClear={() => setClaimMsg(null)} />}
             <Btn onClick={doClaim} loading={lClaim} disabled={!user || user.pendingReward === 0n || !addr}
               label="Reclamar recompensas" icon={<Gift className="w-4 h-4 shrink-0" />}
               color="bg-amber-500/20 border-amber-500/40 text-amber-300" />
           </div>
+        </div>
+      )}
+
+      {/* ═══════════════════ TAB: REFERIDOS ══════════════════════════════ */}
+      {tab === 'ref' && (
+        <div className="space-y-3">
+
+          {/* Cómo funciona */}
+          <div className="rounded-2xl bg-gradient-to-br from-violet-950/60 to-purple-950/60 border border-violet-500/30 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Users className="w-4 h-4 text-violet-400" />
+              <span className="text-sm font-black text-foreground">Sistema de Referidos</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-400/20 border border-violet-400/30 text-violet-400">ILIMITADOS</span>
+            </div>
+            <div className="space-y-1.5 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-violet-500/30 border border-violet-500/40 flex items-center justify-center text-[10px] font-bold text-violet-300 shrink-0">1</span>
+                <span>Comparte tu link. Cada persona que se registre con tu dirección es tu referido.</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-violet-500/30 border border-violet-500/40 flex items-center justify-center text-[10px] font-bold text-violet-300 shrink-0">2</span>
+                <span>Cada vez que tu referido reclame recompensas, tú recibes <span className="text-violet-300 font-bold">5% del bruto</span> automáticamente.</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-violet-500/30 border border-violet-500/40 flex items-center justify-center text-[10px] font-bold text-violet-300 shrink-0">3</span>
+                <span>Referidos ilimitados. Sin límite de profundidad. Sin caducidad.</span>
+              </div>
+            </div>
+            {/* Desglose del fee de claim */}
+            <div className="mt-3 rounded-xl bg-black/30 border border-violet-500/20 p-3 space-y-1">
+              <div className="text-[10px] font-bold text-violet-300 uppercase tracking-wider mb-1.5">Fee de claim (15% del bruto)</div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Con referido → referrer gana</span>
+                <span className="text-violet-300 font-bold">5%</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Con referido → bonus al usuario</span>
+                <span className="text-emerald-300 font-bold">+5%</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Con referido → owner</span>
+                <span className="text-amber-300 font-bold">5%</span>
+              </div>
+              <div className="flex justify-between text-xs border-t border-white/10 pt-1 mt-1">
+                <span className="text-foreground font-bold">Con referido → usuario recibe</span>
+                <span className="text-emerald-300 font-black">90%</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Sin referido → usuario recibe</span>
+                <span className="text-yellow-300 font-bold">85%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Mi estado de referido */}
+          {addr && (
+            <div className="rounded-2xl bg-white/5 border border-white/10 p-4 space-y-2">
+              <div className="flex items-center gap-2 mb-1">
+                <Shield className="w-4 h-4 text-cyan-400" />
+                <span className="text-sm font-bold text-foreground">Mi Estado</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-black/30 border border-white/10 p-2.5 text-center">
+                  <div className="text-base font-black text-violet-300">
+                    {refInfo ? refInfo.myReferralCount.toString() : '…'}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">Personas referidas</div>
+                </div>
+                <div className="rounded-xl bg-black/30 border border-white/10 p-2.5 text-center">
+                  <div className="text-base font-black text-emerald-300">
+                    {refInfo ? fmt(refInfo.myReferralEarnings) : '…'}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">H2O ganados</div>
+                </div>
+              </div>
+              <div className="rounded-xl bg-black/20 border border-white/10 p-2.5">
+                <div className="text-[10px] text-muted-foreground mb-1">Mi referrer (quien me invitó)</div>
+                <div className="text-xs font-mono text-foreground break-all">
+                  {hasReferrer
+                    ? (refInfo!.myReferrer)
+                    : <span className="text-muted-foreground italic">Sin referrer registrado</span>
+                  }
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Registrar referrer manualmente */}
+          {addr && !hasReferrer && (
+            <div className="rounded-2xl bg-white/5 border border-amber-500/25 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Gift className="w-4 h-4 text-amber-400" />
+                <span className="text-sm font-bold text-foreground">Registrar mi Referrer</span>
+              </div>
+              {urlRef && (
+                <div className="rounded-xl bg-amber-500/10 border border-amber-500/25 p-2.5 text-xs">
+                  <span className="text-amber-300 font-bold">Link detectado: </span>
+                  <span className="font-mono text-foreground">{shortAddr(urlRef)}</span>
+                </div>
+              )}
+              <RegisterRefForm
+                urlRef={urlRef}
+                loading={lReg}
+                onRegister={doRegister}
+              />
+              {regMsg && <Msg msg={regMsg} onClear={() => setRegMsg(null)} />}
+            </div>
+          )}
+
+          {/* Mi link de referido */}
+          {addr && (
+            <div className="rounded-2xl bg-white/5 border border-white/10 p-4 space-y-2">
+              <div className="flex items-center gap-2 mb-1">
+                <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-sm font-bold text-foreground">Mi Link de Referido</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">Comparte este link. Quien haga stake usando tu link quedará registrado como tu referido.</p>
+              <CopyRow label={refLink} value={refLink} />
+              <CopyRow label={`Mi dirección: ${shortAddr(addr)}`} value={addr} />
+            </div>
+          )}
         </div>
       )}
 

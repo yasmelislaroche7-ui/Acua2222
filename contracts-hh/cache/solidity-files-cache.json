@@ -2,7 +2,7 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "/home/runner/workspace/contracts-hh/contracts/IPermit2.sol": {
-      "lastModificationDate": 1776707056876,
+      "lastModificationDate": 1776620328767,
       "contentHash": "cf359640a68b9d1f00b5a27fb04d3079",
       "sourceName": "contracts/IPermit2.sol",
       "solcConfig": {
@@ -39,7 +39,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/UniversalStaking.sol": {
-      "lastModificationDate": 1776707056876,
+      "lastModificationDate": 1776620328768,
       "contentHash": "5ae55c022ab1be01e9f48e992ba9bf1b",
       "sourceName": "contracts/UniversalStaking.sol",
       "solcConfig": {
@@ -79,7 +79,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/MiningWLD.sol": {
-      "lastModificationDate": 1776707056876,
+      "lastModificationDate": 1776620328768,
       "contentHash": "5a4204b76a69a200941bde81d9bf35c0",
       "sourceName": "contracts/MiningWLD.sol",
       "solcConfig": {
@@ -119,7 +119,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/MiningUTH2.sol": {
-      "lastModificationDate": 1776707056876,
+      "lastModificationDate": 1776620328768,
       "contentHash": "067ef7dbe682c0d5d92dd0ffada35ef4",
       "sourceName": "contracts/MiningUTH2.sol",
       "solcConfig": {
@@ -159,7 +159,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/UniversalStakingV2.sol": {
-      "lastModificationDate": 1776707056876,
+      "lastModificationDate": 1776620328768,
       "contentHash": "c85b6dd0857837a85356e80f9539127e",
       "sourceName": "contracts/UniversalStakingV2.sol",
       "solcConfig": {
@@ -199,7 +199,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/acuav2.sol": {
-      "lastModificationDate": 1776707056876,
+      "lastModificationDate": 1776620328768,
       "contentHash": "94beaef88a68a254c0868cf250c40864",
       "sourceName": "contracts/acuav2.sol",
       "solcConfig": {
@@ -239,7 +239,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/H2OVIPSubscription.sol": {
-      "lastModificationDate": 1776707056876,
+      "lastModificationDate": 1776622937034,
       "contentHash": "145fd56fd888f260fdaa4cbf1b1eae6c",
       "sourceName": "contracts/H2OVIPSubscription.sol",
       "solcConfig": {
@@ -280,7 +280,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/H2OVIPStandalone.sol": {
-      "lastModificationDate": 1776707056876,
+      "lastModificationDate": 1776703980698,
       "contentHash": "44ab90e10632e81e5277465aea46968d",
       "sourceName": "contracts/H2OVIPStandalone.sol",
       "solcConfig": {
@@ -320,7 +320,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaSwapRouter.sol": {
-      "lastModificationDate": 1776707056875,
+      "lastModificationDate": 1776703980698,
       "contentHash": "3b91467b3854bc1117505b39812fbed4",
       "sourceName": "contracts/AcuaSwapRouter.sol",
       "solcConfig": {
@@ -363,7 +363,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaVolumeRewards.sol": {
-      "lastModificationDate": 1776707056876,
+      "lastModificationDate": 1776703980698,
       "contentHash": "00e1ab389c3a1ceda0b573ab72ba28ee",
       "sourceName": "contracts/AcuaVolumeRewards.sol",
       "solcConfig": {
@@ -401,7 +401,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaSwapRouterV2.sol": {
-      "lastModificationDate": 1776715678735,
+      "lastModificationDate": 1780168538692,
       "contentHash": "94db62a74b5fd34a85786a4264236657",
       "sourceName": "contracts/AcuaSwapRouterV2.sol",
       "solcConfig": {
@@ -444,7 +444,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaVolumeRewardsV2.sol": {
-      "lastModificationDate": 1776774165178,
+      "lastModificationDate": 1780168538692,
       "contentHash": "922c76547b7f93b547ca30fd30f18343",
       "sourceName": "contracts/AcuaVolumeRewardsV2.sol",
       "solcConfig": {
@@ -482,7 +482,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/H2OFeeCollector.sol": {
-      "lastModificationDate": 1777221989492,
+      "lastModificationDate": 1780168538693,
       "contentHash": "7917a598da97ea2ea21236829a7f6346",
       "sourceName": "contracts/H2OFeeCollector.sol",
       "solcConfig": {
@@ -522,7 +522,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaH2OV3LP.sol": {
-      "lastModificationDate": 1777335103223,
+      "lastModificationDate": 1780168538692,
       "contentHash": "6bbecff897222c18973f6d0e639195c4",
       "sourceName": "contracts/AcuaH2OV3LP.sol",
       "solcConfig": {
@@ -564,7 +564,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaClaimManager.sol": {
-      "lastModificationDate": 1777486119281,
+      "lastModificationDate": 1780168538692,
       "contentHash": "ccc4b265b445c1822ad83dd2fc7a23e3",
       "sourceName": "contracts/AcuaClaimManager.sol",
       "solcConfig": {
@@ -604,7 +604,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/CommissionManager.sol": {
-      "lastModificationDate": 1777650524444,
+      "lastModificationDate": 1780168538692,
       "contentHash": "5f19e472866f15733b52a85d4d04f5b5",
       "sourceName": "contracts/CommissionManager.sol",
       "solcConfig": {
@@ -643,7 +643,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/FundManager.sol": {
-      "lastModificationDate": 1777650314178,
+      "lastModificationDate": 1780168538692,
       "contentHash": "4d72dd72d47729d485df84b745314b56",
       "sourceName": "contracts/FundManager.sol",
       "solcConfig": {
@@ -682,7 +682,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/NewAcuaSwapRouter.sol": {
-      "lastModificationDate": 1777650485856,
+      "lastModificationDate": 1780168538693,
       "contentHash": "a10e0c297e967a0b826e40308fd07ed0",
       "sourceName": "contracts/NewAcuaSwapRouter.sol",
       "solcConfig": {
@@ -724,8 +724,8 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/NewH2OStaking.sol": {
-      "lastModificationDate": 1780169113345,
-      "contentHash": "3aa994781fce0ce8878b0e3c16f80d2b",
+      "lastModificationDate": 1780170770264,
+      "contentHash": "cf3d67c50a7a81fbdb1106313aa938d0",
       "sourceName": "contracts/NewH2OStaking.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -758,14 +758,12 @@
       ],
       "artifacts": [
         "IERC20New",
-        "IFundManagerNew",
         "IPermit2New",
-        "IReferralSystemV2",
         "NewH2OStaking"
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/ReferralSystemV2.sol": {
-      "lastModificationDate": 1777650425989,
+      "lastModificationDate": 1780168538693,
       "contentHash": "7a89fd5c30c935a2b4866c540321de66",
       "sourceName": "contracts/ReferralSystemV2.sol",
       "solcConfig": {
@@ -804,7 +802,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/SushiStakeV2.sol": {
-      "lastModificationDate": 1777698422125,
+      "lastModificationDate": 1780168538693,
       "contentHash": "b9bc8c2226acb52264140a731ca4825d",
       "sourceName": "contracts/SushiStakeV2.sol",
       "solcConfig": {
@@ -844,7 +842,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaBridgeBNB.sol": {
-      "lastModificationDate": 1778341094667,
+      "lastModificationDate": 1780168538692,
       "contentHash": "3348910539240065f9d3f14336c5bdf1",
       "sourceName": "contracts/AcuaBridgeBNB.sol",
       "solcConfig": {
@@ -882,7 +880,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaBridgeWLD.sol": {
-      "lastModificationDate": 1778341094667,
+      "lastModificationDate": 1780168538692,
       "contentHash": "aad978474306d9c52f89c61c021a6a9f",
       "sourceName": "contracts/AcuaBridgeWLD.sol",
       "solcConfig": {
@@ -922,7 +920,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/WLDStakeV2.sol": {
-      "lastModificationDate": 1778341094668,
+      "lastModificationDate": 1780168538693,
       "contentHash": "ae3a150c3eb7b930b6f889e5bb539342",
       "sourceName": "contracts/WLDStakeV2.sol",
       "solcConfig": {
@@ -962,7 +960,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaGlobalChat.sol": {
-      "lastModificationDate": 1778351289074,
+      "lastModificationDate": 1780168538692,
       "contentHash": "7444f7d3eedf5bc0a9b1a51ddf319f77",
       "sourceName": "contracts/AcuaGlobalChat.sol",
       "solcConfig": {
@@ -999,7 +997,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaGlobalChatV2.sol": {
-      "lastModificationDate": 1778452933600,
+      "lastModificationDate": 1780168538692,
       "contentHash": "6b2acfeb75bbc669e307514a67e035ab",
       "sourceName": "contracts/AcuaGlobalChatV2.sol",
       "solcConfig": {
@@ -1036,7 +1034,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/H2OStake2.sol": {
-      "lastModificationDate": 1780165323270,
+      "lastModificationDate": 1780168538693,
       "contentHash": "a0621b4fb6844bbe9b5f88e5b9e3d4a6",
       "sourceName": "contracts/H2OStake2.sol",
       "solcConfig": {
@@ -1076,7 +1074,7 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/H2OStake3.sol": {
-      "lastModificationDate": 1780166752350,
+      "lastModificationDate": 1780168538693,
       "contentHash": "afa7cfdb9745437d940c2b59f230d850",
       "sourceName": "contracts/H2OStake3.sol",
       "solcConfig": {

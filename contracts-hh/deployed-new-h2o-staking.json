@@ -1,0 +1,15 @@
+{
+  "contract": "0x357EE95386a7a07418731F8688BAF62582E4cf51",
+  "token": "0x08131A6f780AEF79E86518c4A10c06387Ec74636",
+  "owner": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
+  "fees": {
+    "depositFeeBps": 500,
+    "withdrawFeeBps": 500,
+    "claimFeeBps": 1500,
+    "refReferrerBps": 500,
+    "refBonusBps": 500,
+    "refOwnerBps": 500
+  },
+  "description": "NewH2OStaking v2 — referidos ilimitados integrados, 15% claim fee siempre",
+  "deployedAt": "2026-05-30T19:54:40.021Z"
+}
