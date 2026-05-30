@@ -65,6 +65,22 @@ function Btn({
   )
 }
 
+function Input({ value, onChange, placeholder, label }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; label?: string
+}) {
+  return (
+    <div className="space-y-1">
+      {label && <label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">{label}</label>}
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500/50 font-mono"
+      />
+    </div>
+  )
+}
+
 function TokenSelect({ pairs, value, onChange }: {
   pairs: PairInfo[]; value: string; onChange: (addr: string) => void
 }) {
@@ -465,21 +481,6 @@ export function TnTPanel({
           luego actualiza <code className="font-mono text-[10px]">lib/tnt-contracts.ts</code> con las direcciones y pon <code className="font-mono text-[10px]">TNT_DEPLOYED = true</code>.
         </p>
       </div>
-    </div>
-  )
-
-  // ─── Input helper ─────────────────────────────────────────────────────────
-  const Input = ({ value, onChange, placeholder, label }: {
-    value: string; onChange: (v: string) => void; placeholder?: string; label?: string
-  }) => (
-    <div className="space-y-1">
-      {label && <label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">{label}</label>}
-      <input
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500/50 font-mono"
-      />
     </div>
   )
 
