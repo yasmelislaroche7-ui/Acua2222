@@ -1,1 +1,2 @@
 - [H2OStake2 deployment](h2ostake2.md) — H2O 2.0 staking deployed; referral fee split and Permit2 pattern for new panels.
+- [NewH2OStaking deployment](new-h2o-staking.md) — v1 (0x57A5…) no tiene setFees; usar v2 (0x0c9a…) con 5/5/15% fees y 100% al owner

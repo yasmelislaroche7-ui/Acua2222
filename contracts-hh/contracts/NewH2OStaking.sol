@@ -60,12 +60,13 @@ contract NewH2OStaking {
     // ─── Config ───────────────────────────────────────────────────────────────
     address public token;
 
-    uint256 public depositFeeBps  = 500;   // 5 %
-    uint256 public withdrawFeeBps = 700;   // 7 %
-    uint256 public claimFeeBps    = 200;   // 2 %
+    uint256 public depositFeeBps  = 500;    // 5 %
+    uint256 public withdrawFeeBps = 500;    // 5 %
+    uint256 public claimFeeBps    = 1_500;  // 15 %
 
     /// Of collected fees: how many bps go back into the reward pool.
-    uint256 public feeToPoolBps   = 6_000; // 60 %
+    /// 0 = 100% to owners. Sin referido → toda la comisión va al owner.
+    uint256 public feeToPoolBps   = 0; // 0% a pool, 100% al owner
     /// Remainder goes to owner wallets equally.
 
     // ─── Owner & Contract Management ─────────────────────────────────────────
