@@ -24,6 +24,7 @@ import { InfoPanel }             from '@/components/info-panel'
 import { TokenDirectoryPanel }   from '@/components/token-directory-panel'
 import { SwapPanel }             from '@/components/swap-panel'
 import { NewH2OPanel }           from '@/components/new-h2o-panel'
+import { TnTPanel }              from '@/components/tnt-panel'
 import { SushiV2Panel }          from '@/components/sushi-v2-panel'
 import { PlatformMonitor }       from '@/components/platform-monitor'
 import { StatsTicker, MarketMiniCard } from '@/components/market-ticker'
@@ -48,7 +49,7 @@ import { cn } from '@/lib/utils'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time'
-         | 'tokens' | 'swap' | 'info' | 'admin' | 'monitor' | 'contracts-admin' | 'sushi-v2'
+         | 'tokens' | 'swap' | 'tnt' | 'info' | 'admin' | 'monitor' | 'contracts-admin' | 'sushi-v2'
 type BNBTab = 'bnb-stake' | 'bnb-wallet' | 'bnb-bridge'
 type InstalledState = null | true | false
 
@@ -93,8 +94,9 @@ const MENU_MINING: MenuEntry[] = [
   { tab: 'time', icon: <Clock className="w-4 h-4" />,   label: 'TIME → WLD',     color: 'text-purple-400' },
 ]
 const MENU_MARKET: MenuEntry[] = [
-  { tab: 'swap',   icon: <Repeat2 className="w-4 h-4" />,  label: 'Swap',   color: 'text-blue-400' },
-  { tab: 'tokens', icon: <BookOpen className="w-4 h-4" />, label: 'Tokens', color: 'text-teal-400' },
+  { tab: 'swap',   icon: <Repeat2 className="w-4 h-4" />,       label: 'Swap',       color: 'text-blue-400' },
+  { tab: 'tnt',    icon: <ArrowLeftRight className="w-4 h-4" />, label: 'T+T Exchange', badge: 'NUEVO', color: 'text-violet-400' },
+  { tab: 'tokens', icon: <BookOpen className="w-4 h-4" />,      label: 'Tokens',     color: 'text-teal-400' },
 ]
 const MENU_INFO: MenuEntry[] = [
   { tab: 'monitor', icon: <Activity className="w-4 h-4" />,   label: 'Monitor',     badge: 'LIVE', color: 'text-green-400' },
@@ -378,7 +380,7 @@ const TAB_LABELS: Record<Tab, string> = {
   'h2o': 'Stake H2O', 'h2o-new': 'H2O 2.0', 'h2o-v3': 'H2O v3 Pool',
   'stake-v2': 'Stake V2', 'stake-plus': 'Stake+', 'uth2': 'Minería UTH₂',
   'wld': 'Minería WLD', 'time': 'Minería TIME', 'tokens': 'Tokens',
-  'swap': 'Swap', 'info': 'Info', 'admin': 'Admin', 'monitor': 'Monitor',
+  'swap': 'Swap', 'tnt': 'T+T Exchange', 'info': 'Info', 'admin': 'Admin', 'monitor': 'Monitor',
   'contracts-admin': 'Admin Contratos', 'sushi-v2': 'SUSHI 2.0',
 }
 
@@ -392,19 +394,20 @@ const BNB_TAB_LABELS: Record<BNBTab, string> = {
 interface FabItem { tab: Tab; icon: React.ReactNode; label: string; color: string }
 
 const FAB_ITEMS: FabItem[] = [
-  { tab: 'h2o',        icon: <Droplets className="w-3 h-3" />,   label: 'H2O',     color: '#06b6d4' },
-  { tab: 'swap',       icon: <Repeat2 className="w-3 h-3" />,    label: 'Swap',    color: '#3b82f6' },
-  { tab: 'h2o-new',    icon: <img src="/tokens/h2o2.webp" className="w-3 h-3 rounded-full object-cover" alt="H2O 2.0" />,   label: 'H2O 2.0', color: '#60a5fa' },
-  { tab: 'h2o-v3',     icon: <Droplets className="w-3 h-3" />,   label: 'H2O v3',  color: '#22d3ee' },
-  { tab: 'stake-v2',   icon: <Wind className="w-3 h-3" />,       label: 'StakeV2', color: '#a78bfa' },
-  { tab: 'stake-plus', icon: <TrendingUp className="w-3 h-3" />, label: 'Stake+',  color: '#10b981' },
-  { tab: 'wld',        icon: <Star className="w-3 h-3" />,       label: 'WLD',     color: '#fbbf24' },
-  { tab: 'uth2',       icon: <Pickaxe className="w-3 h-3" />,    label: 'UTH2',    color: '#f97316' },
-  { tab: 'time',       icon: <Clock className="w-3 h-3" />,      label: 'TIME',    color: '#c084fc' },
+  { tab: 'h2o',        icon: <Droplets className="w-3 h-3" />,        label: 'H2O',     color: '#06b6d4' },
+  { tab: 'swap',       icon: <Repeat2 className="w-3 h-3" />,         label: 'Swap',    color: '#3b82f6' },
+  { tab: 'h2o-new',    icon: <img src="/tokens/h2o2.webp" className="w-3 h-3 rounded-full object-cover" alt="H2O 2.0" />, label: 'H2O 2.0', color: '#60a5fa' },
+  { tab: 'h2o-v3',     icon: <Droplets className="w-3 h-3" />,        label: 'H2O v3',  color: '#22d3ee' },
+  { tab: 'stake-v2',   icon: <Wind className="w-3 h-3" />,            label: 'StakeV2', color: '#a78bfa' },
+  { tab: 'stake-plus', icon: <TrendingUp className="w-3 h-3" />,      label: 'Stake+',  color: '#10b981' },
+  { tab: 'wld',        icon: <Star className="w-3 h-3" />,            label: 'WLD',     color: '#fbbf24' },
+  { tab: 'uth2',       icon: <Pickaxe className="w-3 h-3" />,         label: 'UTH2',    color: '#f97316' },
+  { tab: 'time',       icon: <Clock className="w-3 h-3" />,           label: 'TIME',    color: '#c084fc' },
   { tab: 'sushi-v2',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🍣</span>, label: 'SUSHI', color: '#ef4444' },
+  { tab: 'tnt',        icon: <ArrowLeftRight className="w-3 h-3" />,  label: 'T+T',     color: '#8b5cf6' },
 ]
 
-// Wider double-arc: inner R=90, outer R=162 — more separation between buttons
+// Triple-arc: inner R=90, outer R=162, far R=234
 // Angles sweep from 90° (up) to 180° (left) in 22.5° steps
 const FAB_POSITIONS = [
   // ── Inner arc (R=90) ──
@@ -419,6 +422,8 @@ const FAB_POSITIONS = [
   { dx: -115, dy: -115 }, // UTH2      θ=135°
   { dx: -150, dy:  -62 }, // TIME      θ=157.5°
   { dx: -162, dy:    0 }, // SUSHI     θ=180°
+  // ── Far arc (R=234) — T+T solo en la esquina superior ──
+  { dx:   0,  dy: -234 }, // T+T       θ=90°
 ]
 
 function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; activeTab: Tab }) {
@@ -826,6 +831,7 @@ export default function AcuaApp() {
           {activeNetwork === 'wld' && activeTab === 'tokens'      && <TokenDirectoryPanel />}
           {activeNetwork === 'wld' && activeTab === 'sushi-v2'   && <SushiV2Panel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'swap'        && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
+          {activeNetwork === 'wld' && activeTab === 'tnt'         && <TnTPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
           {activeNetwork === 'wld' && activeTab === 'info'        && <InfoPanel />}
 
           {activeNetwork === 'wld' && activeTab === 'monitor' && (
