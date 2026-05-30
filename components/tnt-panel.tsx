@@ -11,7 +11,7 @@ import {
 import {
   H2O_SWAP_V1, H2O_FUNDING_PROXY, H2O_OLD_TOKEN, H2O2_TOKEN, H2O_STAKE2_ADDR,
   TNT_DEPLOYED, TNT_OWNER2, TNT_DEFAULT_TOKENS,
-  SWAP_ABI, PROXY_ABI, ERC20_TNT_ABI,
+  SWAP_ABI, SWAP_TX_ABI, PROXY_TX_ABI, ERC20_TNT_ABI,
   fetchAllPairs, PairInfo, formatH2OPrice, fmt18, randomNonce,
 } from '@/lib/tnt-contracts'
 
@@ -189,7 +189,7 @@ export function TnTPanel({
           const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
             transaction: [{
               address: H2O_SWAP_V1,
-              abi: SWAP_ABI,
+              abi: SWAP_TX_ABI,
               functionName: 'buyH2OWithPermit2',
               args: [selToken, h2oWei.toString(), permitArg, '0x'],
             }],
@@ -209,7 +209,7 @@ export function TnTPanel({
           const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
             transaction: [{
               address: H2O_SWAP_V1,
-              abi: SWAP_ABI,
+              abi: SWAP_TX_ABI,
               functionName: 'sellH2OWithPermit2',
               args: [selToken, h2oWei.toString(), permitArg, '0x'],
             }],
@@ -276,7 +276,7 @@ export function TnTPanel({
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
             address: H2O_SWAP_V1,
-            abi: SWAP_ABI,
+            abi: SWAP_TX_ABI,
             functionName: 'fundWithPermit2',
             args: [fundToken, amt.toString(), permitArg, '0x'],
           }],
@@ -302,7 +302,7 @@ export function TnTPanel({
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
             address: H2O_FUNDING_PROXY,
-            abi: PROXY_ABI,
+            abi: PROXY_TX_ABI,
             functionName: 'fund',
             args: [permitArg, '0x', amt.toString()],
           }],
@@ -328,7 +328,7 @@ export function TnTPanel({
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
             address: H2O_SWAP_V1,
-            abi: SWAP_ABI,
+            abi: SWAP_TX_ABI,
             functionName: 'withdraw',
             args: [withToken, amt.toString(), withTo],
           }],
@@ -354,7 +354,7 @@ export function TnTPanel({
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
             address: H2O_SWAP_V1,
-            abi: SWAP_ABI,
+            abi: SWAP_TX_ABI,
             functionName: 'addPair',
             args: [newToken, priceWei.toString(), newFee, newSymbol.trim().toUpperCase()],
           }],
@@ -379,7 +379,7 @@ export function TnTPanel({
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
-            address: H2O_SWAP_V1, abi: SWAP_ABI,
+            address: H2O_SWAP_V1, abi: SWAP_TX_ABI,
             functionName: 'setPrice', args: [editToken, priceWei.toString()],
           }],
         })
@@ -398,7 +398,7 @@ export function TnTPanel({
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
-            address: H2O_SWAP_V1, abi: SWAP_ABI,
+            address: H2O_SWAP_V1, abi: SWAP_TX_ABI,
             functionName: 'setFee', args: [editToken, editFee],
           }],
         })
@@ -418,7 +418,7 @@ export function TnTPanel({
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
-            address: H2O_SWAP_V1, abi: SWAP_ABI,
+            address: H2O_SWAP_V1, abi: SWAP_TX_ABI,
             functionName: 'setPairPaused', args: [tkn, paused],
           }],
         })
@@ -438,7 +438,7 @@ export function TnTPanel({
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
-            address: H2O_SWAP_V1, abi: SWAP_ABI,
+            address: H2O_SWAP_V1, abi: SWAP_TX_ABI,
             functionName: 'setGlobalPause', args: [paused],
           }],
         })

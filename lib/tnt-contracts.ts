@@ -96,6 +96,7 @@ export const TNT_DEFAULT_TOKENS: TntTokenMeta[] = [
 ]
 
 // ─── ABIs ─────────────────────────────────────────────────────────────────────
+// PERMIT2_TUPLE — shared between read ABI and MiniKit TX ABI
 const PERMIT2_TUPLE = {
   name: 'permit', type: 'tuple', components: [
     { name: 'permitted', type: 'tuple', components: [
@@ -107,8 +108,8 @@ const PERMIT2_TUPLE = {
   ],
 }
 
+// SWAP_ABI — for ethers.js reads (supports string + object format)
 export const SWAP_ABI: any[] = [
-  // Views
   'function getTokenList() view returns (address[])',
   'function pairs(address) view returns (bool active, bool paused, uint256 price, uint256 feeBps, string symbol, uint8 decimals)',
   'function h2oLiquidity() view returns (uint256)',
@@ -119,9 +120,11 @@ export const SWAP_ABI: any[] = [
   'function globalPause() view returns (bool)',
   'function owner() view returns (address)',
   'function owner2() view returns (address)',
-  // Admin reads
   'function h2oToken() view returns (address)',
-  // Swap (Permit2)
+]
+
+// SWAP_TX_ABI — for MiniKit sendTransaction (pure JSON object format only)
+export const SWAP_TX_ABI: any[] = [
   {
     name: 'buyH2OWithPermit2', type: 'function', stateMutability: 'nonpayable',
     inputs: [
@@ -140,7 +143,6 @@ export const SWAP_ABI: any[] = [
       { name: 'sig',      type: 'bytes' },
     ], outputs: [],
   },
-  // Admin Permit2
   {
     name: 'fundWithPermit2', type: 'function', stateMutability: 'nonpayable',
     inputs: [
@@ -150,7 +152,6 @@ export const SWAP_ABI: any[] = [
       { name: 'sig',       type: 'bytes' },
     ], outputs: [],
   },
-  // Admin no-permit
   { name: 'withdraw',       type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'tkn', type: 'address' }, { name: 'amount', type: 'uint256' }, { name: 'to', type: 'address' }], outputs: [] },
   { name: 'addPair',        type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'tkn', type: 'address' }, { name: 'price', type: 'uint256' }, { name: 'feeBps', type: 'uint256' }, { name: 'symbol', type: 'string' }], outputs: [] },
   { name: 'removePair',     type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'tkn', type: 'address' }], outputs: [] },
@@ -161,11 +162,16 @@ export const SWAP_ABI: any[] = [
   { name: 'setOwner2',      type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'newOwner2', type: 'address' }], outputs: [] },
 ]
 
+// PROXY_ABI — for ethers.js reads
 export const PROXY_ABI: any[] = [
   'function owner() view returns (address)',
   'function owner2() view returns (address)',
   'function stakeContract() view returns (address)',
   'function token() view returns (address)',
+]
+
+// PROXY_TX_ABI — for MiniKit sendTransaction (pure JSON object format only)
+export const PROXY_TX_ABI: any[] = [
   {
     name: 'fund', type: 'function', stateMutability: 'nonpayable',
     inputs: [PERMIT2_TUPLE, { name: 'sig', type: 'bytes' }, { name: 'amount', type: 'uint256' }],
