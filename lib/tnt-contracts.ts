@@ -11,8 +11,8 @@ export const H2O_FUNDING_PROXY   = '0x86cbE1063c83897A6bbFb1B62cB732eA59792BC1'
 export const H2O_OLD_TOKEN       = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'
 // H2O 2.0 — token del staking (para FundingProxy)
 export const H2O2_TOKEN          = '0x08131A6f780AEF79E86518c4A10c06387Ec74636'
-// H2OStake2 destino del FundingProxy
-export const H2O_STAKE2_ADDR     = '0x357EE95386a7a07418731F8688BAF62582E4cf51'
+// H2OStake2 destino del FundingProxy (mismo que H2O_STAKE2_CONTRACT en new-contracts.ts)
+export const H2O_STAKE2_ADDR     = '0x7f78b1B2c881E90D49C780461a88cb6CAC875afc'
 
 // Owner2 para swap y proxy
 export const TNT_OWNER2          = '0xC2Ef127734F296952DE75c1B58A6Cec605Cc2E59'.toLowerCase()
