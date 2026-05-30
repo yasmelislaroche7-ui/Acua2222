@@ -12,11 +12,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
-  H2O_V3_ADDRESS, H2O_V3_TX_ABI, H2O_V3_DEPLOY,
+  H2O_V3_ADDRESS, H2O_V3_TX_ABI, H2O_V3_DEPLOY, H2O_TOKEN_ADDRESS,
   fetchAllPools, fetchUserPosition, fetchAprBps, fetchAllPoolsLive,
   fetchUserBalance, quoteAmount1FromAmount0, quoteAmount0FromAmount1,
   tokenMeta, isKnownToken, isH2O, formatToken, formatCompact, bpsToPct, feeTierLabel, randomNonce,
-  fetchH2OUsdcRate, h2oToUsdc, formatUsd,
+  fetchH2OUsdcRate, h2oToUsdc, formatUsd, getProvider,
+  UNIV3_POOL_ABI,
   type H2OV3Pool, type H2OV3Position, type PoolLiveData,
 } from '@/lib/h2o-v3'
 
@@ -863,7 +864,7 @@ function AmountInput({ label, logoUrl, value, onChange, balance, decimals, onMax
 }
 
 // ─── Main panel ───────────────────────────────────────────────────────────────
-type BaseFilter = 'all' | 'WLD' | 'USDC' | 'WETH' | 'WBTC' | 'mine'
+type BaseFilter = 'all' | 'WLD' | 'USDC' | 'WETH' | 'WBTC' | 'H2O' | 'mine'
 type FeeFilter = 'all' | '3000' | '10000' | 'stable'
 type SortMode = 'tvl' | 'apr' | 'name'
 
@@ -908,7 +909,6 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
       const activeRaw = psRaw.filter(p => {
         if (!p.active) return false
         if (!isKnownToken(p.token0) || !isKnownToken(p.token1)) return false
-        if (isH2O(p.token0) || isH2O(p.token1)) return false
         return true
       })
 
@@ -1080,6 +1080,7 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
       USDC: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1',
       WETH: '0x4200000000000000000000000000000000000006',
       WBTC: '0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3',
+      H2O:  H2O_TOKEN_ADDRESS,
     }
     const q = search.trim().toLowerCase()
     let arr = pools.filter(p => {
@@ -1194,15 +1195,17 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         </div>
         {/* Base filter */}
         <div className="flex flex-wrap gap-1">
-          {(['all', 'mine', 'WLD', 'USDC', 'WETH', 'WBTC'] as BaseFilter[]).map(b => (
+          {(['all', 'mine', 'H2O', 'WLD', 'USDC', 'WETH', 'WBTC'] as BaseFilter[]).map(b => (
             <button key={b} onClick={() => setBaseFilter(b)}
               className={cn(
                 'px-2 py-1 text-[10px] font-bold rounded-md border transition-all uppercase tracking-wider',
-                baseFilter === b
-                  ? 'bg-gradient-to-r from-cyan-500/30 to-blue-500/30 text-cyan-100 border-cyan-400/50 shadow-[0_0_8px_-2px_rgba(34,211,238,0.5)]'
-                  : 'bg-cyan-950/40 text-cyan-400/70 border-cyan-500/15 hover:text-cyan-200',
+                b === 'H2O' && baseFilter !== 'H2O'
+                  ? 'bg-gradient-to-r from-sky-500/15 to-cyan-500/10 text-sky-300/80 border-sky-500/30 hover:text-sky-200 hover:border-sky-400/50'
+                  : baseFilter === b
+                    ? 'bg-gradient-to-r from-cyan-500/30 to-blue-500/30 text-cyan-100 border-cyan-400/50 shadow-[0_0_8px_-2px_rgba(34,211,238,0.5)]'
+                    : 'bg-cyan-950/40 text-cyan-400/70 border-cyan-500/15 hover:text-cyan-200',
               )}>
-              {b === 'all' ? 'Todos' : b === 'mine' ? '⭐ Mías' : b}
+              {b === 'all' ? 'Todos' : b === 'mine' ? '⭐ Mías' : b === 'H2O' ? '💧 H2O' : b}
             </button>
           ))}
         </div>
@@ -1248,7 +1251,7 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         </div>
       ) : (
         <div className="space-y-2.5">
-          {visiblePools.length === 0 && (
+          {visiblePools.length === 0 && baseFilter !== 'H2O' && (
             <div className="text-center py-8 text-sm text-cyan-500/60">Sin pools que coincidan con el filtro</div>
           )}
           {visiblePools.map(p => (
@@ -1264,6 +1267,9 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
           ))}
         </div>
       )}
+
+      {/* ── H2O Pools Explorer (todos los pares H2O en Uniswap V3) ─────────── */}
+      {baseFilter === 'H2O' && <H2OPoolsSection />}
 
       {activePool && (
         <PoolDialog
@@ -1457,6 +1463,206 @@ function BigStat({ label, value, sub, icon, highlight }: { label: string; value:
       </div>
       <div className="text-cyan-100 font-mono font-bold text-sm truncate">{value}</div>
       {sub && <div className="text-[9px] text-cyan-500/60 font-mono truncate">{sub}</div>}
+    </div>
+  )
+}
+
+// ─── H2O Pools Section ────────────────────────────────────────────────────────
+// Shows ALL active H2O/token pools found on Uniswap V3 (World Chain), both those
+// managed by AcuaH2OV3LP wrapper and external ones. Reads liquidity + price live.
+
+interface H2OExtPool {
+  label: string
+  pairSymbol: string      // e.g. "H2O/wCOP"
+  token0: string
+  token1: string
+  fee: number
+  poolAddr: string
+  managed: boolean        // true = in AcuaH2OV3LP wrapper (can provide LP via app)
+}
+
+const H2O_EXT_POOLS: H2OExtPool[] = [
+  { label: 'H2O/WLD',   pairSymbol: 'H2O/WLD',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x2cFc85d8E48F8EAB294be644d9E25C3030863003', fee: 3000,  poolAddr: '0x1b538b52cc4a767280D1E5a3EfaBD91984FE58a8', managed: true  },
+  { label: 'H2O/wCOP',  pairSymbol: 'H2O/wCOP',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x8a1d45e102e886510e891d2ec656a708991e2d76', fee: 3000,  poolAddr: '0xBB3c46dB714D80aEE06AA1102F424AF918F2C342', managed: false },
+  { label: 'H2O/wARS',  pairSymbol: 'H2O/wARS',  token0: '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 3000,  poolAddr: '0x2fCF5DEe4eC63dc0F5Ac92A84Af5269926883E5E', managed: false },
+  { label: 'H2O/wARS',  pairSymbol: 'H2O/wARS',  token0: '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 10000, poolAddr: '0x19880F57eEE762A3FA7b86AD635C1De74Fc7CFb2', managed: false },
+  { label: 'H2O/VIBE',  pairSymbol: 'H2O/VIBE',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x696aD02f0c7d68915ea39cA6e60934f7a8900FB1', fee: 3000,  poolAddr: '0xc2EaaaF9EB4b3934a727315e6E1C9F7e384645A6', managed: false },
+  { label: 'H2O/VIBE',  pairSymbol: 'H2O/VIBE',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x696aD02f0c7d68915ea39cA6e60934f7a8900FB1', fee: 10000, poolAddr: '0x14fe839597bbDCe3E6D0fC600ba1B97fcA65da6e', managed: false },
+  { label: 'H2O/SUSHI', pairSymbol: 'H2O/SUSHI', token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38', fee: 3000,  poolAddr: '0x2597531a18FA50cdE8D47bbA180485647197A4B4', managed: false },
+  { label: 'H2O/WETH',  pairSymbol: 'H2O/WETH',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x4200000000000000000000000000000000000006', fee: 3000,  poolAddr: '0xC21E2D1052e89A367F45e92eB45d957649702BaE', managed: false },
+  { label: 'H2O/ORO',   pairSymbol: 'H2O/ORO',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xcd1E32B86953D79a6AC58e813D2EA7a1790cAb63', fee: 3000,  poolAddr: '0x0860C483AbD643b7D486254Eb3724f1628b10721', managed: false },
+  { label: 'H2O/ORO',   pairSymbol: 'H2O/ORO',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xcd1E32B86953D79a6AC58e813D2EA7a1790cAb63', fee: 10000, poolAddr: '0x450C0D9baE4EB4e410C3104cC990112433464d88', managed: false },
+  { label: 'H2O/ORB',   pairSymbol: 'H2O/ORB',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xF3F92A60e6004f3982F0FdE0d43602fC0a30a0dB', fee: 3000,  poolAddr: '0x181C648223F13E930437C0f6AfC84C22Ae09a3A1', managed: false },
+  { label: 'H2O/ORB',   pairSymbol: 'H2O/ORB',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xF3F92A60e6004f3982F0FdE0d43602fC0a30a0dB', fee: 10000, poolAddr: '0x6E5c3AAA579B3695EAFA6ab4b61bfd053561B288', managed: false },
+  { label: 'H2O/PUF',   pairSymbol: 'H2O/PUF',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x1aE3498f1B417fe31BE544B04B711F27Ba437bd3', fee: 3000,  poolAddr: '0xCb739ba0D21358F9298A0CAEbEfBc5191be97050', managed: false },
+  { label: 'H2O/PUF',   pairSymbol: 'H2O/PUF',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x1aE3498f1B417fe31BE544B04B711F27Ba437bd3', fee: 10000, poolAddr: '0x745E37E521CB9174d8F164DCf9138DaC24aB37e5', managed: false },
+  { label: 'H2O/TIME',  pairSymbol: 'H2O/TIME',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x212d7448720852D8Ad282a5d4A895B3461F9076E', fee: 3000,  poolAddr: '0x9b63B35df4E3C6d11D826b0c0E22815eE0151bfD', managed: false },
+  { label: 'H2O/USDC',  pairSymbol: 'H2O/USDC',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1', fee: 3000,  poolAddr: '0x34e96a274F3F6712c8C0E64157a7849aED461735', managed: false },
+  { label: 'H2O/USDC',  pairSymbol: 'H2O/USDC',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1', fee: 10000, poolAddr: '0x834a808f9e9892eBF4CE87cfBFC82166e018083B', managed: false },
+  { label: 'H2O/WBTC',  pairSymbol: 'H2O/WBTC',  token0: '0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 3000,  poolAddr: '0x5BdE77d160d3BE1aE363a0dc0dF310B6f04Af2bb', managed: false },
+  { label: 'H2O/WBTC',  pairSymbol: 'H2O/WBTC',  token0: '0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 10000, poolAddr: '0x424b77742F5A05A65eAda14daD63f82CD58af519', managed: false },
+]
+
+interface H2OPoolLive {
+  liquidity: bigint
+  sqrtPriceX96: bigint
+  tick: number
+  loading: boolean
+}
+
+function H2OPoolsSection() {
+  const [liveData, setLiveData] = useState<Record<string, H2OPoolLive>>({})
+  const [fetched, setFetched] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      const provider = getProvider()
+      const pool_abi = [...UNIV3_POOL_ABI, 'function liquidity() view returns (uint128)']
+      await Promise.all(H2O_EXT_POOLS.map(async (ep) => {
+        try {
+          const c = new ethers.Contract(ep.poolAddr, pool_abi, provider)
+          const [slot0, liq] = await Promise.race([
+            Promise.all([c.slot0(), c.liquidity()]),
+            new Promise<never>((_, r) => setTimeout(() => r(new Error('timeout')), 5000)),
+          ])
+          if (cancelled) return
+          setLiveData(prev => ({
+            ...prev,
+            [ep.poolAddr.toLowerCase()]: {
+              liquidity: BigInt(liq.toString()),
+              sqrtPriceX96: BigInt(slot0[0].toString()),
+              tick: Number(slot0[1]),
+              loading: false,
+            },
+          }))
+        } catch {
+          if (!cancelled) {
+            setLiveData(prev => ({
+              ...prev,
+              [ep.poolAddr.toLowerCase()]: { liquidity: 0n, sqrtPriceX96: 0n, tick: 0, loading: false },
+            }))
+          }
+        }
+      }))
+      if (!cancelled) setFetched(true)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const UNISWAP_BASE = 'https://app.uniswap.org/add'
+
+  function uniswapLink(ep: H2OExtPool) {
+    return `${UNISWAP_BASE}/${ep.token0}/${ep.token1}/${ep.fee}?chain=worldchain`
+  }
+
+  function liquidityBar(liq: bigint): number {
+    if (liq === 0n) return 0
+    const LOG_MAX = 60
+    const val = Math.log10(Number(liq) + 1)
+    return Math.min(100, Math.round((val / LOG_MAX) * 100))
+  }
+
+  function feeLabel(fee: number): string {
+    if (fee === 100)   return '0.01%'
+    if (fee === 500)   return '0.05%'
+    if (fee === 3000)  return '0.3%'
+    if (fee === 10000) return '1%'
+    return `${fee / 10000}%`
+  }
+
+  return (
+    <div className="space-y-2.5 mt-1">
+      <div className="flex items-center gap-2 px-1">
+        <div className="flex-1 h-px bg-cyan-500/20" />
+        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-sky-300/80">
+          <Droplets className="w-3 h-3 text-sky-400" />
+          Pools H2O · Uniswap V3 · World Chain
+        </div>
+        <div className="flex-1 h-px bg-cyan-500/20" />
+      </div>
+
+      <div className="rounded-xl border border-sky-500/20 bg-gradient-to-br from-sky-950/20 to-cyan-950/10 p-3 text-[10px] text-sky-300/70 leading-relaxed">
+        <span className="font-bold text-sky-200">19 pares activos</span> con H2O token en Uniswap V3.
+        Los marcados con <span className="text-emerald-300 font-bold">●</span> son gestionados por AcuaH2OV3LP — usa el botón de arriba para aportar liquidez.
+        El resto son pools nativos de Uniswap — haz clic en <span className="font-bold text-sky-200">Añadir ↗</span> para ir a Uniswap.
+      </div>
+
+      {H2O_EXT_POOLS.map((ep) => {
+        const key = ep.poolAddr.toLowerCase()
+        const live = liveData[key]
+        const t1Meta = tokenMeta(ep.token1 === H2O_TOKEN_ADDRESS ? ep.token0 : ep.token1)
+        const liqPct = live ? liquidityBar(live.liquidity) : 0
+        const hasLiq = live && live.liquidity > 0n
+
+        return (
+          <div key={ep.poolAddr}
+            className="rounded-xl border border-sky-500/20 bg-gradient-to-br from-sky-950/15 to-slate-950/40 p-3 space-y-2">
+
+            {/* Header row */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="flex -space-x-2 shrink-0">
+                  <TokenIcon symbol="H2O" logoUrl="/tokens/h2o.jpg" size={22} />
+                  <TokenIcon symbol={t1Meta.symbol} logoUrl={t1Meta.logoUrl} size={22} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-extrabold text-sky-100 font-mono">{ep.pairSymbol}</span>
+                    <span className="px-1.5 py-0.5 rounded-md bg-sky-500/15 border border-sky-500/25 text-[9px] font-mono font-bold text-sky-300">
+                      {feeLabel(ep.fee)}
+                    </span>
+                    {ep.managed && (
+                      <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/25 text-[9px] font-bold text-emerald-300">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                        Wrapper
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[9px] text-sky-500/60 font-mono truncate">
+                    {ep.poolAddr.slice(0, 10)}…{ep.poolAddr.slice(-6)}
+                  </div>
+                </div>
+              </div>
+
+              <a
+                href={uniswapLink(ep)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 hover:border-sky-400/50 text-[10px] font-bold text-sky-300 transition-all"
+              >
+                Añadir ↗
+              </a>
+            </div>
+
+            {/* Liquidity bar */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[9px] text-sky-500/70 font-mono">
+                <span>Liquidez Uniswap</span>
+                {!fetched && !live ? (
+                  <span className="flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" /> cargando</span>
+                ) : hasLiq ? (
+                  <span className="text-emerald-300 font-bold">● activa</span>
+                ) : (
+                  <span className="text-sky-500/50">sin liquidez</span>
+                )}
+              </div>
+              <div className="h-1.5 rounded-full bg-sky-950/60 border border-sky-500/15 overflow-hidden">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all duration-700',
+                    hasLiq
+                      ? 'bg-gradient-to-r from-sky-500 to-cyan-400'
+                      : 'bg-sky-900/40',
+                  )}
+                  style={{ width: `${liqPct}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
