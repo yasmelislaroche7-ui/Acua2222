@@ -1,6 +1,6 @@
 {
   "_format": "hh-sol-artifact-1",
-  "contractName": "IH2OStake2",
+  "contractName": "IH2OStake3",
   "sourceName": "contracts/H2OFundingProxy.sol",
   "abi": [
     {
@@ -11,7 +11,7 @@
           "type": "uint256"
         }
       ],
-      "name": "fundDirect",
+      "name": "fundRewardPoolDirect",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"

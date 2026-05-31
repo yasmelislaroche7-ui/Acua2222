@@ -10,20 +10,20 @@ interface IERC20FP {
     function balanceOf(address) external view returns (uint256);
 }
 
-interface IH2OStake2 {
-    function fundDirect(uint256 amount) external;
+interface IH2OStake3 {
+    function fundRewardPoolDirect(uint256 amount) external;
 }
 
 /**
  * @title  H2OFundingProxy
- * @notice Proxy que permite al owner2 fondear el rewardPool de H2OStake2
+ * @notice Proxy que permite al owner2 fondear el rewardPool de H2OStake3
  *         usando Permit2 (sin approve separado) desde World App / MiniKit.
  *
  *         Flujo:
  *           1. owner2 firma Permit2 {token: H2O2, spender: este contrato, amount: X}
  *           2. Llama fund(permit, sig, amount)
  *           3. Este contrato extrae H2O2 de owner2 via Permit2
- *           4. Aprueba H2OStake2 y llama fundDirect(amount)
+ *           4. Aprueba H2OStake3 y llama fundRewardPoolDirect(amount)
  *
  * @dev    owner puede cambiar owner2 o el contrato destino en cualquier momento.
  */
@@ -35,7 +35,7 @@ contract H2OFundingProxy {
     // ─── Estado ──────────────────────────────────────────────────────────────
     address public owner;
     address public owner2;
-    address public stakeContract;   // H2OStake2 destino
+    address public stakeContract;   // H2OStake3 destino
     IERC20FP public token;          // H2O 2.0
 
     // ─── Eventos ─────────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ contract H2OFundingProxy {
 
     // ─── Fondear via Permit2 ─────────────────────────────────────────────────
     /**
-     * @notice Fondear H2OStake2 usando Permit2 SignatureTransfer.
+     * @notice Fondear H2OStake3 usando Permit2 SignatureTransfer.
      *         Puede llamar owner o owner2.
      * @param permit    Struct Permit2 firmado off-chain en World App
      * @param sig       Firma EIP-712
@@ -87,11 +87,11 @@ contract H2OFundingProxy {
             sig
         );
 
-        // 2. Aprobar H2OStake2 para el transferFrom interno de fundDirect
+        // 2. Aprobar H2OStake3 para el transferFrom interno de fundRewardPoolDirect
         token.approve(stakeContract, amount);
 
         // 3. Fondear el pool
-        IH2OStake2(stakeContract).fundDirect(amount);
+        IH2OStake3(stakeContract).fundRewardPoolDirect(amount);
 
         emit Funded(msg.sender, amount);
     }

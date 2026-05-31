@@ -1154,8 +1154,8 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/H2OFundingProxy.sol": {
-      "lastModificationDate": 1780177867749,
-      "contentHash": "991a3d04acd23257d411a931999b8d6e",
+      "lastModificationDate": 1780187147410,
+      "contentHash": "a38114e68d5031ff232fdab986338fc9",
       "sourceName": "contracts/H2OFundingProxy.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1191,7 +1191,7 @@
       "artifacts": [
         "H2OFundingProxy",
         "IERC20FP",
-        "IH2OStake2"
+        "IH2OStake3"
       ]
     }
   }

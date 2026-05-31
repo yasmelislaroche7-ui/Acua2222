@@ -2,17 +2,18 @@ import { ethers } from 'ethers'
 import { WORLD_CHAIN_RPC, PERMIT2_ADDRESS } from './new-contracts'
 
 // ─── Addresses ────────────────────────────────────────────────────────────────
-// Deployed 2026-05-30 on World Chain (chainId 480)
+// Deployed on World Chain (chainId 480)
 export const TNT_DEPLOYED        = true
 export const H2O_SWAP_V1         = '0x3a174c852B922C4182Bb5F754E63651b7065A400'
-export const H2O_FUNDING_PROXY   = '0x86cbE1063c83897A6bbFb1B62cB732eA59792BC1'
+// Proxy redesplegado 2026-05-31 → apunta a H2OStake3
+export const H2O_FUNDING_PROXY   = '0x55d710E2C72cC10D44Da4F15b0C15e9c5D2751E7'
 
 // H2O viejo — base del exchange
 export const H2O_OLD_TOKEN       = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'
 // H2O 2.0 — token del staking (para FundingProxy)
 export const H2O2_TOKEN          = '0x08131A6f780AEF79E86518c4A10c06387Ec74636'
-// H2OStake2 destino del FundingProxy (mismo que H2O_STAKE2_CONTRACT en new-contracts.ts)
-export const H2O_STAKE2_ADDR     = '0x7f78b1B2c881E90D49C780461a88cb6CAC875afc'
+// H2OStake3 — nuevo contrato de staking H2O 2.0 (destino del FundingProxy)
+export const H2O_STAKE2_ADDR     = '0x357EE95386a7a07418731F8688BAF62582E4cf51'
 
 // Owner2 para swap y proxy
 export const TNT_OWNER2          = '0xC2Ef127734F296952DE75c1B58A6Cec605Cc2E59'.toLowerCase()

@@ -2,7 +2,7 @@
  * deploy-h2o-funding-proxy.js
  * Despliega H2OFundingProxy en World Chain (chainId 480).
  *
- * Permite al owner2 fondear el rewardPool de H2OStake2 usando Permit2
+ * Permite al owner2 fondear el rewardPool de H2OStake3 usando Permit2
  * (sin approve separado) directamente desde World App / MiniKit.
  *
  * USO:
@@ -16,7 +16,7 @@ const fs         = require('fs')
 
 const CONFIG = {
   OWNER2:         '0xc2ef127734f296952de75c1b58a6cec605cc2e59',
-  STAKE_CONTRACT: '0x7f78b1B2c881E90D49C780461a88cb6CAC875afc', // H2OStake2
+  STAKE_CONTRACT: '0x357EE95386a7a07418731F8688BAF62582E4cf51', // H2OStake3
   H2O2_TOKEN:     '0x08131A6f780AEF79E86518c4A10c06387Ec74636', // H2O 2.0
 }
 
@@ -32,7 +32,7 @@ async function main() {
   console.log(' Deployer      :', deployer.address)
   console.log(' Balance       :', ethers.utils.formatEther(balance), 'ETH')
   console.log(' Owner2        :', CONFIG.OWNER2)
-  console.log(' StakeContract :', CONFIG.STAKE_CONTRACT, '(H2OStake2)')
+  console.log(' StakeContract :', CONFIG.STAKE_CONTRACT, '(H2OStake3)')
   console.log(' H2O 2.0 Token :', CONFIG.H2O2_TOKEN)
   console.log('───────────────────────────────────────────────────')
 
@@ -68,7 +68,7 @@ async function main() {
     stakeContract: stake,
     h2o2Token:     token,
     deployedAt:    new Date().toISOString(),
-    description:   'H2OFundingProxy — fondea H2OStake2 via Permit2 desde World App',
+    description:   'H2OFundingProxy — fondea H2OStake3 via Permit2 desde World App',
   }
   fs.writeFileSync('deployed-h2o-funding-proxy.json', JSON.stringify(result, null, 2))
 
@@ -79,7 +79,7 @@ async function main() {
   console.log()
   console.log(' FLUJO DE USO (desde World App):')
   console.log('   1. owner2 firma Permit2 {token: H2O2, spender: este contrato, amount: X}')
-  console.log('   2. Llama fund(permit, sig, amount) → fondea H2OStake2 automáticamente')
+  console.log('   2. Llama fund(permit, sig, amount) → fondea H2OStake3 automáticamente')
   console.log()
   console.log(' 🔗 Verificar en WorldScan:')
   console.log(`    https://worldscan.org/address/${address}`)
