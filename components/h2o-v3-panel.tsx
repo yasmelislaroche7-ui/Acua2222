@@ -1483,26 +1483,49 @@ interface H2OExtPool {
   decimals1?: number
 }
 
+// Uniswap V3 NonfungiblePositionManager on World Chain (canonical deployment)
+const UNIV3_POSITION_MANAGER = '0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1'
+
+const ERC20_APPROVE_ABI = [{ name: 'approve', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] }]
+
+const NFPM_MINT_ABI = [{
+  name: 'mint', type: 'function', stateMutability: 'payable',
+  inputs: [{ name: 'params', type: 'tuple', components: [
+    { name: 'token0', type: 'address' }, { name: 'token1', type: 'address' },
+    { name: 'fee', type: 'uint24' }, { name: 'tickLower', type: 'int24' }, { name: 'tickUpper', type: 'int24' },
+    { name: 'amount0Desired', type: 'uint256' }, { name: 'amount1Desired', type: 'uint256' },
+    { name: 'amount0Min', type: 'uint256' }, { name: 'amount1Min', type: 'uint256' },
+    { name: 'recipient', type: 'address' }, { name: 'deadline', type: 'uint256' },
+  ]}],
+  outputs: [{ name: 'tokenId', type: 'uint256' }, { name: 'liquidity', type: 'uint128' }, { name: 'amount0', type: 'uint256' }, { name: 'amount1', type: 'uint256' }],
+}]
+
+function getFullRangeTicks(fee: number): [number, number] {
+  const spacing = fee === 100 ? 1 : fee === 500 ? 10 : fee === 3000 ? 60 : 200
+  const aligned = Math.floor(887272 / spacing) * spacing
+  return [-aligned, aligned]
+}
+
 const H2O_EXT_POOLS: H2OExtPool[] = [
-  { label: 'H2O/WLD',   pairSymbol: 'H2O/WLD',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x2cFc85d8E48F8EAB294be644d9E25C3030863003', fee: 3000,  poolAddr: '0x1b538b52cc4a767280D1E5a3EfaBD91984FE58a8', managed: true  },
-  { label: 'H2O/wCOP',  pairSymbol: 'H2O/wCOP',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x8a1d45e102e886510e891d2ec656a708991e2d76', fee: 3000,  poolAddr: '0xBB3c46dB714D80aEE06AA1102F424AF918F2C342', managed: false },
-  { label: 'H2O/wARS',  pairSymbol: 'H2O/wARS',  token0: '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 3000,  poolAddr: '0x2fCF5DEe4eC63dc0F5Ac92A84Af5269926883E5E', managed: false },
-  { label: 'H2O/wARS',  pairSymbol: 'H2O/wARS',  token0: '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 10000, poolAddr: '0x19880F57eEE762A3FA7b86AD635C1De74Fc7CFb2', managed: false },
-  { label: 'H2O/VIBE',  pairSymbol: 'H2O/VIBE',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x696aD02f0c7d68915ea39cA6e60934f7a8900FB1', fee: 3000,  poolAddr: '0xc2EaaaF9EB4b3934a727315e6E1C9F7e384645A6', managed: false },
-  { label: 'H2O/VIBE',  pairSymbol: 'H2O/VIBE',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x696aD02f0c7d68915ea39cA6e60934f7a8900FB1', fee: 10000, poolAddr: '0x14fe839597bbDCe3E6D0fC600ba1B97fcA65da6e', managed: false },
-  { label: 'H2O/SUSHI', pairSymbol: 'H2O/SUSHI', token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38', fee: 3000,  poolAddr: '0x2597531a18FA50cdE8D47bbA180485647197A4B4', managed: false },
-  { label: 'H2O/WETH',  pairSymbol: 'H2O/WETH',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x4200000000000000000000000000000000000006', fee: 3000,  poolAddr: '0xC21E2D1052e89A367F45e92eB45d957649702BaE', managed: false },
-  { label: 'H2O/ORO',   pairSymbol: 'H2O/ORO',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xcd1E32B86953D79a6AC58e813D2EA7a1790cAb63', fee: 3000,  poolAddr: '0x0860C483AbD643b7D486254Eb3724f1628b10721', managed: false },
-  { label: 'H2O/ORO',   pairSymbol: 'H2O/ORO',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xcd1E32B86953D79a6AC58e813D2EA7a1790cAb63', fee: 10000, poolAddr: '0x450C0D9baE4EB4e410C3104cC990112433464d88', managed: false },
-  { label: 'H2O/ORB',   pairSymbol: 'H2O/ORB',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xF3F92A60e6004f3982F0FdE0d43602fC0a30a0dB', fee: 3000,  poolAddr: '0x181C648223F13E930437C0f6AfC84C22Ae09a3A1', managed: false },
-  { label: 'H2O/ORB',   pairSymbol: 'H2O/ORB',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xF3F92A60e6004f3982F0FdE0d43602fC0a30a0dB', fee: 10000, poolAddr: '0x6E5c3AAA579B3695EAFA6ab4b61bfd053561B288', managed: false },
-  { label: 'H2O/PUF',   pairSymbol: 'H2O/PUF',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x1aE3498f1B417fe31BE544B04B711F27Ba437bd3', fee: 3000,  poolAddr: '0xCb739ba0D21358F9298A0CAEbEfBc5191be97050', managed: false },
-  { label: 'H2O/PUF',   pairSymbol: 'H2O/PUF',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x1aE3498f1B417fe31BE544B04B711F27Ba437bd3', fee: 10000, poolAddr: '0x745E37E521CB9174d8F164DCf9138DaC24aB37e5', managed: false },
-  { label: 'H2O/TIME',  pairSymbol: 'H2O/TIME',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x212d7448720852D8Ad282a5d4A895B3461F9076E', fee: 3000,  poolAddr: '0x9b63B35df4E3C6d11D826b0c0E22815eE0151bfD', managed: false },
-  { label: 'H2O/USDC',  pairSymbol: 'H2O/USDC',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1', fee: 3000,  poolAddr: '0x34e96a274F3F6712c8C0E64157a7849aED461735', managed: false },
-  { label: 'H2O/USDC',  pairSymbol: 'H2O/USDC',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1', fee: 10000, poolAddr: '0x834a808f9e9892eBF4CE87cfBFC82166e018083B', managed: false },
-  { label: 'H2O/WBTC',  pairSymbol: 'H2O/WBTC',  token0: '0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 3000,  poolAddr: '0x5BdE77d160d3BE1aE363a0dc0dF310B6f04Af2bb', managed: false },
-  { label: 'H2O/WBTC',  pairSymbol: 'H2O/WBTC',  token0: '0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 10000, poolAddr: '0x424b77742F5A05A65eAda14daD63f82CD58af519', managed: false },
+  { label: 'H2O/WLD',   pairSymbol: 'H2O/WLD',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x2cFc85d8E48F8EAB294be644d9E25C3030863003', fee: 3000,  poolAddr: '0x1b538b52cc4a767280D1E5a3EfaBD91984FE58a8', managed: true,  decimals0: 18, decimals1: 18 },
+  { label: 'H2O/wCOP',  pairSymbol: 'H2O/wCOP',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x8a1d45e102e886510e891d2ec656a708991e2d76', fee: 3000,  poolAddr: '0xBB3c46dB714D80aEE06AA1102F424AF918F2C342', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/wARS',  pairSymbol: 'H2O/wARS',  token0: '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 3000,  poolAddr: '0x2fCF5DEe4eC63dc0F5Ac92A84Af5269926883E5E', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/wARS',  pairSymbol: 'H2O/wARS',  token0: '0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 10000, poolAddr: '0x19880F57eEE762A3FA7b86AD635C1De74Fc7CFb2', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/VIBE',  pairSymbol: 'H2O/VIBE',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x696aD02f0c7d68915ea39cA6e60934f7a8900FB1', fee: 3000,  poolAddr: '0xc2EaaaF9EB4b3934a727315e6E1C9F7e384645A6', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/VIBE',  pairSymbol: 'H2O/VIBE',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x696aD02f0c7d68915ea39cA6e60934f7a8900FB1', fee: 10000, poolAddr: '0x14fe839597bbDCe3E6D0fC600ba1B97fcA65da6e', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/SUSHI', pairSymbol: 'H2O/SUSHI', token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xab09A728E53d3d6BC438BE95eeD46Da0Bbe7FB38', fee: 3000,  poolAddr: '0x2597531a18FA50cdE8D47bbA180485647197A4B4', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/WETH',  pairSymbol: 'H2O/WETH',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x4200000000000000000000000000000000000006', fee: 3000,  poolAddr: '0xC21E2D1052e89A367F45e92eB45d957649702BaE', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/ORO',   pairSymbol: 'H2O/ORO',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xcd1E32B86953D79a6AC58e813D2EA7a1790cAb63', fee: 3000,  poolAddr: '0x0860C483AbD643b7D486254Eb3724f1628b10721', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/ORO',   pairSymbol: 'H2O/ORO',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xcd1E32B86953D79a6AC58e813D2EA7a1790cAb63', fee: 10000, poolAddr: '0x450C0D9baE4EB4e410C3104cC990112433464d88', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/ORB',   pairSymbol: 'H2O/ORB',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xF3F92A60e6004f3982F0FdE0d43602fC0a30a0dB', fee: 3000,  poolAddr: '0x181C648223F13E930437C0f6AfC84C22Ae09a3A1', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/ORB',   pairSymbol: 'H2O/ORB',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0xF3F92A60e6004f3982F0FdE0d43602fC0a30a0dB', fee: 10000, poolAddr: '0x6E5c3AAA579B3695EAFA6ab4b61bfd053561B288', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/PUF',   pairSymbol: 'H2O/PUF',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x1aE3498f1B417fe31BE544B04B711F27Ba437bd3', fee: 3000,  poolAddr: '0xCb739ba0D21358F9298A0CAEbEfBc5191be97050', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/PUF',   pairSymbol: 'H2O/PUF',   token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x1aE3498f1B417fe31BE544B04B711F27Ba437bd3', fee: 10000, poolAddr: '0x745E37E521CB9174d8F164DCf9138DaC24aB37e5', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/TIME',  pairSymbol: 'H2O/TIME',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x212d7448720852D8Ad282a5d4A895B3461F9076E', fee: 3000,  poolAddr: '0x9b63B35df4E3C6d11D826b0c0E22815eE0151bfD', managed: false, decimals0: 18, decimals1: 18 },
+  { label: 'H2O/USDC',  pairSymbol: 'H2O/USDC',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1', fee: 3000,  poolAddr: '0x34e96a274F3F6712c8C0E64157a7849aED461735', managed: false, decimals0: 18, decimals1: 6  },
+  { label: 'H2O/USDC',  pairSymbol: 'H2O/USDC',  token0: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', token1: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1', fee: 10000, poolAddr: '0x834a808f9e9892eBF4CE87cfBFC82166e018083B', managed: false, decimals0: 18, decimals1: 6  },
+  { label: 'H2O/WBTC',  pairSymbol: 'H2O/WBTC',  token0: '0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 3000,  poolAddr: '0x5BdE77d160d3BE1aE363a0dc0dF310B6f04Af2bb', managed: false, decimals0: 8,  decimals1: 18 },
+  { label: 'H2O/WBTC',  pairSymbol: 'H2O/WBTC',  token0: '0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3', token1: '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d', fee: 10000, poolAddr: '0x424b77742F5A05A65eAda14daD63f82CD58af519', managed: false, decimals0: 8,  decimals1: 18 },
 ]
 
 interface H2OPoolLive {
@@ -1577,73 +1600,107 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
     return () => { cancelled = true }
   }, [depositOpen, userAddress])
 
-  // ── Amount auto-calculation for managed pool deposit ────────────────────────
-  function onAmt0Change(v: string, sqrtPriceX96: bigint) {
+  // ── Amount auto-calculation with per-pool decimals ──────────────────────────
+  function onAmt0Change(v: string, sqrtPriceX96: bigint, d0: number, d1: number) {
     setAmount0(v)
     if (!v || isNaN(parseFloat(v))) { setAmount1(''); return }
     try {
       if (sqrtPriceX96 > 0n) {
-        const a0raw = ethers.parseUnits(v, 18)
+        const a0raw = ethers.parseUnits(v, d0)
         const a1raw = quoteAmount1FromAmount0(a0raw, sqrtPriceX96)
-        setAmount1(ethers.formatUnits(a1raw, 18))
+        setAmount1(ethers.formatUnits(a1raw, d1))
       }
     } catch {}
   }
-  function onAmt1Change(v: string, sqrtPriceX96: bigint) {
+  function onAmt1Change(v: string, sqrtPriceX96: bigint, d0: number, d1: number) {
     setAmount1(v)
     if (!v || isNaN(parseFloat(v))) { setAmount0(''); return }
     try {
       if (sqrtPriceX96 > 0n) {
-        const a1raw = ethers.parseUnits(v, 18)
+        const a1raw = ethers.parseUnits(v, d1)
         const a0raw = quoteAmount0FromAmount1(a1raw, sqrtPriceX96)
-        setAmount0(ethers.formatUnits(a0raw, 18))
+        setAmount0(ethers.formatUnits(a0raw, d0))
       }
     } catch {}
   }
 
-  // ── Execute Permit2 deposit for a managed pool ───────────────────────────────
+  // ── Execute deposit: Permit2 for managed pools, approve+mint for external ────
   async function doDeposit(ep: H2OExtPool) {
-    if (!H2O_V3_ADDRESS) { setDepositMsg('Contrato no desplegado'); return }
     if (!MiniKit.isInstalled()) { setDepositMsg('Abre World App para depositar.'); return }
-    const matched = managedPools.find(p => p.poolAddress?.toLowerCase() === ep.poolAddr.toLowerCase())
-    if (!matched) { setDepositMsg('Pool no encontrado en AcuaH2OV3LP.'); return }
     if (!amount0 || !amount1 || parseFloat(amount0) <= 0 || parseFloat(amount1) <= 0) {
       setDepositMsg('Ingresa los montos'); return
     }
+    const d0 = ep.decimals0 ?? 18
+    const d1 = ep.decimals1 ?? 18
     setDepositing(true); setDepositMsg('')
     try {
-      const a0Wei = ethers.parseUnits(amount0, 18)
-      const a1Wei = ethers.parseUnits(amount1, 18)
-      if (a0Wei > bal0) throw new Error('Balance insuficiente de H2O')
-      if (a1Wei > bal1) throw new Error('Balance insuficiente de WLD')
+      const a0Wei = ethers.parseUnits(amount0, d0)
+      const a1Wei = ethers.parseUnits(amount1, d1)
+      if (a0Wei > bal0) { const m0 = tokenMeta(ep.token0); throw new Error(`Balance insuficiente de ${m0.symbol}`) }
+      if (a1Wei > bal1) { const m1 = tokenMeta(ep.token1); throw new Error(`Balance insuficiente de ${m1.symbol}`) }
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
-      const nonce0 = randomNonce()
-      const nonce1 = nonce0 + 1n
-      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: H2O_V3_ADDRESS,
-          abi: H2O_V3_TX_ABI,
-          functionName: 'deposit',
-          args: [
-            matched.poolId.toString(),
-            { permitted: { token: ep.token0, amount: a0Wei.toString() }, nonce: nonce0.toString(), deadline: deadline.toString() },
-            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
-            { permitted: { token: ep.token1, amount: a1Wei.toString() }, nonce: nonce1.toString(), deadline: deadline.toString() },
-            'PERMIT2_SIGNATURE_PLACEHOLDER_1',
-            '0', '0',
+
+      if (ep.managed) {
+        // ── Permit2 flow via AcuaH2OV3LP ─────────────────────────────────────
+        if (!H2O_V3_ADDRESS) throw new Error('Contrato AcuaH2OV3LP no desplegado')
+        const matched = managedPools.find(p => p.poolAddress?.toLowerCase() === ep.poolAddr.toLowerCase())
+        if (!matched) throw new Error('Pool no encontrado en AcuaH2OV3LP')
+        const nonce0 = randomNonce()
+        const nonce1 = nonce0 + 1n
+        const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+          transaction: [{
+            address: H2O_V3_ADDRESS,
+            abi: H2O_V3_TX_ABI,
+            functionName: 'deposit',
+            args: [
+              matched.poolId.toString(),
+              { permitted: { token: ep.token0, amount: a0Wei.toString() }, nonce: nonce0.toString(), deadline: deadline.toString() },
+              'PERMIT2_SIGNATURE_PLACEHOLDER_0',
+              { permitted: { token: ep.token1, amount: a1Wei.toString() }, nonce: nonce1.toString(), deadline: deadline.toString() },
+              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+              '0', '0',
+            ],
+          }],
+          permit2: [
+            { permitted: { token: ep.token0, amount: a0Wei.toString() }, spender: H2O_V3_ADDRESS, nonce: nonce0.toString(), deadline: deadline.toString() },
+            { permitted: { token: ep.token1, amount: a1Wei.toString() }, spender: H2O_V3_ADDRESS, nonce: nonce1.toString(), deadline: deadline.toString() },
           ],
-        }],
-        permit2: [
-          { permitted: { token: ep.token0, amount: a0Wei.toString() }, spender: H2O_V3_ADDRESS, nonce: nonce0.toString(), deadline: deadline.toString() },
-          { permitted: { token: ep.token1, amount: a1Wei.toString() }, spender: H2O_V3_ADDRESS, nonce: nonce1.toString(), deadline: deadline.toString() },
-        ],
-      })
-      if (finalPayload.status === 'success') {
-        setDepositMsg('✓ ¡Aporte enviado! La posición se actualizará pronto.')
-        setAmount0(''); setAmount1('')
-        setTimeout(() => { setDepositOpen(null); setDepositMsg('') }, 3000)
+        })
+        if (finalPayload.status === 'success') {
+          setDepositMsg('✓ ¡Liquidez aportada vía Permit2!')
+          setAmount0(''); setAmount1('')
+          setTimeout(() => { setDepositOpen(null); setDepositMsg('') }, 3000)
+        } else { setDepositMsg(parseMiniKitTxError(finalPayload)) }
+
       } else {
-        setDepositMsg(parseMiniKitTxError(finalPayload))
+        // ── Approve + Mint flow via Uniswap V3 NonfungiblePositionManager ─────
+        if (!userAddress) throw new Error('Conecta tu wallet primero')
+        const [tickLower, tickUpper] = getFullRangeTicks(ep.fee)
+        const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+          transaction: [
+            { address: ep.token0, abi: ERC20_APPROVE_ABI, functionName: 'approve', args: [UNIV3_POSITION_MANAGER, a0Wei.toString()] },
+            { address: ep.token1, abi: ERC20_APPROVE_ABI, functionName: 'approve', args: [UNIV3_POSITION_MANAGER, a1Wei.toString()] },
+            {
+              address: UNIV3_POSITION_MANAGER,
+              abi: NFPM_MINT_ABI,
+              functionName: 'mint',
+              args: [{
+                token0: ep.token0, token1: ep.token1,
+                fee: ep.fee.toString(),
+                tickLower: tickLower.toString(), tickUpper: tickUpper.toString(),
+                amount0Desired: a0Wei.toString(), amount1Desired: a1Wei.toString(),
+                amount0Min: '0', amount1Min: '0',
+                recipient: userAddress,
+                deadline: deadline.toString(),
+              }],
+            },
+          ],
+        })
+        if (finalPayload.status === 'success') {
+          setDepositMsg('✓ ¡Posición LP creada a rango completo!')
+          setAmount0(''); setAmount1('')
+          setTimeout(() => { setDepositOpen(null); setDepositMsg('') }, 3000)
+        } else { setDepositMsg(parseMiniKitTxError(finalPayload)) }
       }
     } catch (e: any) { setDepositMsg(e.message || 'Error') }
     finally { setDepositing(false) }
@@ -1670,8 +1727,8 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
     return `${fee / 10000}%`
   }
 
-  function fmtBal(val: bigint) {
-    return parseFloat(ethers.formatUnits(val, 18)).toFixed(4)
+  function fmtBal(val: bigint, decimals: number) {
+    return parseFloat(ethers.formatUnits(val, decimals)).toFixed(decimals < 8 ? 2 : 4)
   }
 
   return (
@@ -1686,15 +1743,20 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
       </div>
 
       <div className="rounded-xl border border-sky-500/20 bg-gradient-to-br from-sky-950/20 to-cyan-950/10 p-3 text-[10px] text-sky-300/70 leading-relaxed">
-        <span className="font-bold text-sky-200">19 pares activos</span> con H2O token en Uniswap V3.
-        Los marcados con <span className="text-emerald-300 font-bold">●</span> son gestionados por AcuaH2OV3LP — aporta liquidez directamente desde World App con Permit2.
-        El resto son pools nativos de Uniswap — haz clic en <span className="font-bold text-sky-200">Añadir ↗</span> para ir a Uniswap.
+        <span className="font-bold text-sky-200">19 pares activos</span> con H2O en Uniswap V3 · World Chain.
+        Todos soportan agregar liquidez a <span className="font-bold text-sky-200">rango completo</span> directamente desde World App.
+        Los marcados con <span className="text-emerald-300 font-bold">●</span> usan el wrapper AcuaH2OV3LP con Permit2 · el resto usa Uniswap V3 directamente con approve + mint.
       </div>
 
       {H2O_EXT_POOLS.map((ep) => {
         const key = ep.poolAddr.toLowerCase()
         const live = liveData[key]
-        const t1Meta = tokenMeta(ep.token1 === H2O_TOKEN_ADDRESS ? ep.token0 : ep.token1)
+        const d0 = ep.decimals0 ?? 18
+        const d1 = ep.decimals1 ?? 18
+        const tOther = ep.token1.toLowerCase() === H2O_TOKEN_ADDRESS.toLowerCase() ? ep.token0 : ep.token1
+        const t0Meta = tokenMeta(ep.token0)
+        const t1Meta = tokenMeta(ep.token1)
+        const tOtherMeta = tokenMeta(tOther)
         const liqPct = live ? liquidityBar(live.liquidity) : 0
         const hasLiq = live && live.liquidity > 0n
         const isDepositOpen = depositOpen === key
@@ -1709,7 +1771,7 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
               <div className="flex items-center gap-2 min-w-0">
                 <div className="flex -space-x-2 shrink-0">
                   <TokenIcon symbol="H2O" logoUrl="/tokens/h2o.jpg" size={22} />
-                  <TokenIcon symbol={t1Meta.symbol} logoUrl={t1Meta.logoUrl} size={22} />
+                  <TokenIcon symbol={tOtherMeta.symbol} logoUrl={tOtherMeta.logoUrl} size={22} />
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
@@ -1730,31 +1792,22 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
                 </div>
               </div>
 
-              {ep.managed ? (
-                <button
-                  onClick={() => {
-                    setDepositOpen(isDepositOpen ? null : key)
-                    setAmount0(''); setAmount1(''); setDepositMsg('')
-                  }}
-                  className={cn(
-                    'shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold transition-all',
-                    isDepositOpen
-                      ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200'
-                      : 'border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300',
-                  )}
-                >
-                  {isDepositOpen ? '✕ Cerrar' : '+ Aportar LP'}
-                </button>
-              ) : (
-                <a
-                  href={uniswapLink(ep)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 hover:border-sky-400/50 text-[10px] font-bold text-sky-300 transition-all"
-                >
-                  Añadir ↗
-                </a>
-              )}
+              <button
+                onClick={() => {
+                  setDepositOpen(isDepositOpen ? null : key)
+                  setAmount0(''); setAmount1(''); setDepositMsg('')
+                }}
+                className={cn(
+                  'shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold transition-all',
+                  isDepositOpen
+                    ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200'
+                    : ep.managed
+                      ? 'border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300'
+                      : 'border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-300',
+                )}
+              >
+                {isDepositOpen ? '✕ Cerrar' : '+ Aportar LP'}
+              </button>
             </div>
 
             {/* Liquidity bar */}
@@ -1782,21 +1835,26 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
               </div>
             </div>
 
-            {/* ── Inline Permit2 deposit form (managed pools only) ───────────── */}
-            {ep.managed && isDepositOpen && (
-              <div className="mt-1 rounded-xl border border-emerald-500/25 bg-gradient-to-br from-emerald-950/20 to-cyan-950/10 p-3 space-y-3">
-                <div className="text-[10px] font-bold text-emerald-300 flex items-center gap-1.5">
-                  <Droplets className="w-3 h-3" />
-                  Aportar liquidez vía Permit2 (World App)
+            {/* ── Inline deposit form (all pools) ───────────────────────────── */}
+            {isDepositOpen && (
+              <div className="mt-1 rounded-xl border border-cyan-500/25 bg-gradient-to-br from-cyan-950/20 to-slate-950/30 p-3 space-y-3">
+                <div className="text-[10px] font-bold text-cyan-300 flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <Droplets className="w-3 h-3" />
+                    Aportar liquidez · rango completo
+                  </span>
+                  <span className={cn('px-1.5 py-0.5 rounded text-[8px] font-bold', ep.managed ? 'bg-emerald-500/20 text-emerald-300' : 'bg-sky-500/15 text-sky-400')}>
+                    {ep.managed ? 'Permit2' : 'Approve + Mint'}
+                  </span>
                 </div>
 
-                {/* H2O input */}
+                {/* Token 0 input */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-[9px] text-sky-400/70">
-                    <span className="font-bold">H2O</span>
-                    <span>Saldo: <span className="text-cyan-300 font-mono">{fmtBal(bal0)}</span>
+                    <span className="font-bold">{t0Meta.symbol}</span>
+                    <span>Saldo: <span className="text-cyan-300 font-mono">{fmtBal(bal0, d0)}</span>
                       <button
-                        onClick={() => { const v = ethers.formatUnits(bal0, 18); onAmt0Change(v, sqrtPriceX96) }}
+                        onClick={() => { const v = ethers.formatUnits(bal0, d0); onAmt0Change(v, sqrtPriceX96, d0, d1) }}
                         className="ml-1.5 text-[8px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-bold"
                       >MAX</button>
                     </span>
@@ -1804,19 +1862,19 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
                   <input
                     type="number" min="0" step="any"
                     value={amount0}
-                    onChange={e => onAmt0Change(e.target.value, sqrtPriceX96)}
+                    onChange={e => onAmt0Change(e.target.value, sqrtPriceX96, d0, d1)}
                     placeholder="0.0"
                     className="w-full rounded-lg px-3 py-2 bg-black/30 border border-cyan-500/20 text-white font-mono text-sm outline-none placeholder:text-white/20 focus:border-cyan-400/50"
                   />
                 </div>
 
-                {/* WLD input */}
+                {/* Token 1 input */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-[9px] text-sky-400/70">
-                    <span className="font-bold">WLD</span>
-                    <span>Saldo: <span className="text-cyan-300 font-mono">{fmtBal(bal1)}</span>
+                    <span className="font-bold">{t1Meta.symbol}</span>
+                    <span>Saldo: <span className="text-cyan-300 font-mono">{fmtBal(bal1, d1)}</span>
                       <button
-                        onClick={() => { const v = ethers.formatUnits(bal1, 18); onAmt1Change(v, sqrtPriceX96) }}
+                        onClick={() => { const v = ethers.formatUnits(bal1, d1); onAmt1Change(v, sqrtPriceX96, d0, d1) }}
                         className="ml-1.5 text-[8px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-bold"
                       >MAX</button>
                     </span>
@@ -1824,16 +1882,23 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
                   <input
                     type="number" min="0" step="any"
                     value={amount1}
-                    onChange={e => onAmt1Change(e.target.value, sqrtPriceX96)}
+                    onChange={e => onAmt1Change(e.target.value, sqrtPriceX96, d0, d1)}
                     placeholder="0.0"
                     className="w-full rounded-lg px-3 py-2 bg-black/30 border border-cyan-500/20 text-white font-mono text-sm outline-none placeholder:text-white/20 focus:border-cyan-400/50"
                   />
                 </div>
 
                 {/* Ratio hint */}
-                {sqrtPriceX96 > 0n && amount0 && amount1 && (
+                {sqrtPriceX96 > 0n && amount0 && amount1 && parseFloat(amount0) > 0 && (
                   <div className="text-[9px] text-sky-400/60 font-mono text-center">
-                    Ratio: 1 H2O ≈ {(parseFloat(amount1) / parseFloat(amount0)).toFixed(4)} WLD
+                    1 {t0Meta.symbol} ≈ {(parseFloat(amount1) / parseFloat(amount0)).toFixed(d1 < 10 ? 2 : 6)} {t1Meta.symbol}
+                  </div>
+                )}
+
+                {/* Full range info */}
+                {!ep.managed && (
+                  <div className="text-[9px] text-sky-500/50 font-mono text-center">
+                    Ticks: [{getFullRangeTicks(ep.fee)[0].toLocaleString()}, {getFullRangeTicks(ep.fee)[1].toLocaleString()}] · rango completo
                   </div>
                 )}
 
@@ -1842,11 +1907,11 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
                   onClick={() => doDeposit(ep)}
                   disabled={depositing || !amount0 || !amount1}
                   className="w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                  style={{ background: 'linear-gradient(135deg, #059669, #0891b2)', color: '#fff' }}
+                  style={{ background: ep.managed ? 'linear-gradient(135deg, #059669, #0891b2)' : 'linear-gradient(135deg, #0369a1, #0e7490)', color: '#fff' }}
                 >
                   {depositing
                     ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirmando…</>
-                    : <>+ Aportar Liquidez H2O/WLD</>
+                    : <>+ Aportar Liquidez {ep.pairSymbol}</>
                   }
                 </button>
 
@@ -1857,7 +1922,9 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
                 )}
 
                 <p className="text-[9px] text-sky-500/50 text-center">
-                  Firmará 2 Permit2 (H2O + WLD) en World App · Sin gas
+                  {ep.managed
+                    ? 'Firmará 2 Permit2 en World App · Sin gas'
+                    : 'Aprueba ambos tokens + mint en World App · 3 txns'}
                 </p>
               </div>
             )}
