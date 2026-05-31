@@ -1836,7 +1836,15 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
 
             {/* TO token */}
             <div className="rounded-2xl p-3.5 space-y-2" style={{ background: 'rgba(0,20,50,0.6)', border: '1px solid rgba(0,163,255,0.1)' }}>
-              <span className="text-[10px] text-white/35 font-medium uppercase tracking-wider">A</span>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-white/35 font-medium uppercase tracking-wider">A</span>
+                <span className="text-[10px] text-white/30">
+                  Saldo: <span className="text-blue-300 font-mono">{formatToken(getBal(toToken), toToken.decimals, 4)}</span>
+                  {prices[toToken.address.toLowerCase()] && getBal(toToken) > 0n && (
+                    <span className="text-blue-400/50 ml-1">${(parseFloat(ethers.formatUnits(getBal(toToken), toToken.decimals)) * (prices[toToken.address.toLowerCase()] ?? 0)).toFixed(2)}</span>
+                  )}
+                </span>
+              </div>
               <div className="flex items-center gap-3">
                 <button onClick={() => setPickerFor('to')}
                   className="flex items-center gap-2 rounded-xl px-3 py-2 hover:scale-[1.02] transition-all shrink-0"

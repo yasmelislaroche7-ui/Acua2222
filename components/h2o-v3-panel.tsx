@@ -1269,7 +1269,7 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
       )}
 
       {/* ── H2O Pools Explorer (todos los pares H2O en Uniswap V3) ─────────── */}
-      {baseFilter === 'H2O' && <H2OPoolsSection />}
+      {baseFilter === 'H2O' && <H2OPoolsSection userAddress={userAddress} managedPools={pools} />}
 
       {activePool && (
         <PoolDialog
@@ -1479,6 +1479,8 @@ interface H2OExtPool {
   fee: number
   poolAddr: string
   managed: boolean        // true = in AcuaH2OV3LP wrapper (can provide LP via app)
+  decimals0?: number
+  decimals1?: number
 }
 
 const H2O_EXT_POOLS: H2OExtPool[] = [
@@ -1510,9 +1512,18 @@ interface H2OPoolLive {
   loading: boolean
 }
 
-function H2OPoolsSection() {
+function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: string; managedPools?: H2OV3Pool[] }) {
   const [liveData, setLiveData] = useState<Record<string, H2OPoolLive>>({})
   const [fetched, setFetched] = useState(false)
+
+  // ── Deposit state (for managed pools) ───────────────────────────────────────
+  const [depositOpen, setDepositOpen] = useState<string | null>(null)
+  const [amount0, setAmount0] = useState('')
+  const [amount1, setAmount1] = useState('')
+  const [bal0, setBal0] = useState(0n)
+  const [bal1, setBal1] = useState(0n)
+  const [depositing, setDepositing] = useState(false)
+  const [depositMsg, setDepositMsg] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -1551,6 +1562,93 @@ function H2OPoolsSection() {
     return () => { cancelled = true }
   }, [])
 
+  // ── Load balances when a managed pool's deposit form opens ───────────────────
+  useEffect(() => {
+    if (!depositOpen || !userAddress) return
+    const ep = H2O_EXT_POOLS.find(p => p.poolAddr.toLowerCase() === depositOpen)
+    if (!ep) return
+    let cancelled = false
+    Promise.all([
+      fetchUserBalance(ep.token0, userAddress),
+      fetchUserBalance(ep.token1, userAddress),
+    ]).then(([b0, b1]) => {
+      if (!cancelled) { setBal0(b0.balance); setBal1(b1.balance) }
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [depositOpen, userAddress])
+
+  // ── Amount auto-calculation for managed pool deposit ────────────────────────
+  function onAmt0Change(v: string, sqrtPriceX96: bigint) {
+    setAmount0(v)
+    if (!v || isNaN(parseFloat(v))) { setAmount1(''); return }
+    try {
+      if (sqrtPriceX96 > 0n) {
+        const a0raw = ethers.parseUnits(v, 18)
+        const a1raw = quoteAmount1FromAmount0(a0raw, sqrtPriceX96)
+        setAmount1(ethers.formatUnits(a1raw, 18))
+      }
+    } catch {}
+  }
+  function onAmt1Change(v: string, sqrtPriceX96: bigint) {
+    setAmount1(v)
+    if (!v || isNaN(parseFloat(v))) { setAmount0(''); return }
+    try {
+      if (sqrtPriceX96 > 0n) {
+        const a1raw = ethers.parseUnits(v, 18)
+        const a0raw = quoteAmount0FromAmount1(a1raw, sqrtPriceX96)
+        setAmount0(ethers.formatUnits(a0raw, 18))
+      }
+    } catch {}
+  }
+
+  // ── Execute Permit2 deposit for a managed pool ───────────────────────────────
+  async function doDeposit(ep: H2OExtPool) {
+    if (!H2O_V3_ADDRESS) { setDepositMsg('Contrato no desplegado'); return }
+    if (!MiniKit.isInstalled()) { setDepositMsg('Abre World App para depositar.'); return }
+    const matched = managedPools.find(p => p.poolAddress?.toLowerCase() === ep.poolAddr.toLowerCase())
+    if (!matched) { setDepositMsg('Pool no encontrado en AcuaH2OV3LP.'); return }
+    if (!amount0 || !amount1 || parseFloat(amount0) <= 0 || parseFloat(amount1) <= 0) {
+      setDepositMsg('Ingresa los montos'); return
+    }
+    setDepositing(true); setDepositMsg('')
+    try {
+      const a0Wei = ethers.parseUnits(amount0, 18)
+      const a1Wei = ethers.parseUnits(amount1, 18)
+      if (a0Wei > bal0) throw new Error('Balance insuficiente de H2O')
+      if (a1Wei > bal1) throw new Error('Balance insuficiente de WLD')
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
+      const nonce0 = randomNonce()
+      const nonce1 = nonce0 + 1n
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: H2O_V3_ADDRESS,
+          abi: H2O_V3_TX_ABI,
+          functionName: 'deposit',
+          args: [
+            matched.poolId.toString(),
+            { permitted: { token: ep.token0, amount: a0Wei.toString() }, nonce: nonce0.toString(), deadline: deadline.toString() },
+            'PERMIT2_SIGNATURE_PLACEHOLDER_0',
+            { permitted: { token: ep.token1, amount: a1Wei.toString() }, nonce: nonce1.toString(), deadline: deadline.toString() },
+            'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+            '0', '0',
+          ],
+        }],
+        permit2: [
+          { permitted: { token: ep.token0, amount: a0Wei.toString() }, spender: H2O_V3_ADDRESS, nonce: nonce0.toString(), deadline: deadline.toString() },
+          { permitted: { token: ep.token1, amount: a1Wei.toString() }, spender: H2O_V3_ADDRESS, nonce: nonce1.toString(), deadline: deadline.toString() },
+        ],
+      })
+      if (finalPayload.status === 'success') {
+        setDepositMsg('✓ ¡Aporte enviado! La posición se actualizará pronto.')
+        setAmount0(''); setAmount1('')
+        setTimeout(() => { setDepositOpen(null); setDepositMsg('') }, 3000)
+      } else {
+        setDepositMsg(parseMiniKitTxError(finalPayload))
+      }
+    } catch (e: any) { setDepositMsg(e.message || 'Error') }
+    finally { setDepositing(false) }
+  }
+
   const UNISWAP_BASE = 'https://app.uniswap.org/add'
 
   function uniswapLink(ep: H2OExtPool) {
@@ -1572,6 +1670,10 @@ function H2OPoolsSection() {
     return `${fee / 10000}%`
   }
 
+  function fmtBal(val: bigint) {
+    return parseFloat(ethers.formatUnits(val, 18)).toFixed(4)
+  }
+
   return (
     <div className="space-y-2.5 mt-1">
       <div className="flex items-center gap-2 px-1">
@@ -1585,7 +1687,7 @@ function H2OPoolsSection() {
 
       <div className="rounded-xl border border-sky-500/20 bg-gradient-to-br from-sky-950/20 to-cyan-950/10 p-3 text-[10px] text-sky-300/70 leading-relaxed">
         <span className="font-bold text-sky-200">19 pares activos</span> con H2O token en Uniswap V3.
-        Los marcados con <span className="text-emerald-300 font-bold">●</span> son gestionados por AcuaH2OV3LP — usa el botón de arriba para aportar liquidez.
+        Los marcados con <span className="text-emerald-300 font-bold">●</span> son gestionados por AcuaH2OV3LP — aporta liquidez directamente desde World App con Permit2.
         El resto son pools nativos de Uniswap — haz clic en <span className="font-bold text-sky-200">Añadir ↗</span> para ir a Uniswap.
       </div>
 
@@ -1595,6 +1697,8 @@ function H2OPoolsSection() {
         const t1Meta = tokenMeta(ep.token1 === H2O_TOKEN_ADDRESS ? ep.token0 : ep.token1)
         const liqPct = live ? liquidityBar(live.liquidity) : 0
         const hasLiq = live && live.liquidity > 0n
+        const isDepositOpen = depositOpen === key
+        const sqrtPriceX96 = live?.sqrtPriceX96 ?? 0n
 
         return (
           <div key={ep.poolAddr}
@@ -1626,14 +1730,31 @@ function H2OPoolsSection() {
                 </div>
               </div>
 
-              <a
-                href={uniswapLink(ep)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 hover:border-sky-400/50 text-[10px] font-bold text-sky-300 transition-all"
-              >
-                Añadir ↗
-              </a>
+              {ep.managed ? (
+                <button
+                  onClick={() => {
+                    setDepositOpen(isDepositOpen ? null : key)
+                    setAmount0(''); setAmount1(''); setDepositMsg('')
+                  }}
+                  className={cn(
+                    'shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold transition-all',
+                    isDepositOpen
+                      ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200'
+                      : 'border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300',
+                  )}
+                >
+                  {isDepositOpen ? '✕ Cerrar' : '+ Aportar LP'}
+                </button>
+              ) : (
+                <a
+                  href={uniswapLink(ep)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 hover:border-sky-400/50 text-[10px] font-bold text-sky-300 transition-all"
+                >
+                  Añadir ↗
+                </a>
+              )}
             </div>
 
             {/* Liquidity bar */}
@@ -1660,6 +1781,86 @@ function H2OPoolsSection() {
                 />
               </div>
             </div>
+
+            {/* ── Inline Permit2 deposit form (managed pools only) ───────────── */}
+            {ep.managed && isDepositOpen && (
+              <div className="mt-1 rounded-xl border border-emerald-500/25 bg-gradient-to-br from-emerald-950/20 to-cyan-950/10 p-3 space-y-3">
+                <div className="text-[10px] font-bold text-emerald-300 flex items-center gap-1.5">
+                  <Droplets className="w-3 h-3" />
+                  Aportar liquidez vía Permit2 (World App)
+                </div>
+
+                {/* H2O input */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[9px] text-sky-400/70">
+                    <span className="font-bold">H2O</span>
+                    <span>Saldo: <span className="text-cyan-300 font-mono">{fmtBal(bal0)}</span>
+                      <button
+                        onClick={() => { const v = ethers.formatUnits(bal0, 18); onAmt0Change(v, sqrtPriceX96) }}
+                        className="ml-1.5 text-[8px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-bold"
+                      >MAX</button>
+                    </span>
+                  </div>
+                  <input
+                    type="number" min="0" step="any"
+                    value={amount0}
+                    onChange={e => onAmt0Change(e.target.value, sqrtPriceX96)}
+                    placeholder="0.0"
+                    className="w-full rounded-lg px-3 py-2 bg-black/30 border border-cyan-500/20 text-white font-mono text-sm outline-none placeholder:text-white/20 focus:border-cyan-400/50"
+                  />
+                </div>
+
+                {/* WLD input */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[9px] text-sky-400/70">
+                    <span className="font-bold">WLD</span>
+                    <span>Saldo: <span className="text-cyan-300 font-mono">{fmtBal(bal1)}</span>
+                      <button
+                        onClick={() => { const v = ethers.formatUnits(bal1, 18); onAmt1Change(v, sqrtPriceX96) }}
+                        className="ml-1.5 text-[8px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-bold"
+                      >MAX</button>
+                    </span>
+                  </div>
+                  <input
+                    type="number" min="0" step="any"
+                    value={amount1}
+                    onChange={e => onAmt1Change(e.target.value, sqrtPriceX96)}
+                    placeholder="0.0"
+                    className="w-full rounded-lg px-3 py-2 bg-black/30 border border-cyan-500/20 text-white font-mono text-sm outline-none placeholder:text-white/20 focus:border-cyan-400/50"
+                  />
+                </div>
+
+                {/* Ratio hint */}
+                {sqrtPriceX96 > 0n && amount0 && amount1 && (
+                  <div className="text-[9px] text-sky-400/60 font-mono text-center">
+                    Ratio: 1 H2O ≈ {(parseFloat(amount1) / parseFloat(amount0)).toFixed(4)} WLD
+                  </div>
+                )}
+
+                {/* Deposit button */}
+                <button
+                  onClick={() => doDeposit(ep)}
+                  disabled={depositing || !amount0 || !amount1}
+                  className="w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg, #059669, #0891b2)', color: '#fff' }}
+                >
+                  {depositing
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirmando…</>
+                    : <>+ Aportar Liquidez H2O/WLD</>
+                  }
+                </button>
+
+                {depositMsg && (
+                  <p className={cn('text-[10px] text-center font-medium px-2', depositMsg.startsWith('✓') ? 'text-emerald-400' : 'text-red-400')}>
+                    {depositMsg}
+                  </p>
+                )}
+
+                <p className="text-[9px] text-sky-500/50 text-center">
+                  Firmará 2 Permit2 (H2O + WLD) en World App · Sin gas
+                </p>
+              </div>
+            )}
           </div>
         )
       })}

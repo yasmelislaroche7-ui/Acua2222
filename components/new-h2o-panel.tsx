@@ -15,7 +15,7 @@ import { WORLD_CHAIN_RPC, randomNonce } from '@/lib/new-contracts'
 const CONTRACT = '0x357EE95386a7a07418731F8688BAF62582E4cf51'
 const TOKEN    = '0x08131A6f780AEF79E86518c4A10c06387Ec74636'
 const DECIMALS = 18
-const APP_DOMAIN = 'https://acua.app'
+const APP_BASE_URL = 'https://worldcoin.org/mini-app?app_id=app_60f2dc429532dcfa014c16d52ddc00fe&app_mode=mini-app'
 
 // ─── ABIs (NewH2OStaking v2) ──────────────────────────────────────────────────
 const ABI_READ = [
@@ -497,7 +497,7 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
     ...(isOwner ? [{ id: 'fondear' as const, icon: <Fuel className="w-3.5 h-3.5" />, label: 'Fondear' }] : []),
   ]
 
-  const refLink = addr ? `${APP_DOMAIN}?ref=${addr}` : ''
+  const refLink = addr ? `${APP_BASE_URL}&ref=${addr}` : ''
   const hasReferrer = refInfo && refInfo.myReferrer && refInfo.myReferrer !== ethers.ZeroAddress
 
   return (
