@@ -1,2 +1,4 @@
 - [H2OStake2 deployment](h2ostake2.md) — H2O 2.0 staking deployed; referral fee split and Permit2 pattern for new panels.
 - [NewH2OStaking deployment](new-h2o-staking.md) — v1 (0x57A5…) no tiene setFees; usar v2 (0x0c9a…) con 5/5/15% fees y 100% al owner
+- [H2OSwapV1 function map](h2oswapv1-functions.md) — real selectors vs frontend calls; setPrice absent, use removePair+addPair batch; Permit2 tuple is nested ((address,uint256),uint256,uint256).
+- [H2OFundingProxy deploy history](funding-proxy-deploy.md) — final proxy 0xD8B7CDa2... calls fundRewardPool(uint256) (not fundRewardPoolDirect which doesn't exist on-chain).

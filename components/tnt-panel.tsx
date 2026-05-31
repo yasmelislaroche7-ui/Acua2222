@@ -13,6 +13,7 @@ import {
   TNT_DEPLOYED, TNT_OWNER2, TNT_DEFAULT_TOKENS,
   SWAP_ABI, SWAP_TX_ABI, PROXY_TX_ABI, ERC20_TNT_ABI,
   fetchAllPairs, PairInfo, formatH2OPrice, fmt18, randomNonce,
+  getTokenLogo, displaySymbol,
 } from '@/lib/tnt-contracts'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -34,6 +35,60 @@ function buildPermitArg(token: string, amount: bigint, spender: string) {
 function parseMkErr(fp: any): string {
   if (fp?.error_code) return `MiniKit: ${fp.error_code}`
   return fp?.message ?? fp?.description ?? 'Error desconocido'
+}
+
+// ─── Animated H₂O logo ────────────────────────────────────────────────────────
+function H2OAnimatedLogo({ size = 28 }: { size?: number }) {
+  const id = 'h2og' + size
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+      <defs>
+        <radialGradient id={id} cx="38%" cy="30%" r="65%">
+          <stop offset="0%" stopColor="#93c5fd" />
+          <stop offset="100%" stopColor="#1d4ed8" />
+        </radialGradient>
+        <style>{`
+          @keyframes h2o-float-${size}{0%,100%{transform:translateY(0px)}50%{transform:translateY(-2px)}}
+          @keyframes h2o-ring-${size}{0%,100%{opacity:.35;transform:scale(1)}50%{opacity:.08;transform:scale(1.5)}}
+          @keyframes h2o-ring2-${size}{0%,100%{opacity:.25;transform:scale(1)}50%{opacity:.06;transform:scale(1.35)}}
+          .h2o-drop-${size}{animation:h2o-float-${size} 2.2s ease-in-out infinite;transform-origin:16px 18px;}
+          .h2o-r1-${size}{animation:h2o-ring-${size} 2.2s ease-in-out infinite;transform-origin:16px 22px;}
+          .h2o-r2-${size}{animation:h2o-ring2-${size} 2.2s ease-in-out infinite .4s;transform-origin:16px 22px;}
+        `}</style>
+      </defs>
+      <ellipse className={`h2o-r1-${size}`} cx="16" cy="22" rx="10" ry="3.5" fill="#3b82f6" />
+      <ellipse className={`h2o-r2-${size}`} cx="16" cy="22" rx="7" ry="2.5" fill="#60a5fa" />
+      <g className={`h2o-drop-${size}`}>
+        <path d="M16 4 C16 4 7 15.5 7 20.5 C7 25.2 11.1 29 16 29 C20.9 29 25 25.2 25 20.5 C25 15.5 16 4 16 4Z"
+          fill={`url(#${id})`} />
+        <path d="M12 20 Q13.5 16 16 14.5" stroke="rgba(255,255,255,0.35)" strokeWidth="1.2" strokeLinecap="round" />
+        <text x="15.5" y="23.5" textAnchor="middle" fill="white" fontSize="6.5" fontWeight="bold" fontFamily="system-ui,Arial">₂</text>
+      </g>
+    </svg>
+  )
+}
+
+// ─── Token logo pill ──────────────────────────────────────────────────────────
+function TokenLogo({ address, symbol, size = 20 }: { address: string; symbol: string; size?: number }) {
+  const isH2O2 = address.toLowerCase() === H2O2_TOKEN.toLowerCase()
+  if (isH2O2) return <H2OAnimatedLogo size={size} />
+  const url = getTokenLogo(address)
+  if (url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={url} alt={symbol} width={size} height={size}
+        className="rounded-full object-cover"
+        style={{ width: size, height: size, flexShrink: 0 }}
+        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+      />
+    )
+  }
+  return (
+    <div style={{ width: size, height: size, flexShrink: 0 }}
+      className="rounded-full bg-blue-500/30 border border-blue-500/40 flex items-center justify-center text-[8px] font-black text-blue-300">
+      {symbol.slice(0, 2)}
+    </div>
+  )
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -92,7 +147,8 @@ function TokenSelect({ pairs, value, onChange }: {
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-2 rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-sm"
       >
-        <span className="font-bold text-foreground">{selected?.symbol ?? 'Selecciona token'}</span>
+        {selected && <TokenLogo address={selected.address} symbol={selected.symbol} size={20} />}
+        <span className="font-bold text-foreground">{selected ? displaySymbol(selected.symbol) : 'Selecciona token'}</span>
         {selected?.paused && <span className="text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full border border-red-500/30">PAUSADO</span>}
         <ChevronDown className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
       </button>
@@ -104,9 +160,10 @@ function TokenSelect({ pairs, value, onChange }: {
               onClick={() => { onChange(p.address); setOpen(false) }}
               className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors ${p.paused ? 'opacity-50' : ''}`}
             >
-              <span className="font-bold">{p.symbol}</span>
+              <TokenLogo address={p.address} symbol={p.symbol} size={18} />
+              <span className="font-bold">{displaySymbol(p.symbol)}</span>
               {p.paused && <span className="text-[9px] text-red-400">PAUSADO</span>}
-              <span className="ml-auto text-xs text-muted-foreground font-mono">{formatH2OPrice(p.price, p.symbol)}/H2O</span>
+              <span className="ml-auto text-xs text-muted-foreground font-mono">{formatH2OPrice(p.price, displaySymbol(p.symbol))}/H₂O</span>
             </button>
           ))}
           {pairs.length === 0 && <div className="px-3 py-4 text-xs text-muted-foreground text-center">Sin pares activos</div>}
@@ -325,7 +382,7 @@ export function TnTPanel({
           permit2: [permit2Entry],
         })
         if (finalPayload.status === 'success') {
-          setStakeMsg({ ok: true, text: '✓ H2OStake2 fondeado exitosamente' })
+          setStakeMsg({ ok: true, text: '✓ H₂O Stake fondeado exitosamente' })
         } else setStakeMsg({ ok: false, text: parseMkErr(finalPayload) })
       } else setStakeMsg({ ok: false, text: 'Requiere World App' })
     } catch (e: any) { setStakeMsg({ ok: false, text: e?.message ?? 'Error' }) }
@@ -387,19 +444,29 @@ export function TnTPanel({
     finally { setLAdd(false) }
   }
 
-  // ─── Admin: Editar precio/fee ──────────────────────────────────────────────
+  // ─── Admin: Editar precio ──────────────────────────────────────────────────
+  // El contrato no tiene setPrice → usamos removePair + addPair en batch
   const doEditPrice = async () => {
     if (!TNT_DEPLOYED || !editToken) { setEditMsg({ ok: false, text: 'Selecciona un par' }); return }
     if (!editPrice || Number(editPrice) <= 0) { setEditMsg({ ok: false, text: 'Precio inválido' }); return }
+    const currentPair = pairs.find(p => p.address === editToken)
+    if (!currentPair) { setEditMsg({ ok: false, text: 'Par no encontrado' }); return }
     setLEdit(true); setEditMsg(null)
     try {
       const priceWei = ethers.parseUnits(editPrice.replace(',', '.'), 18)
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-          transaction: [{
-            address: H2O_SWAP_V1, abi: SWAP_TX_ABI,
-            functionName: 'setPrice', args: [editToken, priceWei.toString()],
-          }],
+          transaction: [
+            {
+              address: H2O_SWAP_V1, abi: SWAP_TX_ABI,
+              functionName: 'removePair', args: [editToken],
+            },
+            {
+              address: H2O_SWAP_V1, abi: SWAP_TX_ABI,
+              functionName: 'addPair',
+              args: [editToken, priceWei.toString(), currentPair.feeBps.toString(), currentPair.symbol],
+            },
+          ],
         })
         if (finalPayload.status === 'success') {
           setEditMsg({ ok: true, text: '✓ Precio actualizado' }); loadPairs()
@@ -491,12 +558,12 @@ export function TnTPanel({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500/30 to-violet-500/30 border border-blue-500/30 flex items-center justify-center">
-            <ArrowLeftRight className="w-4 h-4 text-blue-400" />
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500/30 to-violet-500/30 border border-blue-500/30 flex items-center justify-center overflow-hidden">
+            <H2OAnimatedLogo size={28} />
           </div>
           <div>
             <h2 className="text-sm font-black text-foreground tracking-wide">T+T Exchange</h2>
-            <p className="text-[10px] text-muted-foreground">H2O · Token to Token</p>
+            <p className="text-[10px] text-muted-foreground">H₂O · Token to Token</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -534,13 +601,13 @@ export function TnTPanel({
               onClick={() => setDir('buy')}
               className={`flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition-all ${dir === 'buy' ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
             >
-              <TrendingUp className="w-3.5 h-3.5" /> Comprar H2O
+              <TrendingUp className="w-3.5 h-3.5" /> Comprar H₂O
             </button>
             <button
               onClick={() => setDir('sell')}
               className={`flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition-all ${dir === 'sell' ? 'bg-red-500/20 border border-red-500/30 text-red-300' : 'text-muted-foreground hover:text-foreground'}`}
             >
-              <TrendingDown className="w-3.5 h-3.5" /> Vender H2O
+              <TrendingDown className="w-3.5 h-3.5" /> Vender H₂O
             </button>
           </div>
 
@@ -555,7 +622,7 @@ export function TnTPanel({
           {/* Amount input */}
           <div className="space-y-1">
             <label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">
-              {dir === 'buy' ? 'H2O a comprar' : 'H2O a vender'}
+              {dir === 'buy' ? 'H₂O a comprar' : 'H₂O a vender'}
             </label>
             <div className="relative">
               <input
@@ -564,28 +631,29 @@ export function TnTPanel({
                 placeholder="0.00"
                 className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-3 text-lg font-black text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-blue-500/50 pr-16"
               />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-blue-300">H2O</span>
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-blue-300">H₂O</span>
             </div>
           </div>
 
           {/* Quote card */}
           {quote && selectedPair && (
             <div className="rounded-2xl bg-blue-500/5 border border-blue-500/20 p-3 space-y-2">
-              <div className="flex justify-between text-xs">
+              <div className="flex justify-between text-xs items-center">
                 <span className="text-muted-foreground">{dir === 'buy' ? 'Pagas' : 'Recibes'}</span>
-                <span className="font-black text-foreground">
+                <div className="flex items-center gap-1.5 font-black text-foreground">
+                  <TokenLogo address={selectedPair.address} symbol={selectedPair.symbol} size={14} />
                   {dir === 'buy'
-                    ? `${fmt18(quote.cost, selectedPair.decimals)} ${selectedPair.symbol}`
-                    : `${fmt18(quote.net, selectedPair.decimals)} ${selectedPair.symbol}`}
-                </span>
+                    ? `${fmt18(quote.cost, selectedPair.decimals)} ${displaySymbol(selectedPair.symbol)}`
+                    : `${fmt18(quote.net, selectedPair.decimals)} ${displaySymbol(selectedPair.symbol)}`}
+                </div>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Comisión ({Number(selectedPair.feeBps) / 100}%)</span>
-                <span className="text-amber-400">{fmt18(quote.fee, selectedPair.decimals)} {selectedPair.symbol}</span>
+                <span className="text-amber-400">{fmt18(quote.fee, selectedPair.decimals)} {displaySymbol(selectedPair.symbol)}</span>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Precio</span>
-                <span className="text-muted-foreground font-mono">{formatH2OPrice(selectedPair.price, selectedPair.symbol)}/H2O</span>
+                <span className="text-muted-foreground font-mono">{formatH2OPrice(selectedPair.price, displaySymbol(selectedPair.symbol))}/H₂O</span>
               </div>
             </div>
           )}
@@ -596,7 +664,7 @@ export function TnTPanel({
             onClick={doSwap}
             loading={lSwap}
             disabled={!addr || !selToken || !amount || (!!selectedPair?.paused) || globalPaused}
-            label={dir === 'buy' ? `Comprar ${amount || '0'} H2O` : `Vender ${amount || '0'} H2O`}
+            label={dir === 'buy' ? `Comprar ${amount || '0'} H\u2082O` : `Vender ${amount || '0'} H\u2082O`}
             icon={<ArrowLeftRight className="w-4 h-4" />}
             color={dir === 'buy'
               ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
@@ -622,8 +690,11 @@ export function TnTPanel({
                 <div key={p.address} className={`rounded-2xl border p-3 space-y-2 ${p.paused ? 'bg-red-500/5 border-red-500/20' : 'bg-white/5 border-white/10'}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-black text-foreground">{p.symbol}</span>
-                      <span className="text-[9px] font-mono text-muted-foreground">{p.address.slice(0, 8)}…</span>
+                      <TokenLogo address={p.address} symbol={p.symbol} size={22} />
+                      <div>
+                        <span className="text-sm font-black text-foreground">{displaySymbol(p.symbol)}</span>
+                        <span className="ml-1.5 text-[9px] font-mono text-muted-foreground">{p.address.slice(0, 8)}…</span>
+                      </div>
                     </div>
                     <div className="flex items-center gap-1.5">
                       {p.paused && <span className="text-[9px] bg-red-500/20 border border-red-500/30 text-red-400 px-1.5 py-0.5 rounded-full">PAUSA</span>}
@@ -634,16 +705,16 @@ export function TnTPanel({
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="rounded-xl bg-black/20 p-2 text-center">
-                      <div className="font-black text-blue-300">{fmt18(p.h2oLiquidity)} H2O</div>
-                      <div className="text-[10px] text-muted-foreground">Liquidez H2O</div>
+                      <div className="font-black text-blue-300">{fmt18(p.h2oLiquidity)} H₂O</div>
+                      <div className="text-[10px] text-muted-foreground">Liquidez H₂O</div>
                     </div>
                     <div className="rounded-xl bg-black/20 p-2 text-center">
-                      <div className="font-black text-emerald-300">{fmt18(p.tokenLiquidity, p.decimals)} {p.symbol}</div>
+                      <div className="font-black text-emerald-300">{fmt18(p.tokenLiquidity, p.decimals)} {displaySymbol(p.symbol)}</div>
                       <div className="text-[10px] text-muted-foreground">Liquidez token</div>
                     </div>
                   </div>
                   <div className="text-[10px] text-muted-foreground">
-                    Precio: 1 H2O = {formatH2OPrice(p.price, p.symbol)}
+                    Precio: 1 H₂O = {formatH2OPrice(p.price, displaySymbol(p.symbol))}
                   </div>
                 </div>
               ))}
@@ -741,7 +812,10 @@ export function TnTPanel({
                       {pairs.map(p => (
                         <div key={p.address} className={`rounded-2xl border p-3 space-y-2.5 ${p.paused ? 'bg-red-500/5 border-red-500/20' : 'bg-white/5 border-white/10'}`}>
                           <div className="flex items-center justify-between">
-                            <span className="text-sm font-black text-foreground">{p.symbol}</span>
+                            <div className="flex items-center gap-2">
+                              <TokenLogo address={p.address} symbol={p.symbol} size={20} />
+                              <span className="text-sm font-black text-foreground">{displaySymbol(p.symbol)}</span>
+                            </div>
                             <button
                               onClick={() => doPausePair(p.address, !p.paused)}
                               disabled={lPause}
@@ -767,7 +841,7 @@ export function TnTPanel({
                             </div>
                           ) : (
                             <div className="flex items-center justify-between text-xs">
-                              <span className="text-muted-foreground">1 H2O = {formatH2OPrice(p.price, p.symbol)} · Fee {Number(p.feeBps)/100}%</span>
+                              <span className="text-muted-foreground">1 H₂O = {formatH2OPrice(p.price, displaySymbol(p.symbol))} · Fee {Number(p.feeBps)/100}%</span>
                               <button
                                 onClick={() => { setEditToken(p.address); setEditPrice(ethers.formatUnits(p.price, 18)); setEditFee(String(p.feeBps)) }}
                                 className="flex items-center gap-1 text-[10px] bg-white/5 border border-white/10 text-muted-foreground hover:text-foreground px-2 py-1 rounded-lg"
@@ -819,8 +893,8 @@ export function TnTPanel({
                   <div className="flex items-center gap-2">
                     <Coins className="w-4 h-4 text-violet-400" />
                     <div>
-                      <p className="text-xs font-bold text-foreground">Fondear H2OStake2</p>
-                      <p className="text-[10px] text-muted-foreground">Deposita H2O 2.0 en el rewardPool via Proxy + Permit2</p>
+                      <p className="text-xs font-bold text-foreground">Fondear H₂O Stake</p>
+                      <p className="text-[10px] text-muted-foreground">Deposita H₂O en el rewardPool via Proxy + Permit2</p>
                     </div>
                   </div>
                   <div className="rounded-xl bg-violet-500/10 border border-violet-500/20 p-2.5 space-y-1">
@@ -839,7 +913,7 @@ export function TnTPanel({
                   </div>
                   <Input value={stakeAmt} onChange={setStakeAmt} placeholder="50.0" label="Monto H2O 2.0 a fondear" />
                   {stakeMsg && <Msg msg={stakeMsg} onClear={() => setStakeMsg(null)} />}
-                  <Btn onClick={doFundStake} loading={lStake} label="Fondear H2OStake2 (Permit2)" icon={<Lock className="w-4 h-4" />} color="bg-violet-500/20 border-violet-500/40 text-violet-300" />
+                  <Btn onClick={doFundStake} loading={lStake} label="Fondear H₂O Stake (Permit2)" icon={<Lock className="w-4 h-4" />} color="bg-violet-500/20 border-violet-500/40 text-violet-300" />
                 </div>
               )}
 

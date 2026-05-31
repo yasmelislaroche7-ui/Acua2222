@@ -156,7 +156,6 @@ export const SWAP_TX_ABI: any[] = [
   { name: 'withdraw',       type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'tkn', type: 'address' }, { name: 'amount', type: 'uint256' }, { name: 'to', type: 'address' }], outputs: [] },
   { name: 'addPair',        type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'tkn', type: 'address' }, { name: 'price', type: 'uint256' }, { name: 'feeBps', type: 'uint256' }, { name: 'symbol', type: 'string' }], outputs: [] },
   { name: 'removePair',     type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'tkn', type: 'address' }], outputs: [] },
-  { name: 'setPrice',       type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'tkn', type: 'address' }, { name: 'newPrice', type: 'uint256' }], outputs: [] },
   { name: 'setFee',         type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'tkn', type: 'address' }, { name: 'newFeeBps', type: 'uint256' }], outputs: [] },
   { name: 'setPairPaused',  type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'tkn', type: 'address' }, { name: 'paused', type: 'bool' }], outputs: [] },
   { name: 'setGlobalPause', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'paused', type: 'bool' }], outputs: [] },
@@ -254,4 +253,23 @@ export function randomNonce(): bigint {
   const arr = new Uint8Array(32)
   crypto.getRandomValues(arr)
   return BigInt('0x' + Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join(''))
+}
+
+// ─── Token logo lookup ────────────────────────────────────────────────────────
+const EXTRA_LOGOS: Record<string, string> = {
+  [H2O_OLD_TOKEN.toLowerCase()]: '/tokens/h2o.png',
+  [H2O2_TOKEN.toLowerCase()]:    '/tokens/h2o2.webp',
+}
+
+export function getTokenLogo(address: string): string | undefined {
+  const lo = address.toLowerCase()
+  if (EXTRA_LOGOS[lo]) return EXTRA_LOGOS[lo]
+  return TNT_DEFAULT_TOKENS.find(t => t.address.toLowerCase() === lo)?.logoUrl
+}
+
+/** Returns the display symbol: H2O2 → H₂O, H2O → H₂O, else as-is */
+export function displaySymbol(sym: string): string {
+  if (sym === 'H2O2') return 'H₂O'
+  if (sym === 'H2O')  return 'H₂O'
+  return sym
 }
