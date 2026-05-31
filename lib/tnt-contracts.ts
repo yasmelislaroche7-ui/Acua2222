@@ -5,8 +5,8 @@ import { WORLD_CHAIN_RPC, PERMIT2_ADDRESS } from './new-contracts'
 // Deployed on World Chain (chainId 480)
 export const TNT_DEPLOYED        = true
 export const H2O_SWAP_V1         = '0x3a174c852B922C4182Bb5F754E63651b7065A400'
-// Proxy redesplegado 2026-05-31 → apunta a H2OStake3
-export const H2O_FUNDING_PROXY   = '0x55d710E2C72cC10D44Da4F15b0C15e9c5D2751E7'
+// Proxy redesplegado 2026-05-31 → apunta a H2OStake3, usa fundRewardPool(uint256)
+export const H2O_FUNDING_PROXY   = '0xD8B7CDa2c666C967A74cE00ff37Fa15cDa81a214'
 
 // H2O viejo — base del exchange
 export const H2O_OLD_TOKEN       = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'

@@ -1,12 +1,12 @@
 {
   "network": "worldchain",
   "chainId": 480,
-  "contract": "0x55d710E2C72cC10D44Da4F15b0C15e9c5D2751E7",
+  "contract": "0xD8B7CDa2c666C967A74cE00ff37Fa15cDa81a214",
   "deployer": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
   "owner": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
   "owner2": "0xC2Ef127734F296952DE75c1B58A6Cec605Cc2E59",
   "stakeContract": "0x357EE95386a7a07418731F8688BAF62582E4cf51",
   "h2o2Token": "0x08131A6f780AEF79E86518c4A10c06387Ec74636",
-  "deployedAt": "2026-05-31T00:26:05.781Z",
+  "deployedAt": "2026-05-31T00:49:57.276Z",
   "description": "H2OFundingProxy — fondea H2OStake3 via Permit2 desde World App"
 }

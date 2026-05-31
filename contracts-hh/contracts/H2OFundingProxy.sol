@@ -11,7 +11,7 @@ interface IERC20FP {
 }
 
 interface IH2OStake3 {
-    function fundRewardPoolDirect(uint256 amount) external;
+    function fundRewardPool(uint256 amount) external;
 }
 
 /**
@@ -87,11 +87,11 @@ contract H2OFundingProxy {
             sig
         );
 
-        // 2. Aprobar H2OStake3 para el transferFrom interno de fundRewardPoolDirect
+        // 2. Aprobar H2OStake3 para el transferFrom interno de fundRewardPool
         token.approve(stakeContract, amount);
 
         // 3. Fondear el pool
-        IH2OStake3(stakeContract).fundRewardPoolDirect(amount);
+        IH2OStake3(stakeContract).fundRewardPool(amount);
 
         emit Funded(msg.sender, amount);
     }
