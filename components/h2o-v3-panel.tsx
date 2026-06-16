@@ -23,19 +23,26 @@ import {
 
 // ─── MiniKit error code → friendly Spanish message ────────────────────────────
 const TX_ERROR_MESSAGES: Record<string, string> = {
-  user_rejected:          'Cancelaste la transacción.',
-  simulation_failed:      'La simulación falló en World App. Intenta con un monto menor.',
-  input_error:            'Datos de transacción inválidos. Intenta de nuevo.',
-  generic_error:          'Error inesperado. Intenta de nuevo.',
-  invalid_contract:       'Contrato no reconocido por World App. Verifica el portal de desarrollador.',
-  disallowed_operation:   'Contrato no autorizado en World App. Agrégalo en developer.worldcoin.org.',
-  malicious_operation:    'Operación bloqueada por seguridad de World App.',
-  daily_tx_limit_reached: 'Límite diario de transacciones alcanzado. Intenta mañana.',
-  validation_error:       'Error de validación. Verifica el monto e intenta de nuevo.',
-  transaction_failed:     'La transacción falló en cadena. Puede haber liquidez insuficiente.',
-  unauthorized:           'No autorizado. Verifica que el contrato esté registrado en World App.',
-  timeout:                'Tiempo de espera agotado. Intenta de nuevo.',
-  network_error:          'Error de red. Verifica tu conexión e intenta de nuevo.',
+  // ── user actions ─────────────────────────────────────────────────────────
+  user_rejected:                    'Cancelaste la transacción.',
+  // ── simulation / contract ─────────────────────────────────────────────────
+  simulation_failed:                'La simulación falló. El pool puede estar sin fondos o el monto es inválido.',
+  transaction_failed:               'La transacción falló en cadena. Puede haber liquidez insuficiente.',
+  invalid_contract:                 'Contrato no reconocido por World App. Verifica el portal de desarrollador.',
+  disallowed_operation:             'Contrato no autorizado en World App. Agrégalo en developer.worldcoin.org.',
+  malicious_operation:              'Operación bloqueada por seguridad de World App.',
+  // ── input / validation ────────────────────────────────────────────────────
+  input_error:                      'Datos de transacción inválidos. Intenta de nuevo.',
+  validation_error:                 'Error de validación. Verifica el monto e intenta de nuevo.',
+  // ── Permit2 / allowance (MiniKit v2) ──────────────────────────────────────
+  permitted_amount_exceeds_slippage:'El monto autorizado no coincide. Intenta de nuevo.',
+  insufficient_allowance:           'Allowance insuficiente. Aprueba el token e intenta de nuevo.',
+  // ── limits / network ─────────────────────────────────────────────────────
+  daily_tx_limit_reached:           'Límite diario de transacciones alcanzado. Intenta mañana.',
+  unauthorized:                     'No autorizado. Verifica que el contrato esté registrado en World App.',
+  timeout:                          'Tiempo de espera agotado. Intenta de nuevo.',
+  network_error:                    'Error de red. Verifica tu conexión e intenta de nuevo.',
+  generic_error:                    'Error inesperado. Intenta de nuevo.',
 }
 
 function parseMiniKitTxError(payload: any): string {

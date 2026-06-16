@@ -56,26 +56,77 @@ type InstalledState = null | true | false
 const AIR_FUNDER_ADDRESS      = '0x72acfbfcee02176118107958ec317157ccd4afdb'
 const SECONDARY_ADMIN_ADDRESS = '0x5474c309e985c6b4fc623acf01ade604da781e52'
 
-// ─── MiniKit logger ──────────────────────────────────────────────────────────
-function patchMiniKitLogger() {
+// ─── MiniKit v1/v2 compatibility shim + logger ───────────────────────────────
+//
+// MiniKit v2 (released May 2026) removed:
+//   • MiniKit.commandsAsync.* → replaced by await MiniKit.<cmd>() directly
+//   • permit2: [{nonce,deadline,...}] SignatureTransfer array → replaced by AllowanceTransfer
+//
+// This shim restores commandsAsync.sendTransaction so ALL components (stake, mining,
+// v3 pool, etc.) keep working with World App v2 without touching each file individually.
+//
+// Transactions that do NOT use Permit2 (claim, withdraw, unstake, claimRewards) work
+// transparently in both v1 and v2.
+//
+// Transactions that DO use Permit2 SignatureTransfer (deposit, stake) still require
+// the smart contracts to be migrated to AllowanceTransfer to fully work in v2. The
+// shim will forward them as-is and let World App decide (v1-compatible World Apps
+// will handle it; v2-only World Apps will fail with simulation_failed on those).
+//
+function installMiniKitCompat() {
   if (typeof window === 'undefined') return
-  if ((window as any).__minikitPatched) return
-  ;(window as any).__minikitPatched = true
+  if ((window as any).__minikitCompatInstalled) return
+  ;(window as any).__minikitCompatInstalled = true
+
+  const mk = MiniKit as any
   const log = (label: string, data: unknown, color = '#00d4ff') =>
     console.log(`%c[MiniKit] ${label}`, `color:${color};font-weight:bold`, data)
-  const original = MiniKit.commandsAsync as Record<string, unknown>
-  if (original && typeof original === 'object') {
-    for (const cmd of Object.keys(original)) {
-      const fn = (original as Record<string, Function>)[cmd]
+
+  // ── Step 1: ensure commandsAsync exists (v2 removed it) ──────────────────
+  if (!mk.commandsAsync || typeof mk.commandsAsync !== 'object') {
+    mk.commandsAsync = {}
+    log('commandsAsync shim created (MiniKit v2 detected)', null, '#ffa500')
+  }
+
+  // ── Step 2: ensure commandsAsync.sendTransaction exists ──────────────────
+  if (typeof mk.commandsAsync.sendTransaction !== 'function') {
+    // Wrap MiniKit.sendTransaction (v2 direct API) to look like v1 commandsAsync
+    if (typeof mk.sendTransaction === 'function') {
+      mk.commandsAsync.sendTransaction = async (opts: any) => {
+        log('→ sendTransaction (v2 shim) PAYLOAD', opts, '#00d4ff')
+        try {
+          // v2 sendTransaction does not accept a `permit2` array.
+          // Pass it through — if World App is v2-only it will ignore it;
+          // if it's v1-compatible it will process it.
+          const result = await mk.sendTransaction(opts)
+          log('← sendTransaction (v2 shim) RESPONSE', result, '#00ff99')
+          // v2 returns the payload directly; v1 wraps in { finalPayload }
+          if (result && typeof result === 'object' && !('finalPayload' in result)) {
+            return { finalPayload: result }
+          }
+          return result
+        } catch (err) {
+          log('✖ sendTransaction (v2 shim) ERROR', err, '#ff4d4d')
+          throw err
+        }
+      }
+      log('commandsAsync.sendTransaction polyfilled via MiniKit.sendTransaction', null, '#00ff99')
+    } else {
+      log('WARNING: MiniKit.sendTransaction not found — no shim possible', null, '#ff4d4d')
+    }
+  } else {
+    // ── Step 3: wrap existing commandsAsync methods with logger (v1 path) ───
+    for (const cmd of Object.keys(mk.commandsAsync)) {
+      const fn = mk.commandsAsync[cmd]
       if (typeof fn !== 'function') continue
-      ;(original as Record<string, Function>)[cmd] = async function (...args: unknown[]) {
+      mk.commandsAsync[cmd] = async function (...args: unknown[]) {
         log(`→ ${cmd} PAYLOAD`, args, '#00d4ff')
         try { const r = await fn.apply(this, args); log(`← ${cmd} RESPONSE`, r, '#00ff99'); return r }
         catch (err) { log(`✖ ${cmd} ERROR`, err, '#ff4d4d'); throw err }
       }
     }
+    log('MiniKit logger active ✓', { patchedAt: new Date().toISOString() }, '#888888')
   }
-  log('MiniKit logger active ✓', { patchedAt: new Date().toISOString() }, '#888888')
 }
 
 // ─── Menu config ─────────────────────────────────────────────────────────────
@@ -583,7 +634,7 @@ export default function AcuaApp() {
 
   const wallet = useWallet(config?.owner ?? null, isInstalled === true)
 
-  useEffect(() => { patchMiniKitLogger() }, [])
+  useEffect(() => { installMiniKitCompat() }, [])
 
   useEffect(() => {
     console.log('[acua] detect: start', { worldApp: !!(window as any).WorldApp, ua: navigator.userAgent.slice(0, 80) })
