@@ -1193,6 +1193,86 @@
         "IERC20FP",
         "IH2OStake3"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaTokenStake.sol": {
+      "lastModificationDate": 1781816240672,
+      "contentHash": "4d9bf95fa19827739c143120b7b01729",
+      "sourceName": "contracts/AcuaTokenStake.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaTokenStake",
+        "IAcuaToken"
+      ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaFreeClaim.sol": {
+      "lastModificationDate": 1781816301672,
+      "contentHash": "4362ac4b5c263fb133b5aaf69a108458",
+      "sourceName": "contracts/AcuaFreeClaim.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaFreeClaim",
+        "IERC20Claim"
+      ]
     }
   }
 }

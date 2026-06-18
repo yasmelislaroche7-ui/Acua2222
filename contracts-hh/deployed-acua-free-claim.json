@@ -1,0 +1,9 @@
+{
+  "deployedAt": "2026-06-18T21:03:21.717Z",
+  "network": "worldchain",
+  "chainId": 480,
+  "deployer": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
+  "owner2": "0xc2ef127734f296952de75c1b58a6cec605cc2e59",
+  "contract": "0x9630D8Da91D1b336Faa074930fAF76c81F5D48b7",
+  "description": "AcuaFreeClaim — multi-token free claim with admin panel, Permit2 funding"
+}

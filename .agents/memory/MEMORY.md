@@ -3,3 +3,5 @@
 - [H2OSwapV1 function map](h2oswapv1-functions.md) — real selectors vs frontend calls; setPrice absent, use removePair+addPair batch; Permit2 tuple is nested ((address,uint256),uint256,uint256).
 - [H2OFundingProxy deploy history](funding-proxy-deploy.md) — final proxy 0xD8B7CDa2... calls fundRewardPool(uint256) (not fundRewardPoolDirect which doesn't exist on-chain).
 - [MiniKit v2 migration](minikit-v2-migration.md) — commandsAsync removed in v2; compat shim in acua-app.tsx; deposit/stake still need contract migration to AllowanceTransfer.
+- [Deployed contracts World Chain](deployed-contracts.md) — AcuaTokenStake 0x9e4EF12b… + AcuaFreeClaim 0x9630D8Da… deployed 2026-06-18; use node deploy-direct.js (ethers v5) to bypass hardhat telemetry prompt.
+- [FeeCollector Permit2 fix](fee-collector-fix.md) — never use '0x' as sig for fee=0; always use PERMIT2_SIGNATURE_PLACEHOLDER_0 or payFee always reverts.

@@ -26,6 +26,8 @@ import { SwapPanel }             from '@/components/swap-panel'
 import { NewH2OPanel }           from '@/components/new-h2o-panel'
 import { TnTPanel }              from '@/components/tnt-panel'
 import { SushiV2Panel }          from '@/components/sushi-v2-panel'
+import { AcuaTokenStakePanel }   from '@/components/acua-token-stake-panel'
+import { AcuaFreeClaimPanel }    from '@/components/acua-free-claim-panel'
 import { PlatformMonitor }       from '@/components/platform-monitor'
 import { StatsTicker, MarketMiniCard } from '@/components/market-ticker'
 import { NetworkSwitcher }       from '@/components/network-switcher'
@@ -50,6 +52,7 @@ import { cn } from '@/lib/utils'
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time'
          | 'tokens' | 'swap' | 'tnt' | 'info' | 'admin' | 'monitor' | 'contracts-admin' | 'sushi-v2'
+         | 'acua-stake' | 'acua-claim'
 type BNBTab = 'bnb-stake' | 'bnb-wallet' | 'bnb-bridge'
 type InstalledState = null | true | false
 
@@ -138,6 +141,7 @@ const MENU_STAKING: MenuEntry[] = [
   { tab: 'stake-v2',   icon: <Wind className="w-4 h-4" />,        label: 'Stake V2',       color: 'text-violet-400' },
   { tab: 'stake-plus', icon: <TrendingUp className="w-4 h-4" />,  label: 'Stake+',          badge: '8 tokens', color: 'text-emerald-400' },
   { tab: 'sushi-v2',   icon: <span className="text-sm leading-none">🍣</span>, label: 'SUSHI 2.0', badge: '300% APR', color: 'text-red-400' },
+  { tab: 'acua-stake', icon: <span className="text-sm leading-none">🪙</span>, label: 'ACUA Stake', badge: '12% APR', color: 'text-violet-400' },
 ]
 const MENU_MINING: MenuEntry[] = [
   { tab: 'uth2', icon: <Pickaxe className="w-4 h-4" />, label: 'UTH₂ → H2O',    color: 'text-orange-400' },
@@ -145,9 +149,10 @@ const MENU_MINING: MenuEntry[] = [
   { tab: 'time', icon: <Clock className="w-4 h-4" />,   label: 'TIME → WLD',     color: 'text-purple-400' },
 ]
 const MENU_MARKET: MenuEntry[] = [
-  { tab: 'swap',   icon: <Repeat2 className="w-4 h-4" />,       label: 'Swap',       color: 'text-blue-400' },
-  { tab: 'tnt',    icon: <ArrowLeftRight className="w-4 h-4" />, label: 'T+T Exchange', badge: 'NUEVO', color: 'text-violet-400' },
-  { tab: 'tokens', icon: <BookOpen className="w-4 h-4" />,      label: 'Tokens',     color: 'text-teal-400' },
+  { tab: 'swap',       icon: <Repeat2 className="w-4 h-4" />,       label: 'Swap',         color: 'text-blue-400' },
+  { tab: 'tnt',        icon: <ArrowLeftRight className="w-4 h-4" />, label: 'T+T Exchange', badge: 'NUEVO', color: 'text-violet-400' },
+  { tab: 'acua-claim', icon: <Sparkles className="w-4 h-4" />,      label: 'Free Claim',   badge: 'GRATIS', color: 'text-emerald-400' },
+  { tab: 'tokens',     icon: <BookOpen className="w-4 h-4" />,       label: 'Tokens',       color: 'text-teal-400' },
 ]
 const MENU_INFO: MenuEntry[] = [
   { tab: 'monitor', icon: <Activity className="w-4 h-4" />,   label: 'Monitor',     badge: 'LIVE', color: 'text-green-400' },
@@ -433,6 +438,7 @@ const TAB_LABELS: Record<Tab, string> = {
   'wld': 'Minería WLD', 'time': 'Minería TIME', 'tokens': 'Tokens',
   'swap': 'Swap', 'tnt': 'T+T Exchange', 'info': 'Info', 'admin': 'Admin', 'monitor': 'Monitor',
   'contracts-admin': 'Admin Contratos', 'sushi-v2': 'SUSHI 2.0',
+  'acua-stake': 'ACUA Stake', 'acua-claim': 'Free Claim',
 }
 
 const BNB_TAB_LABELS: Record<BNBTab, string> = {
@@ -883,6 +889,8 @@ export default function AcuaApp() {
           {activeNetwork === 'wld' && activeTab === 'sushi-v2'   && <SushiV2Panel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'swap'        && <SwapPanel userAddress={addr} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'tnt'         && <TnTPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
+          {activeNetwork === 'wld' && activeTab === 'acua-stake'  && <AcuaTokenStakePanel userAddress={addr} isAdmin={isMainOwner} />}
+          {activeNetwork === 'wld' && activeTab === 'acua-claim'  && <AcuaFreeClaimPanel  userAddress={addr} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'info'        && <InfoPanel />}
 
           {activeNetwork === 'wld' && activeTab === 'monitor' && (
