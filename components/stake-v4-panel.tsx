@@ -184,8 +184,9 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
 
   const refresh = () => setTimeout(load, 4000)
   const noRef = !user?.referrer || user.referrer === ethers.ZeroAddress
-  // Combined admin: global isAdmin prop (main exchange owner) OR StakeV4-specific owner/owner2
-  const showAdmin = isAdmin || isStakeV4Admin
+  // Admin strictly gated by StakeV4 owner/owner2 fetched from the contract on-chain.
+  // The global `isAdmin` prop (main exchange owner) does NOT grant StakeV4 admin access here.
+  const showAdmin = isStakeV4Admin
 
   // ── STAKE ──────────────────────────────────────────────────────────────────
   const doStake = async () => {
