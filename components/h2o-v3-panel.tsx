@@ -2050,25 +2050,60 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
                   </div>
                 )}
 
-                {/* Full range info */}
+                {/* Non-managed: NFPM info banner */}
                 {!ep.managed && (
-                  <div className="text-[9px] text-sky-500/50 font-mono text-center">
-                    Ticks: [{getFullRangeTicks(ep.fee)[0].toLocaleString()}, {getFullRangeTicks(ep.fee)[1].toLocaleString()}] · rango completo
+                  <div className="rounded-lg border border-amber-500/25 bg-amber-950/20 p-2.5 space-y-1.5 text-[9px]">
+                    <div className="flex items-center gap-1.5 text-amber-300 font-bold">
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      Este pool usa Uniswap V3 directamente
+                    </div>
+                    <p className="text-amber-200/60 leading-relaxed">
+                      Para depositar in-app necesitas agregar el <span className="font-bold text-amber-200">NonfungiblePositionManager</span> a tu portal de desarrollador:
+                    </p>
+                    <div className="bg-black/30 rounded px-2 py-1 font-mono text-amber-300/80 text-[8px] break-all select-all">
+                      {UNIV3_POSITION_MANAGER}
+                    </div>
+                    <p className="text-amber-200/50 text-[8px]">O usa el botón Uniswap abajo — abre dentro de World App.</p>
                   </div>
                 )}
 
-                {/* Deposit button */}
-                <button
-                  onClick={() => doDeposit(ep)}
-                  disabled={depositing || !amount0 || !amount1}
-                  className="w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                  style={{ background: ep.managed ? 'linear-gradient(135deg, #059669, #0891b2)' : 'linear-gradient(135deg, #0369a1, #0e7490)', color: '#fff' }}
-                >
-                  {depositing
-                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirmando…</>
-                    : <>+ Aportar Liquidez {ep.pairSymbol}</>
-                  }
-                </button>
+                {/* Deposit button — managed: Permit2 / non-managed: Uniswap redirect */}
+                {ep.managed ? (
+                  <button
+                    onClick={() => doDeposit(ep)}
+                    disabled={depositing || !amount0 || !amount1}
+                    className="w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                    style={{ background: 'linear-gradient(135deg, #059669, #0891b2)', color: '#fff' }}
+                  >
+                    {depositing
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirmando…</>
+                      : <>+ Aportar Liquidez {ep.pairSymbol}</>
+                    }
+                  </button>
+                ) : (
+                  <div className="space-y-1.5">
+                    <button
+                      onClick={() => doDeposit(ep)}
+                      disabled={depositing || !amount0 || !amount1}
+                      className="w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                      style={{ background: 'linear-gradient(135deg, #0369a1, #0e7490)', color: '#fff' }}
+                    >
+                      {depositing
+                        ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirmando…</>
+                        : <>+ Depositar (NFPM · in-app)</>
+                      }
+                    </button>
+                    <a
+                      href={uniswapLink(ep)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 transition-all"
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M6.5 2.5C6.5 2.5 4 7 4 10c0 1.933.944 3.644 2.4 4.688C4.908 16.093 4 18.45 4 21.5h2c0-2.45.8-4.45 2-5.8.667.2 1.367.3 2 .3 3.866 0 7-3.134 7-7 0-3.866-3.134-7-7-7zm0 12c-2.761 0-5-2.239-5-5s2.239-5 5-5 5 2.239 5 5-2.239 5-5 5zm9 3.5c0 1.933-.944 3.644-2.4 4.688C14.592 24.093 15.5 21.45 15.5 18h2z"/></svg>
+                      Abrir en Uniswap
+                    </a>
+                  </div>
+                )}
 
                 {depositMsg && (
                   <p className={cn('text-[10px] text-center font-medium px-2', depositMsg.startsWith('✓') ? 'text-emerald-400' : 'text-red-400')}>
@@ -2079,7 +2114,7 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
                 <p className="text-[9px] text-sky-500/50 text-center">
                   {ep.managed
                     ? 'Firmará 2 Permit2 en World App · Sin gas'
-                    : 'Aprueba ambos tokens + mint en World App · 3 txns'}
+                    : `Requiere NonfungiblePositionManager en portal · O usa Uniswap`}
                 </p>
               </div>
             )}
