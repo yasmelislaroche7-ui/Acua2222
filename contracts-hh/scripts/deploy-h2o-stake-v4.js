@@ -42,6 +42,7 @@ async function main() {
     network:     "worldchain",
     chainId:     480,
     deployer:    deployer.address,
+    owner:       deployer.address,
     owner2:      OWNER2,
     contract:    contract.address,
     token:       ACUA_TOKEN,
