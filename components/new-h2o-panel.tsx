@@ -109,6 +109,7 @@ interface GlobalStats {
   claimFeeBps: bigint
   feeToPoolBps: bigint
   contractBalance: bigint
+  paused: boolean
 }
 interface UserInfo {
   staked: bigint
@@ -140,14 +141,40 @@ function shortAddr(addr: string): string {
   if (!addr || addr === ethers.ZeroAddress) return '—'
   return addr.slice(0, 6) + '...' + addr.slice(-4)
 }
+const MK_ERR: Record<string, string> = {
+  user_rejected:                    'Cancelado por el usuario.',
+  simulation_failed:                'La simulación falló. Verifica tu saldo y que el contrato esté autorizado en World App.',
+  transaction_failed:               'La transacción falló en cadena.',
+  invalid_contract:                 'Contrato no reconocido por World App. Agrégalo en developer.worldcoin.org.',
+  disallowed_operation:             'Contrato no autorizado en World App. Agrégalo en developer.worldcoin.org.',
+  malicious_operation:              'Operación bloqueada por seguridad de World App.',
+  input_error:                      'Datos de transacción inválidos. Intenta de nuevo.',
+  validation_error:                 'Error de validación. Verifica el monto e intenta de nuevo.',
+  insufficient_allowance:           'Allowance insuficiente. Aprueba el token e intenta de nuevo.',
+  daily_tx_limit_reached:           'Límite diario de transacciones alcanzado.',
+  unauthorized:                     'No autorizado.',
+  timeout:                          'Tiempo de espera agotado. Intenta de nuevo.',
+  network_error:                    'Error de red. Verifica tu conexión.',
+  generic_error:                    'Error inesperado. Intenta de nuevo.',
+}
 function parseMkErr(payload: any): string {
-  if (!payload) return 'Sin respuesta'
-  if (payload.status === 'error') {
-    const d = payload.errorCode || payload.description || ''
-    if (typeof d === 'string' && d.includes('user_rejected')) return 'Cancelado por el usuario'
-    return String(d) || 'Error desconocido'
+  if (!payload) return 'Sin respuesta de World App. Intenta de nuevo.'
+  // MiniKit devuelve error_code (snake_case) o errorCode (camelCase)
+  const code: string = payload.error_code ?? payload.errorCode ?? ''
+  if (code && MK_ERR[code]) return MK_ERR[code]
+  // Detalles adicionales
+  const details = payload.details
+  if (details) {
+    if (typeof details === 'string' && details.length > 0) return details
+    if (typeof details === 'object') {
+      try { const s = JSON.stringify(details); if (s !== '{}') return s } catch { /* skip */ }
+    }
   }
-  return 'Error desconocido'
+  if (typeof payload.message === 'string' && payload.message.length > 0) return payload.message
+  if (typeof payload.reason  === 'string' && payload.reason.length  > 0) return payload.reason
+  if (code) return `Error de World App: ${code}`
+  if (payload.status === 'error') return 'Transacción rechazada. Intenta de nuevo.'
+  return 'Error desconocido. Intenta de nuevo.'
 }
 function provider() { return new ethers.JsonRpcProvider(WORLD_CHAIN_RPC) }
 
@@ -268,7 +295,7 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
       const t = new ethers.Contract(TOKEN, ABI_ERC20, prov)
 
       const [stakeInfo, bal, totalStaked, rewardPool, rewardRate,
-             depFee, witFee, clmFee, feePool, owners, cBal, refData] = await Promise.all([
+             depFee, witFee, clmFee, feePool, owners, cBal, refData, isPaused] = await Promise.all([
         c.getStakeInfo(addr),
         t.balanceOf(addr),
         c.totalStaked(),
@@ -281,6 +308,7 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
         c.getOwners(),
         c.contractBalance(),
         c.getReferralInfo(addr),
+        c.paused(),
       ])
 
       setUser({
@@ -292,7 +320,7 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
       setGlobal({
         totalStaked, rewardPool, rewardRate,
         depositFeeBps: depFee, withdrawFeeBps: witFee, claimFeeBps: clmFee,
-        feeToPoolBps: feePool, contractBalance: cBal,
+        feeToPoolBps: feePool, contractBalance: cBal, paused: isPaused,
       })
       setRefInfo({
         myReferrer: refData[0],
@@ -547,6 +575,14 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
             </div>
           </div>
 
+          {/* Contract paused warning */}
+          {global?.paused && (
+            <div className="flex items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/30 p-2.5 mb-3">
+              <Shield className="w-4 h-4 text-red-400 shrink-0" />
+              <span className="text-xs text-red-300 font-semibold">El contrato está pausado — retiros y claims desactivados temporalmente.</span>
+            </div>
+          )}
+
           {/* User position */}
           {addr && (
             <div className="rounded-2xl bg-black/30 border border-cyan-400/20 p-3 grid grid-cols-3 gap-3">
@@ -713,6 +749,13 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
                 </>
               )}
             </div>
+            {/* Pool vacío warning */}
+            {global && global.rewardPool === 0n && global.rewardRate === 0n && (
+              <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/25 p-2.5">
+                <Info className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="text-[11px] text-amber-300/90">El pool de recompensas está vacío — las recompensas se activarán cuando el owner fondee el contrato.</span>
+              </div>
+            )}
             {claimMsg && <Msg msg={claimMsg} onClear={() => setClaimMsg(null)} />}
             <Btn onClick={doClaim} loading={lClaim} disabled={!user || user.pendingReward === 0n || !addr}
               label="Reclamar recompensas" icon={<Gift className="w-4 h-4 shrink-0" />}
