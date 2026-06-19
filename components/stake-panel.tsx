@@ -686,18 +686,15 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   // ── UNSTAKE ──────────────────────────────────────────────────────────────
   async function doUnstake() {
     if (staked === 0n) return showMsg('No tienes H2O en stake', false)
-    if (!requireFee()) return
     const withdrawAmt = amount && parseFloat(amount) > 0
       ? ethers.parseEther(amount)
       : staked
     if (withdrawAmt > staked) return showMsg('Monto mayor a tu stake actual', false)
-    const fee = buildFeePayment(feeAmount)
 
     setTxLoading(true)
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address:      H2O_STAKING_ADDRESS,
             abi:          UNSTAKE_ABI_FRAG,
@@ -705,7 +702,6 @@ export function StakePanel({ userAddress }: StakePanelProps) {
             args:         [withdrawAmt.toString()],
           },
         ],
-        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         showMsg('✓ H2O retirado exitosamente.', true)
@@ -719,13 +715,10 @@ export function StakePanel({ userAddress }: StakePanelProps) {
   // ── CLAIM REWARDS ────────────────────────────────────────────────────────
   async function doClaim() {
     if (!canClaim) return showMsg('Sin rewards pendientes aún', false)
-    if (!requireFee()) return
-    const fee = buildFeePayment(feeAmount)
     setTxLoading(true)
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address:      H2O_STAKING_ADDRESS,
             abi:          CLAIM_ABI_FRAG,
@@ -733,7 +726,6 @@ export function StakePanel({ userAddress }: StakePanelProps) {
             args:         [],
           },
         ],
-        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         showMsg('✓ ¡Rewards reclamados! Actualizando...', true)
@@ -764,19 +756,15 @@ export function StakePanel({ userAddress }: StakePanelProps) {
 
   // ── CLAIM REF REWARDS ────────────────────────────────────────────────────
   async function doClaimRef() {
-    if (!requireFee()) return
-    const fee = buildFeePayment(feeAmount)
     setTxLoading(true)
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
             address: H2O_STAKING_ADDRESS, abi: CLAIM_REF_ABI_FRAG,
             functionName: 'claimRefRewards', args: [],
           },
         ],
-        permit2: [fee.permit2],
       })
       if (finalPayload.status === 'success') {
         showMsg('✓ Comisiones de referido reclamadas', true)
