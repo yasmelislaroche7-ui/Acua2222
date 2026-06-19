@@ -99,6 +99,8 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
   const [user, setUser]   = useState<StakeV4UserInfo | null>(null)
   const [global, setGlobal] = useState<StakeV4GlobalStats | null>(null)
   const [loading, setLoading] = useState(true)
+  // Admin = isAdmin prop (global owner) OR StakeV4-specific owner/owner2
+  const [isStakeV4Admin, setIsStakeV4Admin] = useState(false)
 
   // Real-time reward tick (increments display every second)
   const [rewardDisplay, setRewardDisplay] = useState(0n)
@@ -153,6 +155,11 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
       ])
       setUser(u)
       setGlobal(g)
+      // Detect if user is StakeV4-specific owner or owner2
+      const addrLow = addr.toLowerCase()
+      setIsStakeV4Admin(
+        addrLow === g.owner.toLowerCase() || addrLow === g.owner2.toLowerCase()
+      )
       // Seed reward tick
       rewardRef.current = { base: u.rewards, staked: u.staked, aprBps: g.aprBps, lastAt: Date.now() }
       setRewardDisplay(u.rewards)
@@ -177,6 +184,8 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
 
   const refresh = () => setTimeout(load, 4000)
   const noRef = !user?.referrer || user.referrer === ethers.ZeroAddress
+  // Combined admin: global isAdmin prop (main exchange owner) OR StakeV4-specific owner/owner2
+  const showAdmin = isAdmin || isStakeV4Admin
 
   // ── STAKE ──────────────────────────────────────────────────────────────────
   const doStake = async () => {
@@ -391,7 +400,7 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
   const tabs: { id: PanelTab; label: string }[] = [
     { id: 'stake', label: '🪙 Stake' },
     { id: 'ref', label: '👥 Referidos' },
-    ...(isAdmin ? [{ id: 'admin' as PanelTab, label: '🛡 Admin' }] : []),
+    ...(showAdmin ? [{ id: 'admin' as PanelTab, label: '🛡 Admin' }] : []),
   ]
 
   return (
@@ -580,7 +589,7 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
       )}
 
       {/* ─── ADMIN TAB ──────────────────────────────────────────────────── */}
-      {tab === 'admin' && isAdmin && (
+      {tab === 'admin' && showAdmin && (
         <div className="space-y-4">
           {adminMsg && <Msg msg={adminMsg} onClear={() => setAdminMsg(null)} />}
 
