@@ -1258,7 +1258,7 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
         </div>
       ) : (
         <div className="space-y-2.5">
-          {visiblePools.length === 0 && baseFilter !== 'H2O' && (
+          {visiblePools.length === 0 && (
             <div className="text-center py-8 text-sm text-cyan-500/60">Sin pools que coincidan con el filtro</div>
           )}
           {visiblePools.map(p => (
@@ -1276,7 +1276,7 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
       )}
 
       {/* ── H2O Pools Explorer (todos los pares H2O en Uniswap V3) ─────────── */}
-      {baseFilter === 'H2O' && <H2OPoolsSection userAddress={userAddress} managedPools={pools} />}
+      <H2OPoolsSection userAddress={userAddress} managedPools={pools} />
 
       {activePool && (
         <PoolDialog
@@ -1507,6 +1507,32 @@ const NFPM_MINT_ABI = [{
   outputs: [{ name: 'tokenId', type: 'uint256' }, { name: 'liquidity', type: 'uint128' }, { name: 'amount0', type: 'uint256' }, { name: 'amount1', type: 'uint256' }],
 }]
 
+const NFPM_SCAN_ABI = [
+  { name: 'balanceOf', type: 'function', stateMutability: 'view',
+    inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
+  { name: 'tokenOfOwnerByIndex', type: 'function', stateMutability: 'view',
+    inputs: [{ name: 'owner', type: 'address' }, { name: 'index', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }] },
+  { name: 'positions', type: 'function', stateMutability: 'view',
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    outputs: [
+      { name: 'nonce', type: 'uint96' }, { name: 'operator', type: 'address' },
+      { name: 'token0', type: 'address' }, { name: 'token1', type: 'address' },
+      { name: 'fee', type: 'uint24' }, { name: 'tickLower', type: 'int24' }, { name: 'tickUpper', type: 'int24' },
+      { name: 'liquidity', type: 'uint128' },
+      { name: 'feeGrowthInside0LastX128', type: 'uint256' }, { name: 'feeGrowthInside1LastX128', type: 'uint256' },
+      { name: 'tokensOwed0', type: 'uint128' }, { name: 'tokensOwed1', type: 'uint128' },
+    ] },
+]
+
+const NFPM_COLLECT_ABI = [{
+  name: 'collect', type: 'function', stateMutability: 'payable',
+  inputs: [{ name: 'params', type: 'tuple', components: [
+    { name: 'tokenId', type: 'uint256' }, { name: 'recipient', type: 'address' },
+    { name: 'amount0Max', type: 'uint128' }, { name: 'amount1Max', type: 'uint128' },
+  ] }],
+  outputs: [{ name: 'amount0', type: 'uint256' }, { name: 'amount1', type: 'uint256' }],
+}]
+
 function getFullRangeTicks(fee: number): [number, number] {
   const spacing = fee === 100 ? 1 : fee === 500 ? 10 : fee === 3000 ? 60 : 200
   const aligned = Math.floor(887272 / spacing) * spacing
@@ -1546,7 +1572,7 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
   const [liveData, setLiveData] = useState<Record<string, H2OPoolLive>>({})
   const [fetched, setFetched] = useState(false)
 
-  // ── Deposit state (for managed pools) ───────────────────────────────────────
+  // ── Deposit state ────────────────────────────────────────────────────────────
   const [depositOpen, setDepositOpen] = useState<string | null>(null)
   const [amount0, setAmount0] = useState('')
   const [amount1, setAmount1] = useState('')
@@ -1554,6 +1580,17 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
   const [bal1, setBal1] = useState(0n)
   const [depositing, setDepositing] = useState(false)
   const [depositMsg, setDepositMsg] = useState('')
+
+  // ── Claim state (managed pools via AcuaH2OV3LP) ──────────────────────────────
+  const [managedPos, setManagedPos] = useState<Record<number, H2OV3Position | null>>({})
+  const [claimingManaged, setClaimingManaged] = useState<number | null>(null)
+  const [managedClaimMsg, setManagedClaimMsg] = useState<Record<number, string>>({})
+
+  // ── Collect state (non-managed pools via NFPM) ───────────────────────────────
+  type NFTPos = { tokenId: bigint; liquidity: bigint; tokensOwed0: bigint; tokensOwed1: bigint }
+  const [userNFTPositions, setUserNFTPositions] = useState<Record<string, NFTPos[]>>({})
+  const [collectingPool, setCollectingPool] = useState<string | null>(null)
+  const [collectMsg, setCollectMsg] = useState<Record<string, string>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -1606,6 +1643,117 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
     }).catch(() => {})
     return () => { cancelled = true }
   }, [depositOpen, userAddress])
+
+  // ── Load managed pool positions (AcuaH2OV3LP) ───────────────────────────────
+  useEffect(() => {
+    if (!userAddress) return
+    H2O_EXT_POOLS.forEach(ep => {
+      if (!ep.managed) return
+      const mp = managedPools.find(p => p.poolAddress?.toLowerCase() === ep.poolAddr.toLowerCase())
+      if (!mp) return
+      fetchUserPosition(mp.poolId, userAddress).then(pos => {
+        setManagedPos(prev => ({ ...prev, [mp.poolId]: pos ?? null }))
+      }).catch(() => {})
+    })
+  }, [userAddress, managedPools])
+
+  // ── Scan user NFT positions on Uniswap V3 NFPM ──────────────────────────────
+  useEffect(() => {
+    if (!userAddress) return
+    let cancelled = false
+    async function scanNFTs() {
+      const provider = getProvider()
+      const nfpm = new ethers.Contract(UNIV3_POSITION_MANAGER, NFPM_SCAN_ABI, provider)
+      try {
+        const bal = Number(await nfpm.balanceOf(userAddress))
+        if (bal === 0) return
+        const ids: bigint[] = await Promise.all(
+          Array.from({ length: bal }, (_, i) =>
+            nfpm.tokenOfOwnerByIndex(userAddress, BigInt(i)).then((r: any) => BigInt(r.toString()))
+          )
+        )
+        const allPos = await Promise.all(ids.map(async (tid) => {
+          const p = await nfpm.positions(tid)
+          return {
+            tokenId: tid,
+            token0: p[2].toLowerCase() as string,
+            token1: p[3].toLowerCase() as string,
+            fee: Number(p[4]),
+            liquidity: BigInt(p[7].toString()),
+            tokensOwed0: BigInt(p[10].toString()),
+            tokensOwed1: BigInt(p[11].toString()),
+          }
+        }))
+        if (cancelled) return
+        const byPool: Record<string, Array<{ tokenId: bigint; liquidity: bigint; tokensOwed0: bigint; tokensOwed1: bigint }>> = {}
+        for (const ep of H2O_EXT_POOLS) {
+          if (ep.managed) continue
+          const a = ep.token0.toLowerCase(), b = ep.token1.toLowerCase()
+          const matches = allPos.filter(pos =>
+            ((pos.token0 === a && pos.token1 === b) || (pos.token0 === b && pos.token1 === a)) &&
+            pos.fee === ep.fee && pos.liquidity > 0n
+          )
+          if (matches.length > 0)
+            byPool[ep.poolAddr.toLowerCase()] = matches.map(m => ({
+              tokenId: m.tokenId, liquidity: m.liquidity,
+              tokensOwed0: m.tokensOwed0, tokensOwed1: m.tokensOwed1,
+            }))
+        }
+        if (!cancelled) setUserNFTPositions(byPool)
+      } catch {}
+    }
+    scanNFTs()
+    return () => { cancelled = true }
+  }, [userAddress])
+
+  // ── Claim H2O fees from managed pool (AcuaH2OV3LP) ──────────────────────────
+  async function doManagedClaim(poolId: number) {
+    if (!MiniKit.isInstalled()) { setManagedClaimMsg(p => ({ ...p, [poolId]: 'Abre World App para reclamar.' })); return }
+    if (!H2O_V3_ADDRESS) { setManagedClaimMsg(p => ({ ...p, [poolId]: 'Contrato no desplegado.' })); return }
+    setClaimingManaged(poolId)
+    try {
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{ address: H2O_V3_ADDRESS, abi: H2O_V3_TX_ABI, functionName: 'claim', args: [poolId.toString()] }],
+      })
+      if (finalPayload.status === 'success') {
+        setManagedClaimMsg(p => ({ ...p, [poolId]: '✓ H2O reclamado' }))
+        if (userAddress) {
+          setTimeout(() =>
+            fetchUserPosition(poolId, userAddress!).then(pos =>
+              setManagedPos(prev => ({ ...prev, [poolId]: pos ?? null }))
+            ).catch(() => {}), 2500)
+        }
+      } else { setManagedClaimMsg(p => ({ ...p, [poolId]: parseMiniKitTxError(finalPayload) })) }
+    } catch (e: any) { setManagedClaimMsg(p => ({ ...p, [poolId]: e.message || 'Error' })) }
+    finally { setClaimingManaged(null) }
+  }
+
+  // ── Collect both tokens from non-managed NFPM position ──────────────────────
+  async function doCollect(ep: H2OExtPool, nftPos: { tokenId: bigint; tokensOwed0: bigint; tokensOwed1: bigint }) {
+    const pKey = ep.poolAddr.toLowerCase()
+    if (!MiniKit.isInstalled() || !userAddress) { setCollectMsg(p => ({ ...p, [pKey]: 'Abre World App.' })); return }
+    setCollectingPool(pKey)
+    try {
+      const MAX128 = BigInt('340282366920938463463374607431768211455').toString()
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{
+          address: UNIV3_POSITION_MANAGER,
+          abi: NFPM_COLLECT_ABI,
+          functionName: 'collect',
+          args: [{ tokenId: nftPos.tokenId.toString(), recipient: userAddress, amount0Max: MAX128, amount1Max: MAX128 }],
+        }],
+      })
+      if (finalPayload.status === 'success') {
+        setCollectMsg(p => ({ ...p, [pKey]: '✓ Fees cobrados · recibiste ambos tokens' }))
+        setUserNFTPositions(prev => {
+          const u = { ...prev }
+          u[pKey] = (u[pKey] || []).filter(x => x.tokenId !== nftPos.tokenId)
+          return u
+        })
+      } else { setCollectMsg(p => ({ ...p, [pKey]: parseMiniKitTxError(finalPayload) })) }
+    } catch (e: any) { setCollectMsg(p => ({ ...p, [pKey]: e.message || 'Error' })) }
+    finally { setCollectingPool(null) }
+  }
 
   // ── Amount auto-calculation with per-pool decimals ──────────────────────────
   function onAmt0Change(v: string, sqrtPriceX96: bigint, d0: number, d1: number) {
@@ -1750,9 +1898,9 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
       </div>
 
       <div className="rounded-xl border border-sky-500/20 bg-gradient-to-br from-sky-950/20 to-cyan-950/10 p-3 text-[10px] text-sky-300/70 leading-relaxed">
-        <span className="font-bold text-sky-200">19 pares activos</span> con H2O en Uniswap V3 · World Chain.
-        Todos soportan agregar liquidez a <span className="font-bold text-sky-200">rango completo</span> directamente desde World App.
-        Los marcados con <span className="text-emerald-300 font-bold">●</span> usan el wrapper AcuaH2OV3LP con Permit2 · el resto usa Uniswap V3 directamente con approve + mint.
+        <span className="font-bold text-sky-200">{H2O_EXT_POOLS.length} pares H2O</span> en Uniswap V3 · World Chain · todos activos para agregar liquidez.
+        Pools <span className="text-emerald-300 font-bold">Wrapper</span> usan Permit2 vía AcuaH2OV3LP y pagan fees en <span className="font-bold text-cyan-200">H2O</span>.
+        El resto usa Uniswap V3 directamente · recibes <span className="font-bold text-sky-200">ambos tokens</span> del par como fees al cobrar.
       </div>
 
       {H2O_EXT_POOLS.map((ep) => {
@@ -1935,6 +2083,113 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
                 </p>
               </div>
             )}
+
+            {/* ── Claim (managed pools via AcuaH2OV3LP) ──────────────────── */}
+            {ep.managed && (() => {
+              const mp = managedPools.find(p => p.poolAddress?.toLowerCase() === ep.poolAddr.toLowerCase())
+              if (!mp) return null
+              const pos = managedPos[mp.poolId]
+              const hasFees = pos && (pos.pendingFee0 > 0n || pos.pendingFee1 > 0n)
+              const hasLiq2 = pos && pos.liquidity > 0n
+              if (!userAddress || (!hasLiq2 && !hasFees)) return null
+              return (
+                <div className="rounded-xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/15 to-cyan-950/10 p-3 space-y-2">
+                  <div className="text-[10px] font-bold text-emerald-300 flex items-center gap-1.5">
+                    <Gift className="w-3 h-3" /> Tu posición · {ep.pairSymbol}
+                  </div>
+                  {hasLiq2 && (
+                    <div className="text-[9px] text-sky-400/70 font-mono">
+                      Liquidez: <span className="text-cyan-200 font-bold">{ethers.formatUnits(pos.liquidity, 18).slice(0, 10)}</span>
+                    </div>
+                  )}
+                  {pos && (pos.pendingFee0 > 0n || pos.pendingFee1 > 0n) && (
+                    <div className="space-y-0.5 text-[9px] font-mono">
+                      <div className="flex justify-between text-sky-400/70">
+                        <span>Fee {t0Meta.symbol}</span>
+                        <span className="text-emerald-300 font-bold">{ethers.formatUnits(pos.pendingFee0, d0).slice(0,10)}</span>
+                      </div>
+                      <div className="flex justify-between text-sky-400/70">
+                        <span>Fee {t1Meta.symbol}</span>
+                        <span className="text-emerald-300 font-bold">{ethers.formatUnits(pos.pendingFee1, d1).slice(0,10)}</span>
+                      </div>
+                      {pos.netH2O > 0n && (
+                        <div className="flex justify-between text-sky-400/70">
+                          <span>→ H2O neto</span>
+                          <span className="text-cyan-300 font-bold">{parseFloat(ethers.formatUnits(pos.netH2O, 18)).toFixed(4)}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => doManagedClaim(mp.poolId)}
+                    disabled={claimingManaged === mp.poolId || !hasFees}
+                    className="w-full py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                    style={{ background: 'linear-gradient(135deg, #059669, #0891b2)', color: '#fff' }}
+                  >
+                    {claimingManaged === mp.poolId
+                      ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Reclamando…</>
+                      : <><Gift className="w-3.5 h-3.5" /> Reclamar H2O</>}
+                  </button>
+                  {managedClaimMsg[mp.poolId] && (
+                    <p className={cn('text-[10px] text-center font-medium', managedClaimMsg[mp.poolId].startsWith('✓') ? 'text-emerald-400' : 'text-red-400')}>
+                      {managedClaimMsg[mp.poolId]}
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* ── Collect both tokens (non-managed NFPM positions) ─────────── */}
+            {!ep.managed && (() => {
+              const nftPoses = userNFTPositions[key] || []
+              if (!userAddress || nftPoses.length === 0) return null
+              return (
+                <div className="space-y-1.5">
+                  {nftPoses.map((nftPos, idx) => {
+                    const hasOwed = nftPos.tokensOwed0 > 0n || nftPos.tokensOwed1 > 0n
+                    return (
+                      <div key={nftPos.tokenId.toString()}
+                        className="rounded-xl border border-sky-500/20 bg-gradient-to-br from-sky-950/15 to-emerald-950/10 p-3 space-y-2">
+                        <div className="text-[10px] font-bold text-sky-200 flex items-center gap-1.5">
+                          <Gift className="w-3 h-3 text-emerald-400" />
+                          Posición LP #{idx + 1} · NFT #{nftPos.tokenId.toString().slice(0, 6)}
+                        </div>
+                        <div className="text-[9px] font-mono text-sky-400/70">
+                          Liquidez: <span className="text-cyan-200 font-bold">{nftPos.liquidity.toString().slice(0,12)}</span>
+                        </div>
+                        {hasOwed && (
+                          <div className="space-y-0.5 text-[9px] font-mono">
+                            <div className="flex justify-between text-sky-400/70">
+                              <span>Fee {t0Meta.symbol}</span>
+                              <span className="text-emerald-300 font-bold">{ethers.formatUnits(nftPos.tokensOwed0, d0).slice(0,10)}</span>
+                            </div>
+                            <div className="flex justify-between text-sky-400/70">
+                              <span>Fee {t1Meta.symbol}</span>
+                              <span className="text-emerald-300 font-bold">{ethers.formatUnits(nftPos.tokensOwed1, d1).slice(0,10)}</span>
+                            </div>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => doCollect(ep, nftPos)}
+                          disabled={collectingPool === key || !hasOwed}
+                          className="w-full py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                          style={{ background: hasOwed ? 'linear-gradient(135deg, #0369a1, #059669)' : 'rgba(30,40,60,0.5)', color: '#fff' }}
+                        >
+                          {collectingPool === key
+                            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Cobrando…</>
+                            : <><Gift className="w-3.5 h-3.5" /> Cobrar {t0Meta.symbol} + {t1Meta.symbol}</>}
+                        </button>
+                        {collectMsg[key] && (
+                          <p className={cn('text-[10px] text-center font-medium', collectMsg[key].startsWith('✓') ? 'text-emerald-400' : 'text-red-400')}>
+                            {collectMsg[key]}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
         )
       })}
