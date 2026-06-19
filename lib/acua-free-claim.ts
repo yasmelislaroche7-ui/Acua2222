@@ -4,7 +4,7 @@
  * Admin crea pools de tokens, usuarios reclaman una vez por cooldown
  */
 import { ethers } from 'ethers'
-import deployedInfo from '@/contracts-hh/deployed-acua-free-claim.json'
+import deployedInfo from '@/contracts-hh/deployed-acua-free-claim-v2.json'
 
 // ─── Addresses ───────────────────────────────────────────────────────────────
 export const ACUA_FREE_CLAIM_ADDRESS = deployedInfo.contract
