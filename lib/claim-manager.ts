@@ -21,6 +21,19 @@ export const CLAIM_ID_WDD = 0
 export const WDD_CLAIM_CONTRACT = '0x52DFEe61180A0BCEBe007E5a9Cfd466948aCCA46'
 export const WDD_REWARD_TOKEN   = '0xEdE54d9c024ee80C85ec0a75eD2d8774c7Fbac9B'
 
+// ─── ABI ERC20 mínimo para leer balance del usuario ─────────────────────────
+const ERC20_BALANCE_ABI = ['function balanceOf(address) view returns (uint256)']
+
+// ─── Leer balance actual del reward token WDD ────────────────────────────────
+export async function fetchWDDBalance(userAddress: string): Promise<bigint> {
+  try {
+    const p = getProvider()
+    const token = new ethers.Contract(WDD_REWARD_TOKEN, ERC20_BALANCE_ABI, p)
+    const bal = await token.balanceOf(userAddress)
+    return BigInt(bal.toString())
+  } catch { return 0n }
+}
+
 // ─── ABIs lectura ───────────────────────────────────────────────────────────
 const MANAGER_READ_ABI = [
   'function owner() view returns (address)',
@@ -190,6 +203,22 @@ export function buildWDDClaimBatch(feeAmount: bigint, deadline?: bigint) {
   }
 
   return { transaction: [tx0, tx1], permit2: [permit2Entry] }
+}
+
+/**
+ * Construye un batch solo con claimRewards() (sin cobrar comisión).
+ * Se usa cuando el usuario no tiene suficiente WDD en su wallet para pagar el fee.
+ * En ese caso el primer claim es gratis; el fee se cobrará en el siguiente claim
+ * (cuando ya tenga WDD del claim anterior en su balance).
+ */
+export function buildClaimOnlyBatch() {
+  const tx0 = {
+    address: WDD_CLAIM_CONTRACT,
+    abi: CLAIM_REWARDS_ABI_FRAG,
+    functionName: 'claimRewards' as const,
+    args: [],
+  }
+  return { transaction: [tx0], permit2: [] as never[] }
 }
 
 // ─── Formato compacto WDD (pocos ceros) ─────────────────────────────────────

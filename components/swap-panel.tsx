@@ -18,7 +18,8 @@ import {
 } from '@/lib/new-contracts'
 import { swapEthers } from '@/lib/tx-signer'
 import {
-  fetchWDDClaimInfo, projectedRewards, buildWDDClaimBatch, fmtWDD,
+  fetchWDDClaimInfo, projectedRewards, buildWDDClaimBatch, buildClaimOnlyBatch,
+  fetchWDDBalance, fmtWDD,
   type ClaimInfo,
 } from '@/lib/claim-manager'
 import { cn } from '@/lib/utils'
@@ -994,19 +995,38 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
     try {
       const feeBps = BigInt(wddInfo.feeBps || 3000)
       const feeAmount = (wddPending * feeBps) / 10000n
-      if (feeAmount === 0n) { setWddMsg({ ok: false, text: 'Monto muy bajo. Acumula más.' }); return }
-      const batch = buildWDDClaimBatch(feeAmount)
+
+      // Verificar balance WDD actual del usuario.
+      // World App simula cada tx de forma independiente, así que si el usuario
+      // no tiene WDD previo, el Permit2 del collectFee fallaría en simulación.
+      // Solución: cobrar fee del balance EXISTENTE (pre-claim); si no hay suficiente,
+      // hacer el claim gratis — el fee se cobrará en el siguiente claim.
+      const userAddr = userAddress ?? ''
+      const currentWDDBal = userAddr ? await fetchWDDBalance(userAddr) : 0n
+      const hasFeeBalance = feeAmount > 0n && currentWDDBal >= feeAmount
+
+      let batch: { transaction: any[]; permit2: any[] }
+      let freeNote = ''
+      if (hasFeeBalance) {
+        // Usuario tiene WDD previo — cobrar fee del balance existente
+        batch = buildWDDClaimBatch(feeAmount)
+      } else {
+        // Sin WDD previo o monto muy bajo — primer claim gratis
+        batch = buildClaimOnlyBatch()
+        freeNote = ' (primer claim gratis; la comisión se cobrará en el siguiente)'
+      }
+
       const res = await MiniKit.commandsAsync.sendTransaction(batch)
       const finalPayload = res?.finalPayload ?? null
       if (!finalPayload) { setWddMsg({ ok: false, text: 'Sin respuesta de World App.' }); return }
       if (finalPayload.status === 'success') {
-        setWddMsg({ ok: true, text: `✓ ${fmtWDD(wddPending)} WDD reclamado!` })
+        setWddMsg({ ok: true, text: `✓ ${fmtWDD(wddPending)} WDD reclamado!${freeNote}` })
         setTimeout(loadWDD, 2500)
       } else { setWddMsg({ ok: false, text: parseMiniKitTxError(finalPayload) }) }
     } catch (e: any) {
       setWddMsg({ ok: false, text: e?.shortMessage ?? e?.message ?? 'Error inesperado' })
     } finally { setClaimingWDD(false) }
-  }, [wddInfo, wddPending, loadWDD])
+  }, [wddInfo, wddPending, loadWDD, userAddress])
 
   // ── Claim volume ─────────────────────────────────────────────────────────────
   const doClaimVolume = useCallback(async () => {

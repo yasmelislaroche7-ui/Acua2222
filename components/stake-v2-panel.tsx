@@ -144,6 +144,34 @@ export async function fetchStakeV2Info(contractAddr: string, userAddr: string, t
   }
 }
 
+// ---- Error parser MiniKit ----
+const MK_ERROR_LABELS: Record<string, string> = {
+  user_rejected:            'Cancelado por el usuario.',
+  simulation_failed:        'Simulación fallida — verifica tu saldo y que el contrato esté autorizado en World App.',
+  transaction_failed:       'La transacción falló en cadena.',
+  invalid_contract:         'Contrato no reconocido. Agrégalo en developer.worldcoin.org.',
+  disallowed_operation:     'Contrato no autorizado en World App. Agrégalo en developer.worldcoin.org.',
+  malicious_operation:      'Operación bloqueada por seguridad de World App.',
+  input_error:              'Datos de transacción inválidos. Intenta de nuevo.',
+  validation_error:         'Error de validación. Verifica el monto e intenta de nuevo.',
+  insufficient_allowance:   'Allowance insuficiente.',
+  daily_tx_limit_reached:   'Límite diario de transacciones alcanzado.',
+  timeout:                  'Tiempo de espera agotado.',
+  network_error:            'Error de red. Verifica tu conexión.',
+  generic_error:            'Error inesperado. Intenta de nuevo.',
+}
+function parseMkErr(payload: any): string {
+  if (!payload) return 'Sin respuesta de World App.'
+  const code: string = payload.error_code ?? payload.errorCode ?? ''
+  if (code && MK_ERROR_LABELS[code]) return MK_ERROR_LABELS[code]
+  const details = payload.details
+  if (typeof details === 'string' && details.length > 0) return details
+  if (typeof payload.message === 'string' && payload.message.length > 0) return payload.message
+  if (code) return `Error de World App: ${code}`
+  if (payload.status === 'error') return 'Transacción rechazada. Intenta de nuevo.'
+  return 'Error desconocido.'
+}
+
 // ---- HELPERS (formato igual a multi-staking) ----
 function formatToken(amount: bigint, decimals = 18, precision = 4): string {
   const formatted = ethers.formatUnits(amount, decimals)
@@ -252,13 +280,14 @@ function StakeV2Dialog({ token, info, userAddress, onClose, onRefresh }: StakeV2
         setAmount('')
         setTimeout(onRefresh, 2000)
       } else {
-        setMsg('Transacción rechazada')
+        setMsg(parseMkErr(finalPayload))
       }
-    } catch (e: any) { setMsg(e.message || 'Error') }
+    } catch (e: any) { setMsg(e?.message || 'Error inesperado') }
     finally { setLoading(false) }
   }
 
   async function doUnstake() {
+    if (!info || info.stakedAmount === 0n) { setMsg('Sin stake activo.'); return }
     setLoading(true); setMsg('')
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
@@ -272,16 +301,17 @@ function StakeV2Dialog({ token, info, userAddress, onClose, onRefresh }: StakeV2
         ],
       })
       if (finalPayload.status === 'success') {
-        setMsg('✓ Unstake hecho! Refrescando...')
+        setMsg('✓ Unstake exitoso! Refrescando...')
         setTimeout(onRefresh, 2000)
       } else {
-        setMsg('Transacción rechazada')
+        setMsg(parseMkErr(finalPayload))
       }
-    } catch (e: any) { setMsg(e.message || 'Error') }
+    } catch (e: any) { setMsg(e?.message || 'Error inesperado') }
     finally { setLoading(false) }
   }
 
   async function doClaim() {
+    if (!info || info.pendingRewards === 0n) { setMsg('Sin recompensas pendientes.'); return }
     setLoading(true); setMsg('')
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
@@ -295,12 +325,12 @@ function StakeV2Dialog({ token, info, userAddress, onClose, onRefresh }: StakeV2
         ],
       })
       if (finalPayload.status === 'success') {
-        setMsg('✓ Rewards reclamados! Refrescando...')
+        setMsg('✓ Recompensas reclamadas! Refrescando...')
         setTimeout(onRefresh, 2000)
       } else {
-        setMsg('Transacción rechazada')
+        setMsg(parseMkErr(finalPayload))
       }
-    } catch (e: any) { setMsg(e.message || 'Error') }
+    } catch (e: any) { setMsg(e?.message || 'Error inesperado') }
     finally { setLoading(false) }
   }
 
