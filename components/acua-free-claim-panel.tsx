@@ -28,11 +28,32 @@ function fmtSeconds(s: bigint): string {
   if (n < 86400)      return `${Math.ceil(n / 3600)}h`
   return `${Math.ceil(n / 86400)}d`
 }
+const MK_ERR_MAP: Record<string, string> = {
+  user_rejected:          'Cancelado por el usuario.',
+  simulation_failed:      'La simulación falló. Verifica tu saldo y que el contrato esté autorizado en World App.',
+  transaction_failed:     'La transacción falló en cadena.',
+  invalid_contract:       'Contrato no reconocido por World App.',
+  disallowed_operation:   'Contrato no autorizado en World App. Agrégalo en developer.worldcoin.org.',
+  malicious_operation:    'Operación bloqueada por seguridad de World App.',
+  input_error:            'Datos de transacción inválidos. Intenta de nuevo.',
+  validation_error:       'Error de validación. Verifica el monto.',
+  insufficient_allowance: 'Allowance insuficiente.',
+  daily_tx_limit_reached: 'Límite diario de transacciones alcanzado.',
+  network_error:          'Error de red. Verifica tu conexión.',
+  generic_error:          'Error inesperado. Intenta de nuevo.',
+}
 function parseMkErr(fp: any): string {
-  if (!fp) return 'Sin respuesta'
-  const d = fp.errorCode || fp.description || fp.error_code || ''
-  if (typeof d === 'string' && d.includes('user_rejected')) return 'Cancelado por el usuario'
-  return String(d) || 'Error desconocido'
+  if (!fp) return 'Sin respuesta de World App.'
+  const code: string = fp.error_code ?? fp.errorCode ?? ''
+  if (code && MK_ERR_MAP[code]) return MK_ERR_MAP[code]
+  const details = fp.details
+  if (typeof details === 'string' && details.length > 0) return details
+  if (typeof details === 'object') {
+    try { const s = JSON.stringify(details); if (s !== '{}') return s } catch { /* skip */ }
+  }
+  if (typeof fp.message === 'string' && fp.message.length > 0) return fp.message
+  if (code) return `Error de World App: ${code}`
+  return 'Error desconocido. Intenta de nuevo.'
 }
 function Msg({ msg, onClear }: { msg: { ok: boolean; text: string }; onClear: () => void }) {
   return (
@@ -218,7 +239,7 @@ export function AcuaFreeClaimPanel({ userAddress, isAdmin = false }: Props) {
       const { commandsAsync } = MiniKit as any
       const { finalPayload } = await commandsAsync.sendTransaction({
         transaction: [{ address: ACUA_FREE_CLAIM_ADDRESS, abi: FUND_ABI_FRAG, functionName: 'fund',
-          args: [id.toString(), { permitted: { token: pool.token, amount: amountWei.toString() }, nonce: nonce.toString(), deadline: deadline.toString() }, '0x'] }],
+          args: [id.toString(), { permitted: { token: pool.token, amount: amountWei.toString() }, nonce: nonce.toString(), deadline: deadline.toString() }, 'PERMIT2_SIGNATURE_PLACEHOLDER_0'] }],
         permit2: [{ permitted: { token: pool.token, amount: amountWei.toString() }, nonce: nonce.toString(), deadline: deadline.toString(), spender: ACUA_FREE_CLAIM_ADDRESS }],
       })
       if (finalPayload?.status === 'success' || finalPayload?.transaction_id) {

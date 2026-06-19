@@ -413,22 +413,33 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
     let amount: bigint
     try { amount = unstakeAmt ? ethers.parseUnits(unstakeAmt.replace(',', '.'), DECIMALS) : user.staked }
     catch { return }
-    if (!amount || amount > user.staked) { setUMsg({ ok: false, text: 'Cantidad inválida' }); return }
+    if (!amount) { setUMsg({ ok: false, text: 'Cantidad inválida' }); return }
     setLU(true); setUMsg(null)
     try {
+      // Leer el balance real on-chain para evitar "insufficient stake" por datos desactualizados
+      const prov = provider()
+      const c = new ethers.Contract(CONTRACT, ABI_READ, prov)
+      const realStaked: bigint = await c.stakedBalance(addr)
+      if (realStaked === 0n) {
+        setUMsg({ ok: false, text: 'Sin stake activo en el contrato. Refresca los datos.' }); return
+      }
+      // Capear amount al balance real para evitar revert
+      const safeAmount = amount > realStaked ? realStaked : amount
+      if (safeAmount === 0n) { setUMsg({ ok: false, text: 'Cantidad inválida' }); return }
+
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-          transaction: [{ address: CONTRACT, abi: ABI_UNSTAKE, functionName: 'unstake', args: [amount.toString()] }],
+          transaction: [{ address: CONTRACT, abi: ABI_UNSTAKE, functionName: 'unstake', args: [safeAmount.toString()] }],
         })
         if (finalPayload.status === 'success') {
           setUMsg({ ok: true, text: '✓ Retiro exitoso' }); setUnstakeAmt(''); refresh()
         } else setUMsg({ ok: false, text: parseMkErr(finalPayload) })
       } else if (importedSigner) {
         const sc = new ethers.Contract(CONTRACT, ABI_UNSTAKE, importedSigner)
-        await (await sc.unstake(amount)).wait()
+        await (await sc.unstake(safeAmount)).wait()
         setUMsg({ ok: true, text: '✓ Retiro exitoso' }); setUnstakeAmt(''); refresh()
       } else setUMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
-    } catch (e: any) { setUMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
+    } catch (e: any) { setUMsg({ ok: false, text: e?.reason || e?.message || 'Error al retirar' }) }
     finally { setLU(false) }
   }
 
@@ -437,6 +448,14 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
     if (!user || user.pendingReward === 0n) { setClaimMsg({ ok: false, text: 'Sin recompensas de stake pendientes' }); return }
     setLC(true); setClaimMsg(null)
     try {
+      // Verificar recompensas reales on-chain antes de enviar la tx
+      const prov = provider()
+      const c = new ethers.Contract(CONTRACT, ABI_READ, prov)
+      const realEarned: bigint = await c.earned(addr)
+      if (realEarned === 0n) {
+        setClaimMsg({ ok: false, text: 'Sin recompensas disponibles en el contrato. Refresca los datos.' }); return
+      }
+
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{ address: CONTRACT, abi: ABI_CLAIM, functionName: 'claimRewards', args: [] }],
@@ -449,7 +468,7 @@ export function NewH2OPanel({ userAddress, walletMode, importedSigner }: Props) 
         await (await sc.claimRewards()).wait()
         setClaimMsg({ ok: true, text: '✓ Recompensas de stake reclamadas' }); refresh()
       } else setClaimMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
-    } catch (e: any) { setClaimMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
+    } catch (e: any) { setClaimMsg({ ok: false, text: e?.reason || e?.message || 'Error al reclamar' }) }
     finally { setLC(false) }
   }
 
