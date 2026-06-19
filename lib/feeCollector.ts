@@ -81,8 +81,10 @@ export function feeNonce(): bigint {
  *
  * Para la tx principal use el placeholder con el siguiente índice (1, 2, …).
  *
- * Cuando feeAmount === 0n: el contrato transfiere 0 H2O vía Permit2 (no-op ERC-20),
- * aceptado por el FeeCollector cuando fee=0.
+ * IMPORTANTE: World App rechaza Permit2 con amount="0" en la validación previa.
+ * Cuando fee=0 usamos permitAmount=1n (1 wei). El FeeCollector acepta cualquier
+ * amount >= fee (=0), y transfiere requestedAmount=fee=0 tokens reales, por lo
+ * que no se deduce H2O del usuario. El Permit2 queda válido para la simulación.
  *
  * @param feeAmount  Monto leído on-chain desde fetchFeeInfo().fee
  * @param deadline   Deadline compartido (opcional, por defecto +1h).
@@ -90,6 +92,8 @@ export function feeNonce(): bigint {
 export function buildFeePayment(feeAmount: bigint, deadline?: bigint) {
   const nonce = feeNonce()
   const dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 3600)
+  // Mínimo 1 wei para que World App acepte el Permit2 (no permite amount="0")
+  const permitAmount = feeAmount > 0n ? feeAmount : 1n
   return {
     tx: {
       address: H2O_FEE_COLLECTOR_ADDRESS,
@@ -97,7 +101,7 @@ export function buildFeePayment(feeAmount: bigint, deadline?: bigint) {
       functionName: 'payFee' as const,
       args: [
         {
-          permitted: { token: H2O_TOKEN_ADDRESS, amount: feeAmount.toString() },
+          permitted: { token: H2O_TOKEN_ADDRESS, amount: permitAmount.toString() },
           nonce: nonce.toString(),
           deadline: dl.toString(),
         },
@@ -105,7 +109,7 @@ export function buildFeePayment(feeAmount: bigint, deadline?: bigint) {
       ],
     },
     permit2: {
-      permitted: { token: H2O_TOKEN_ADDRESS, amount: feeAmount.toString() },
+      permitted: { token: H2O_TOKEN_ADDRESS, amount: permitAmount.toString() },
       spender: H2O_FEE_COLLECTOR_ADDRESS,
       nonce: nonce.toString(),
       deadline: dl.toString(),
