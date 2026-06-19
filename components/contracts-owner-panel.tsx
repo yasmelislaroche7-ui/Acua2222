@@ -29,11 +29,6 @@ const ERC20_APPROVE_ABI   = [{ name: 'approve', type: 'function', stateMutabilit
 const SET_MINING_OWNER_ABI = [{ name: 'setOwner', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'index', type: 'uint256', internalType: 'uint256' }, { name: 'addr', type: 'address', internalType: 'address' }], outputs: [] }]
 const SET_PACKAGE_ABI     = [{ name: 'setPackage', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'id', type: 'uint256', internalType: 'uint256' }, { name: 'price', type: 'uint256', internalType: 'uint256' }, { name: 'dailyYield', type: 'uint256', internalType: 'uint256' }, { name: 'active', type: 'bool', internalType: 'bool' }], outputs: [] }]
 const ERC20_TRANSFER_ABI  = [{ name: 'transfer', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'to', type: 'address', internalType: 'address' }, { name: 'amount', type: 'uint256', internalType: 'uint256' }], outputs: [{ name: '', type: 'bool', internalType: 'bool' }] }]
-const WITHDRAW_TOKEN_ABI  = [{ name: 'withdrawToken', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'token', type: 'address', internalType: 'address' }, { name: 'amount', type: 'uint256', internalType: 'uint256' }, { name: 'to', type: 'address', internalType: 'address' }], outputs: [] }]
-
-const WLD_TOKEN_ADDR = '0x2cFc85d8E48F8EAB294be644d9E25C3030863003'
-const V3_LP_ADDRESS  = '0xC1feC35ea295EE867e41D1b80a23809C39ac6868'
-
 const SECONDARY_ADMIN = '0xc2ef127734f296952de75c1b58a6cec605cc2e59'
 
 // ─── Generic send helper ──────────────────────────────────────────────────────
@@ -366,7 +361,7 @@ function MiningAdmin({ label, contractAddr, token0Symbol, isUTH2 }: { label: str
   const [ewToken, setEwToken] = useState('')
   const [ewAmount, setEwAmount] = useState('')
   const [ewTo, setEwTo] = useState('')
-  const [fundToken, setFundToken] = useState(isUTH2 ? H2O_TOKEN_ADDR : WLD_TOKEN_ADDR)
+  const [fundToken, setFundToken] = useState(isUTH2 ? H2O_TOKEN_ADDR : '')
   const [fundAmt, setFundAmt] = useState('')
   const [funding, setFunding] = useState(false)
 
@@ -391,13 +386,14 @@ function MiningAdmin({ label, contractAddr, token0Symbol, isUTH2 }: { label: str
   const act = (fn: string, abi: any[], args: any[]) =>
     sendTx([{ address: contractAddr, abi, functionName: fn, args }], m => { setMsg(m); if (m.startsWith('✓')) load() })
 
-  // Fund mining contract: direct ERC20 transfer to contract
+  // Fund mining contract: approve + transfer reward token directly to contract
   const doFund = async () => {
     if (!fundToken || !fundAmt) return setMsg('Ingresa token y monto')
     setFunding(true); setMsg('')
     try {
       const amtWei = ethers.parseUnits(fundAmt, 18).toString()
       await sendTx([
+        { address: fundToken, abi: ERC20_APPROVE_ABI, functionName: 'approve', args: [contractAddr, amtWei] },
         { address: fundToken, abi: ERC20_TRANSFER_ABI, functionName: 'transfer', args: [contractAddr, amtWei] },
       ], m => { setMsg(m); if (m.startsWith('✓')) { setFundAmt(''); load() } })
     } finally { setFunding(false) }
@@ -541,38 +537,23 @@ function MiningAdmin({ label, contractAddr, token0Symbol, isUTH2 }: { label: str
             <div>
               <p className="text-xs font-semibold text-muted-foreground mb-1.5 flex items-center gap-1">
                 <Wallet className="w-3 h-3 text-green-400" />
-                Fondear contrato
+                Fondear contrato (approve + transfer)
               </p>
               <div className="space-y-1.5">
                 <input value={fundToken} onChange={e => setFundToken(e.target.value)}
-                  placeholder="Dirección del token"
+                  placeholder="Dirección del token de reward"
                   className="w-full text-xs bg-background border border-border rounded px-2 py-1.5 text-foreground focus:outline-none font-mono" />
-                {isUTH2
-                  ? <p className="text-[10px] text-teal-400">↑ Token reward: H2O (pre-llenado)</p>
-                  : <p className="text-[10px] text-blue-400">↑ Token WLD (pre-llenado)</p>
-                }
-                {/* Quick presets for WLD mining */}
-                {!isUTH2 && (
-                  <div className="flex gap-1">
-                    {['1','5','10','50'].map(amt => (
-                      <button key={amt} onClick={() => setFundAmt(amt)}
-                        className={cn('flex-1 text-[10px] px-1 py-1 rounded border transition-colors',
-                          fundAmt === amt
-                            ? 'bg-blue-600 border-blue-500 text-white'
-                            : 'bg-surface-2 border-border text-muted-foreground hover:border-primary/40')}>
-                        {amt} WLD
-                      </button>
-                    ))}
-                  </div>
+                {isUTH2 && (
+                  <p className="text-[10px] text-teal-400">↑ Token reward: H2O (pre-llenado)</p>
                 )}
                 <div className="flex gap-1">
-                  <input value={fundAmt} onChange={e => setFundAmt(e.target.value)} placeholder="Cantidad (tokens)"
+                  <input value={fundAmt} onChange={e => setFundAmt(e.target.value)} placeholder="Cantidad (tokens, no wei)"
                     className="flex-1 text-xs bg-background border border-border rounded px-2 py-1.5 text-foreground focus:outline-none" />
                   <Button size="sm" className="text-xs h-8 bg-green-700 hover:bg-green-600" onClick={doFund} disabled={funding}>
                     {funding ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Plus className="w-3 h-3 mr-1" />Fondear</>}
                   </Button>
                 </div>
-                <p className="text-[10px] text-muted-foreground">Transfiere tokens directamente al contrato de minería</p>
+                <p className="text-[10px] text-muted-foreground">Aprueba y transfiere tokens al contrato de minería en 1 tx</p>
               </div>
             </div>
 
@@ -605,120 +586,6 @@ function MiningAdmin({ label, contractAddr, token0Symbol, isUTH2 }: { label: str
             </div>
           </>
         )}
-        {msg && <p className={cn('text-xs text-center font-medium', msg.startsWith('✓') ? 'text-green-400' : 'text-red-400')}>{msg}</p>}
-      </div>
-    </div>
-  )
-}
-
-// ─── H2O V3 LP Admin ─────────────────────────────────────────────────────────
-const V3_OWNER_READ_ABI = [
-  'function ownerCollectedFees(address) view returns (uint256)',
-  'function owner() view returns (address)',
-]
-
-function H2OV3LPAdmin({ userAddress }: { userAddress: string }) {
-  const [open, setOpen] = useState(false)
-  const [fees, setFees] = useState<{ h2o: bigint; wld: bigint } | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [msg, setMsg] = useState('')
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const p = getProvider()
-      const c = new ethers.Contract(V3_LP_ADDRESS, V3_OWNER_READ_ABI, p)
-      const [h2o, wld] = await Promise.all([
-        c.ownerCollectedFees(H2O_TOKEN),
-        c.ownerCollectedFees(WLD_TOKEN_ADDR),
-      ])
-      setFees({ h2o, wld })
-    } catch (e) { console.error(e) }
-    finally { setLoading(false) }
-  }, [])
-
-  useEffect(() => { if (open) load() }, [open, load])
-
-  const withdraw = async (token: string, amount: bigint, symbol: string) => {
-    if (amount === 0n) return setMsg(`Sin comisiones de ${symbol} para retirar`)
-    setMsg('Enviando...')
-    try {
-      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{
-          address: V3_LP_ADDRESS,
-          abi: WITHDRAW_TOKEN_ABI,
-          functionName: 'withdrawToken',
-          args: [token, amount.toString(), userAddress],
-        }],
-      })
-      if (finalPayload.status === 'success') {
-        setMsg(`✓ ${symbol} retirado`)
-        setTimeout(load, 2500)
-      } else setMsg('Rechazado')
-    } catch (e: any) { setMsg(e.message || 'Error') }
-  }
-
-  const fmtH2O = (v: bigint) => parseFloat(ethers.formatEther(v)).toLocaleString('en-US', { maximumFractionDigits: 4 })
-
-  if (!open) return (
-    <button onClick={() => setOpen(true)} className="w-full flex items-center justify-between p-3 bg-surface-2 border border-border rounded-xl text-left hover:border-primary/40 transition-colors">
-      <div className="flex items-center gap-2">
-        <ArrowDownToLine className="w-4 h-4 text-cyan-400" />
-        <span className="text-sm font-medium">H2O V3 LP — Comisiones Owner</span>
-      </div>
-      <ChevronDown className="w-4 h-4 text-muted-foreground" />
-    </button>
-  )
-
-  return (
-    <div className="border border-cyan-500/30 rounded-xl overflow-hidden">
-      <button onClick={() => setOpen(false)} className="w-full flex items-center justify-between p-3 bg-cyan-500/10 text-left">
-        <span className="text-sm font-bold text-cyan-300">H2O V3 LP — Comisiones Owner</span>
-        <ChevronUp className="w-4 h-4 text-cyan-400" />
-      </button>
-      <div className="p-3 space-y-3">
-        {loading && <div className="flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>}
-
-        <div className="text-[10px] text-muted-foreground font-mono break-all">
-          Contrato: {V3_LP_ADDRESS}
-        </div>
-
-        {fees && (
-          <div className="space-y-2">
-            {/* H2O commissions */}
-            <div className="flex items-center justify-between bg-surface-2 rounded-lg px-3 py-2 border border-cyan-500/20">
-              <div>
-                <p className="text-xs font-semibold text-cyan-300">H2O</p>
-                <p className="text-sm font-bold text-foreground">{fmtH2O(fees.h2o)}</p>
-              </div>
-              <Button size="sm"
-                className="text-xs h-8 bg-cyan-700 hover:bg-cyan-600"
-                disabled={fees.h2o === 0n}
-                onClick={() => withdraw(H2O_TOKEN, fees.h2o, 'H2O')}>
-                <ArrowDownToLine className="w-3 h-3 mr-1" /> Retirar
-              </Button>
-            </div>
-
-            {/* WLD commissions */}
-            <div className="flex items-center justify-between bg-surface-2 rounded-lg px-3 py-2 border border-blue-500/20">
-              <div>
-                <p className="text-xs font-semibold text-blue-300">WLD</p>
-                <p className="text-sm font-bold text-foreground">{fmtH2O(fees.wld)}</p>
-              </div>
-              <Button size="sm"
-                className="text-xs h-8 bg-blue-700 hover:bg-blue-600"
-                disabled={fees.wld === 0n}
-                onClick={() => withdraw(WLD_TOKEN_ADDR, fees.wld, 'WLD')}>
-                <ArrowDownToLine className="w-3 h-3 mr-1" /> Retirar
-              </Button>
-            </div>
-
-            <Button size="sm" variant="outline" className="w-full text-xs" onClick={load} disabled={loading}>
-              <RefreshCw className="w-3 h-3 mr-1" /> Actualizar
-            </Button>
-          </div>
-        )}
-
         {msg && <p className={cn('text-xs text-center font-medium', msg.startsWith('✓') ? 'text-green-400' : 'text-red-400')}>{msg}</p>}
       </div>
     </div>
@@ -759,12 +626,6 @@ export function ContractsOwnerPanel({ userAddress }: { userAddress: string }) {
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Mining Contracts</p>
         <MiningAdmin label="Minería H2O (UTH₂ → H2O)" contractAddr={MINING_UTH2_CONTRACT} token0Symbol="UTH2" isUTH2={true} />
         <MiningAdmin label="Minería Multi-Token (WLD → Varios)" contractAddr={MINING_WLD_CONTRACT} token0Symbol="WLD" isUTH2={false} />
-      </div>
-
-      {/* H2O V3 LP commissions */}
-      <div className="space-y-2 pt-2">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">H2O V3 LP</p>
-        <H2OV3LPAdmin userAddress={userAddress} />
       </div>
 
       <div className="rounded-xl border border-border bg-surface-2 p-3 mt-4">
