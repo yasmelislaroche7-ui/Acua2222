@@ -28,6 +28,7 @@ import { TnTPanel }              from '@/components/tnt-panel'
 import { SushiV2Panel }          from '@/components/sushi-v2-panel'
 import { AcuaTokenStakePanel }   from '@/components/acua-token-stake-panel'
 import { AcuaFreeClaimPanel }    from '@/components/acua-free-claim-panel'
+import { StakeV4Panel }          from '@/components/stake-v4-panel'
 import { PlatformMonitor }       from '@/components/platform-monitor'
 import { StatsTicker, MarketMiniCard } from '@/components/market-ticker'
 import { NetworkSwitcher }       from '@/components/network-switcher'
@@ -52,7 +53,7 @@ import { cn } from '@/lib/utils'
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time'
          | 'tokens' | 'swap' | 'tnt' | 'info' | 'admin' | 'monitor' | 'contracts-admin' | 'sushi-v2'
-         | 'acua-stake' | 'acua-claim'
+         | 'acua-stake' | 'acua-claim' | 'stake-v4'
 type BNBTab = 'bnb-stake' | 'bnb-wallet' | 'bnb-bridge'
 type InstalledState = null | true | false
 
@@ -142,6 +143,7 @@ const MENU_STAKING: MenuEntry[] = [
   { tab: 'stake-plus', icon: <TrendingUp className="w-4 h-4" />,  label: 'Stake+',          badge: '8 tokens', color: 'text-emerald-400' },
   { tab: 'sushi-v2',   icon: <span className="text-sm leading-none">🍣</span>, label: 'SUSHI 2.0', badge: '300% APR', color: 'text-red-400' },
   { tab: 'acua-stake', icon: <span className="text-sm leading-none">🪙</span>, label: 'ACUA Stake', badge: '12% APR', color: 'text-violet-400' },
+  { tab: 'stake-v4',  icon: <span className="text-sm leading-none">⚡</span>, label: 'Stake V4',   badge: 'INSTANT', color: 'text-purple-400' },
 ]
 const MENU_MINING: MenuEntry[] = [
   { tab: 'uth2', icon: <Pickaxe className="w-4 h-4" />, label: 'UTH₂ → H2O',    color: 'text-orange-400' },
@@ -438,7 +440,7 @@ const TAB_LABELS: Record<Tab, string> = {
   'wld': 'Minería WLD', 'time': 'Minería TIME', 'tokens': 'Tokens',
   'swap': 'Swap', 'tnt': 'T+T Exchange', 'info': 'Info', 'admin': 'Admin', 'monitor': 'Monitor',
   'contracts-admin': 'Admin Contratos', 'sushi-v2': 'SUSHI 2.0',
-  'acua-stake': 'ACUA Stake', 'acua-claim': 'Free Claim',
+  'acua-stake': 'ACUA Stake', 'acua-claim': 'Free Claim', 'stake-v4': 'Stake V4 ACUA',
 }
 
 const BNB_TAB_LABELS: Record<BNBTab, string> = {
@@ -462,6 +464,8 @@ const FAB_ITEMS: FabItem[] = [
   { tab: 'time',       icon: <Clock className="w-3 h-3" />,           label: 'TIME',    color: '#c084fc' },
   { tab: 'sushi-v2',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🍣</span>, label: 'SUSHI', color: '#ef4444' },
   { tab: 'tnt',        icon: <ArrowLeftRight className="w-3 h-3" />,  label: 'T+T',     color: '#8b5cf6' },
+  { tab: 'acua-claim', icon: <Sparkles className="w-3 h-3" />,        label: 'Claim',   color: '#34d399' },
+  { tab: 'stake-v4',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⚡</span>, label: 'V4',    color: '#a855f7' },
 ]
 
 // Triple-arc: inner R=90, outer R=162, far R=234
@@ -479,8 +483,10 @@ const FAB_POSITIONS = [
   { dx: -115, dy: -115 }, // UTH2      θ=135°
   { dx: -150, dy:  -62 }, // TIME      θ=157.5°
   { dx: -162, dy:    0 }, // SUSHI     θ=180°
-  // ── Far arc (R=234) — T+T solo en la esquina superior ──
+  // ── Far arc (R=234) ──
   { dx:   0,  dy: -234 }, // T+T       θ=90°
+  { dx:  -90, dy: -216 }, // Free Claim θ=112.5°
+  { dx: -166, dy: -166 }, // Stake V4  θ=135°
 ]
 
 function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; activeTab: Tab }) {
@@ -891,6 +897,7 @@ export default function AcuaApp() {
           {activeNetwork === 'wld' && activeTab === 'tnt'         && <TnTPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
           {activeNetwork === 'wld' && activeTab === 'acua-stake'  && <AcuaTokenStakePanel userAddress={addr} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'acua-claim'  && <AcuaFreeClaimPanel  userAddress={addr} isAdmin={isMainOwner} />}
+          {activeNetwork === 'wld' && activeTab === 'stake-v4'    && <StakeV4Panel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'info'        && <InfoPanel />}
 
           {activeNetwork === 'wld' && activeTab === 'monitor' && (
