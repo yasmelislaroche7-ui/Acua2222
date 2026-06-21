@@ -13,7 +13,7 @@ const FUNDING_PLAN = [
   { symbol: "PUF",      amount: "0" },
   { symbol: "uDOGE",    amount: "0" },
   { symbol: "uSOL",     amount: "0" },
-  { symbol: "VIBE",     amount: "0" },
+  { symbol: "VIBE",     amount: "900000" },
   { symbol: "UTH₂",     amount: "0" },
   { symbol: "DIAMANTE", amount: "0" },
   { symbol: "wBRL",     amount: "0" },
