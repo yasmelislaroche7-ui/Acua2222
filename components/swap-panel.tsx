@@ -69,29 +69,28 @@ function fmtWld(wld: number): string {
   return `${wld.toFixed(6)} WLD`
 }
 
-// ─── Adaptive slippage ────────────────────────────────────────────────────────
+// ─── Adaptive slippage — automático, sin configuración del usuario ────────────
 function getAdaptiveSlippageBps(fromAddr: string, toAddr: string): number {
   const USDC_L  = '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1'.toLowerCase()
   const WLD_L   = '0x2cFc85d8E48F8EAB294be644d9E25C3030863003'.toLowerCase()
   const WETH_L  = '0x4200000000000000000000000000000000000006'.toLowerCase()
+  const H2O_L   = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'.toLowerCase()
   const inL  = fromAddr.toLowerCase()
   const outL = toAddr.toLowerCase()
   const stables = new Set([USDC_L])
-  if (stables.has(inL) && stables.has(outL)) return 30
-  const majors = new Set([WLD_L, USDC_L, WETH_L])
-  if (majors.has(inL) && majors.has(outL)) return 50
-  if (majors.has(inL) || majors.has(outL)) return 100
-  return 200
+  if (stables.has(inL) && stables.has(outL)) return 30          // 0.3% stables
+  const majors = new Set([WLD_L, USDC_L, WETH_L, H2O_L])
+  if (majors.has(inL) && majors.has(outL)) return 100           // 1% major-major
+  if (majors.has(inL) || majors.has(outL)) return 300           // 3% major-exotic
+  return 500                                                      // 5% exotic-exotic
 }
 function slippageLabel(bps: number): string {
-  if (bps <= 30)  return '0.3%'
-  if (bps <= 50)  return '0.5%'
-  if (bps <= 100) return '1%'
-  if (bps <= 200) return '2%'
-  return `${(bps / 100).toFixed(1)}%`
+  if (bps < 100)  return `${(bps / 100).toFixed(1)}%`
+  return `${(bps / 100).toFixed(0)}%`
 }
 
-// Impact-aware auto slippage: at least the pair base, plus 1.5× actual impact, capped 15%
+// Impact-aware auto slippage: base del par + 1.5× impacto real. Sin límite bajo.
+// Retry: cada reintento multiplica x2. Cap 49% (máximo seguro en Uniswap V3).
 function getSmartSlippageBps(
   fromAddr: string, toAddr: string,
   impactBps: number | null,
@@ -102,9 +101,8 @@ function getSmartSlippageBps(
   if (impactBps !== null && impactBps > 0) {
     slip = Math.max(base, Math.round(impactBps * 1.6))
   }
-  // Each retry doubles the headroom
   if (retryCount > 0) slip = Math.round(slip * Math.pow(2, retryCount))
-  return Math.min(slip, 1500)   // hard cap at 15%
+  return Math.min(slip, 4900)   // cap al 49% (máximo Uniswap V3)
 }
 
 const WETH_ADDR = '0x4200000000000000000000000000000000000006'
@@ -112,15 +110,15 @@ const WETH_ADDR = '0x4200000000000000000000000000000000000006'
 // ─── MiniKit error messages ────────────────────────────────────────────────────
 const TX_ERROR_MESSAGES: Record<string, string> = {
   user_rejected: 'Cancelaste la transacción.',
-  simulation_failed: 'Simulación falló. Intenta con monto menor.',
+  simulation_failed: 'Simulación falló — el precio puede haber variado. Toca Swap de nuevo.',
   input_error: 'Datos inválidos. Intenta de nuevo.',
   generic_error: 'Error inesperado. Intenta de nuevo.',
   invalid_contract: 'Contrato no reconocido por World App.',
   disallowed_operation: 'Contrato no autorizado. Agrega contratos en developer.worldcoin.org.',
   malicious_operation: 'Operación bloqueada por seguridad.',
   daily_tx_limit_reached: 'Límite diario alcanzado. Intenta mañana.',
-  transaction_failed: 'TX falló en cadena. Posible slippage o liquidez insuficiente.',
-  permitted_amount_exceeds_slippage: 'Monto supera límite de slippage.',
+  transaction_failed: 'TX falló en cadena — slippage insuficiente. Toca Swap de nuevo con más margen.',
+  permitted_amount_exceeds_slippage: 'Slippage insuficiente. Toca Swap de nuevo — el margen se ajusta automáticamente.',
   timeout: 'Tiempo agotado. Intenta de nuevo.',
 }
 function parseMiniKitTxError(payload: any): string {
@@ -1121,8 +1119,8 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
       if (Date.now() - quote.timestamp > QUOTE_TTL_MS) {
         const net = rawAmt - rawAmt * BigInt(ACUA_FEE_BPS) / 10000n
         const fresh = await getBestRouteQuote(fromToken.address, toToken.address, net)
-        if (!fresh) { setSwapMsg({ ok: false, text: 'Sin liquidez. Prueba otro token.' }); return }
-        activeQuote = fresh
+        // Si no hay cotización fresca, usamos la existente con slippage mayor — el swap procede igual
+        activeQuote = fresh ?? quote
       }
 
       const effectiveSlipBps = getSmartSlippageBps(fromToken.address, toToken.address, impact, slippageRetry)
@@ -1838,59 +1836,102 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
         {activeTab === 'swap' && (
           <div className="p-3 space-y-2.5">
             {/* Route + auto-slippage info bar */}
-            <div className="flex items-center justify-between rounded-xl px-3 py-2" style={{ background: 'rgba(0,50,100,0.4)', border: '1px solid rgba(0,163,255,0.1)' }}>
-              <span className="text-[10px] text-white/40 flex items-center gap-1.5">
-                <Zap className="w-3 h-3 text-green-400" />
-                <span>2.1% fee · Slippage:</span>
-                <strong className="text-green-400">
-                  {slippageLabel(getSmartSlippageBps(fromToken.address, toToken.address, impact, slippageRetry))}
-                  {slippageRetry > 0 && <span className="text-yellow-400 ml-1">↑ retry {slippageRetry}</span>}
-                </strong>
-              </span>
-              <div className="flex items-center gap-1.5">
-                {quote && (
-                  <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(0,122,255,0.15)', color: '#60a5fa' }}>
-                    {quote.label}
-                  </span>
-                )}
-                <span className="text-[8px] px-1.5 py-0.5 rounded font-bold text-green-400/70" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.15)' }}>
-                  Auto
-                </span>
-              </div>
-            </div>
+            {(() => {
+              const slipBps = getSmartSlippageBps(fromToken.address, toToken.address, impact, slippageRetry)
+              const slipHigh = slipBps > 500
+              return (
+                <div className="flex items-center justify-between rounded-xl px-3 py-2" style={{ background: 'rgba(0,50,100,0.4)', border: '1px solid rgba(0,163,255,0.1)' }}>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[9px] px-1.5 py-0.5 rounded font-bold text-green-400" style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                      ⚡ Auto
+                    </span>
+                    <span className="text-[9px] text-white/35">Fee 2.1%</span>
+                    <span className="text-white/15">·</span>
+                    <span className="text-[9px] text-white/35">Slippage</span>
+                    <span className={cn('text-[10px] font-bold', slipHigh ? 'text-yellow-400' : 'text-green-400')}>
+                      {slippageLabel(slipBps)}
+                    </span>
+                    {slippageRetry > 0 && (
+                      <span className="text-[9px] text-yellow-400 font-bold">+margen #{slippageRetry}</span>
+                    )}
+                  </div>
+                  {quote && (
+                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(0,122,255,0.15)', color: '#60a5fa', border: '1px solid rgba(0,122,255,0.2)' }}>
+                      {quote.label}
+                    </span>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* FROM token */}
-            <div className="rounded-2xl p-3.5 space-y-2" style={{ background: 'rgba(0,40,80,0.5)', border: '1px solid rgba(0,163,255,0.14)' }}>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-white/35 font-medium uppercase tracking-wider">De</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-white/30">
-                    Saldo: <span className="text-blue-300 font-mono">{formatToken(getBal(fromToken), fromToken.decimals, 4)}</span>
-                    {prices[fromToken.address.toLowerCase()] && getBal(fromToken) > 0n && (
-                      <span className="text-blue-400/50 ml-1">${(parseFloat(ethers.formatUnits(getBal(fromToken), fromToken.decimals)) * (prices[fromToken.address.toLowerCase()] ?? 0)).toFixed(2)}</span>
-                    )}
-                  </span>
-                  <button onClick={setMax} className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-                    style={{ background: 'rgba(0,122,255,0.2)', color: '#60a5fa', border: '1px solid rgba(0,163,255,0.3)' }}>MAX</button>
+            {(() => {
+              const fromBal = getBal(fromToken)
+              const fromBalFloat = parseFloat(ethers.formatUnits(fromBal, fromToken.decimals))
+              const fromPriceUsd = prices[fromToken.address.toLowerCase()] ?? 0
+              const fromBalUsd = fromBalFloat * fromPriceUsd
+              const typedAmt = parseFloat(fromAmt || '0')
+              const typedUsd = typedAmt * fromPriceUsd
+              const remainFloat = fromBalFloat - typedAmt
+              const isOver = fromAmt !== '' && typedAmt > fromBalFloat && fromBal > 0n
+              return (
+                <div className="rounded-2xl p-3.5 space-y-2" style={{ background: 'rgba(0,40,80,0.5)', border: `1px solid ${isOver ? 'rgba(239,68,68,0.4)' : 'rgba(0,163,255,0.14)'}` }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-white/35 font-medium uppercase tracking-wider">De</span>
+                    <div className="flex items-center gap-2">
+                      <button onClick={setMax} className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                        style={{ background: 'rgba(0,122,255,0.2)', color: '#60a5fa', border: '1px solid rgba(0,163,255,0.3)' }}>MAX</button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setPickerFor('from')}
+                      className="flex items-center gap-2 rounded-xl px-3 py-2 hover:scale-[1.02] transition-all shrink-0"
+                      style={{ background: 'rgba(0,80,255,0.1)', border: '1px solid rgba(0,163,255,0.2)' }}>
+                      <TokenLogo token={fromToken} size="sm" />
+                      <span className="text-sm font-bold text-white">{fromToken.symbol}</span>
+                      <ChevronDown className="w-3.5 h-3.5 text-white/40" />
+                    </button>
+                    <div className="flex-1 text-right">
+                      <input type="number" min="0" step="any" value={fromAmt} onChange={e => setFromAmt(e.target.value)} placeholder="0.00"
+                        className="w-full text-right text-2xl font-bold font-mono bg-transparent text-white placeholder:text-white/15 outline-none" />
+                    </div>
+                  </div>
+                  {/* Balance row — shows typed USD + remaining */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-white/30">
+                      Saldo: <span className={cn('font-mono font-semibold', isOver ? 'text-red-400' : 'text-blue-300')}>
+                        {formatToken(fromBal, fromToken.decimals, 4)}
+                      </span>
+                      {fromBalUsd > 0.001 && <span className="text-white/20 ml-1">(${fromBalUsd.toFixed(2)})</span>}
+                    </span>
+                    <span className="text-[10px] font-mono text-right">
+                      {fromAmt && typedAmt > 0 ? (
+                        typedUsd > 0 ? (
+                          <span className={cn('font-bold', isOver ? 'text-red-400' : 'text-blue-300')}>
+                            ≈ ${typedUsd < 0.01 ? typedUsd.toFixed(6) : typedUsd.toFixed(2)} USD
+                          </span>
+                        ) : (
+                          <span className="text-white/30">{typedAmt.toFixed(4)} {fromToken.symbol}</span>
+                        )
+                      ) : null}
+                    </span>
+                  </div>
+                  {/* Remaining balance when typing */}
+                  {fromAmt && typedAmt > 0 && fromBal > 0n && (
+                    <div className="flex items-center justify-end gap-1.5 text-[9px]">
+                      {isOver ? (
+                        <span className="text-red-400 font-semibold">⚠ Supera tu saldo — se usará el máximo disponible</span>
+                      ) : (
+                        <span className="text-white/25">
+                          Restante: <span className="text-white/40 font-mono">{Math.max(0, remainFloat).toFixed(4)} {fromToken.symbol}</span>
+                          {fromPriceUsd > 0 && <span className="ml-1">(${(Math.max(0, remainFloat) * fromPriceUsd).toFixed(2)})</span>}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <button onClick={() => setPickerFor('from')}
-                  className="flex items-center gap-2 rounded-xl px-3 py-2 hover:scale-[1.02] transition-all shrink-0"
-                  style={{ background: 'rgba(0,80,255,0.1)', border: '1px solid rgba(0,163,255,0.2)' }}>
-                  <TokenLogo token={fromToken} size="sm" />
-                  <span className="text-sm font-bold text-white">{fromToken.symbol}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-white/40" />
-                </button>
-                <input type="number" min="0" step="any" value={fromAmt} onChange={e => setFromAmt(e.target.value)} placeholder="0.00"
-                  className="flex-1 text-right text-2xl font-bold font-mono bg-transparent text-white placeholder:text-white/15 outline-none" />
-              </div>
-              {fromAmt && prices[fromToken.address.toLowerCase()] && (
-                <p className="text-[10px] text-white/30 text-right">
-                  ≈ ${(parseFloat(fromAmt || '0') * (prices[fromToken.address.toLowerCase()] ?? 0)).toFixed(2)} USD
-                </p>
-              )}
-            </div>
+              )
+            })()}
 
             {/* Flip button */}
             <div className="flex justify-center -my-1">
