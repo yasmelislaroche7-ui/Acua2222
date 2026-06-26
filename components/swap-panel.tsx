@@ -256,7 +256,8 @@ const CG_IDS: Record<string, string> = {
   [TOKENS.USDC.toLowerCase()]: 'usd-coin',
 }
 const WORLDCHAIN_IDS = new Set(['worldchain', 'worldchain-mainnet', 'world-chain', 'worldcoin'])
-const MIN_PAIR_LIQ_USD = 500
+const MIN_PAIR_LIQ_USD = 30   // $30 min — busca más precios
+const HIGH_SWAP_USD    = 500  // advertencia para swaps grandes
 
 function pairScore(quoteAddr: string): number {
   const q = quoteAddr.toLowerCase()
@@ -356,7 +357,7 @@ async function fetchAllTokenPrices(tokens: TokenItem[]): Promise<{
   if (missing.length > 0 && (wldUsd > 0 || usdPrices[TOKENS.USDC.toLowerCase()] > 0)) {
     const provider = getProvider()
     const router   = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, provider)
-    const MIN_PRICE_LIQ = 1_000_000_000n
+    const MIN_PRICE_LIQ = 50_000_000n  // 50M wei — detecta pools pequeños
     const usdcUsd = usdPrices[TOKENS.USDC.toLowerCase()] ?? 1.0
     const bridges: { addr: string; oneUnit: bigint; usd: number }[] = []
     if (wldUsd > 0)  bridges.push({ addr: TOKENS.WLD,  oneUnit: ethers.parseUnits('1', 18), usd: wldUsd })
@@ -427,34 +428,37 @@ function calcImpactBps(
   return Math.round((1 - outUsd / inUsd) * 10000)
 }
 
-// ─── Best route quote ─────────────────────────────────────────────────────────
+// ─── Best route quote — routing inteligente sin límites de monto ──────────────
 async function getBestRouteQuote(
   tokenIn: string, tokenOut: string, netAmtIn: bigint
 ): Promise<QuoteResult | null> {
   const provider = getProvider()
   const router   = new ethers.Contract(ACUA_SWAP_ROUTER, ROUTER_QUOTE_ABI, provider)
-  const poolAbi  = ['function liquidity() view returns (uint128)']
-  const MIN_SWAP_POOL_LIQ = 10_000_000_000n  // lowered to find more routes
 
   let best: QuoteResult | null = null
 
+  // ── Paso 1: rutas directas (todos los fee tiers) ─────────────────────────
+  // Nota: no bloqueamos por liquidez del pool. Si quoteSingle devuelve > 0,
+  // existe liquidez real. El impact/slippage adaptativo maneja swaps grandes.
   const singleResults = await Promise.allSettled(FEE_TIERS.map(async fee => {
-    const [rawOut, poolAddr] = await router.quoteSingle(tokenIn, tokenOut, fee, netAmtIn)
-    const out = BigInt(rawOut.toString())
-    if (out === 0n) return null
-    const pool = new ethers.Contract(poolAddr, poolAbi, provider)
-    const liq  = BigInt((await pool.liquidity()).toString())
-    if (liq < MIN_SWAP_POOL_LIQ) return null
-    return { amountOut: out, fee, label: `V3 ${fee / 10000}%`, timestamp: Date.now() } as QuoteResult
+    try {
+      const [rawOut] = await router.quoteSingle(tokenIn, tokenOut, fee, netAmtIn)
+      const out = BigInt(rawOut.toString())
+      if (out === 0n) return null
+      return { amountOut: out, fee, label: `V3 ${fee / 10000}%`, timestamp: Date.now() } as QuoteResult
+    } catch { return null }
   }))
   for (const r of singleResults) {
     if (r.status !== 'fulfilled' || !r.value) continue
     if (!best || r.value.amountOut > best.amountOut) best = r.value
   }
 
+  // ── Paso 2: rutas de 2 saltos via tokens puente ──────────────────────────
+  // Incluye H2O que es el token más líquido del ecosistema ACUA
   const BRIDGE_TOKENS = [
     TOKENS.USDC, TOKENS.WLD, WETH_ADDR,
-    '0x1C60ba0A0eD1019e8Eb035E6daF4155A5cE2380B',
+    TOKENS.H2O,
+    '0x1C60ba0A0eD1019e8Eb035E6daF4155A5cE2380B', // EURC
   ].filter(b => b.toLowerCase() !== tokenIn.toLowerCase() && b.toLowerCase() !== tokenOut.toLowerCase())
 
   const multiResults = await Promise.allSettled(
@@ -464,13 +468,10 @@ async function getBestRouteQuote(
           const [r1] = await router.quoteSingle(tokenIn, hop, f1, netAmtIn)
           const mid = BigInt(r1.toString())
           if (mid === 0n) return null
-          const [r2, poolAddr2] = await router.quoteSingle(hop, tokenOut, f2, mid)
+          const [r2] = await router.quoteSingle(hop, tokenOut, f2, mid)
           const out = BigInt(r2.toString())
           if (out === 0n) return null
-          const pool2 = new ethers.Contract(poolAddr2, poolAbi, provider)
-          const liq2  = BigInt((await pool2.liquidity()).toString())
-          if (liq2 < MIN_SWAP_POOL_LIQ) return null
-          const label = `Multi ${f1/10000}%→${f2/10000}%`
+          const label = `Multi ${f1/10000}%→${hop.slice(0,6)}→${f2/10000}%`
           return { amountOut: out, fee: f1, fee2: f2, multi: true, hopToken: hop, label, timestamp: Date.now() } as QuoteResult
         } catch { return null }
       }))
@@ -480,6 +481,52 @@ async function getBestRouteQuote(
     if (r.status !== 'fulfilled' || !r.value) continue
     if (!best || r.value.amountOut > best.amountOut) best = r.value
   }
+
+  // ── Paso 3: fallback con monto reducido (detecta pools pequeños) ──────────
+  // Si no se encontró nada, prueba con 1/10 del monto para detectar el pool
+  // y usa esa ruta aunque sea para montos pequeños
+  if (!best && netAmtIn > 0n) {
+    const smallAmt = netAmtIn / 10n > 0n ? netAmtIn / 10n : netAmtIn
+    const fallbackResults = await Promise.allSettled(FEE_TIERS.map(async fee => {
+      try {
+        const [rawOut] = await router.quoteSingle(tokenIn, tokenOut, fee, smallAmt)
+        const out = BigInt(rawOut.toString())
+        if (out === 0n) return null
+        // Escala la salida proporcionalmente (estimación)
+        const scaledOut = out * netAmtIn / smallAmt
+        return { amountOut: scaledOut, fee, label: `V3 ${fee / 10000}% (~)`, timestamp: Date.now() } as QuoteResult
+      } catch { return null }
+    }))
+    for (const r of fallbackResults) {
+      if (r.status !== 'fulfilled' || !r.value) continue
+      if (!best || r.value.amountOut > best.amountOut) best = r.value
+    }
+    // Multi-hop con monto pequeño también
+    if (!best) {
+      const fallbackMulti = await Promise.allSettled(
+        BRIDGE_TOKENS.flatMap(hop =>
+          FEE_TIERS.flatMap(f1 => FEE_TIERS.map(async f2 => {
+            try {
+              const [r1] = await router.quoteSingle(tokenIn, hop, f1, smallAmt)
+              const mid = BigInt(r1.toString())
+              if (mid === 0n) return null
+              const scaledMid = mid * netAmtIn / smallAmt
+              const [r2] = await router.quoteSingle(hop, tokenOut, f2, scaledMid)
+              const out = BigInt(r2.toString())
+              if (out === 0n) return null
+              const label = `Multi ${f1/10000}%→${f2/10000}% (~)`
+              return { amountOut: out, fee: f1, fee2: f2, multi: true, hopToken: hop, label, timestamp: Date.now() } as QuoteResult
+            } catch { return null }
+          }))
+        )
+      )
+      for (const r of fallbackMulti) {
+        if (r.status !== 'fulfilled' || !r.value) continue
+        if (!best || r.value.amountOut > best.amountOut) best = r.value
+      }
+    }
+  }
+
   return best
 }
 
@@ -1921,7 +1968,21 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
               </div>
             )}
 
-            {/* High impact inline warning (informational only, no blocker) */}
+            {/* Large swap warning — solo informativo, no bloquea */}
+            {quote && fromAmt && parseFloat(fromAmt) > 0 && (() => {
+              const swapUsd = parseFloat(fromAmt) * (prices[fromToken.address.toLowerCase()] ?? 0)
+              if (swapUsd < HIGH_SWAP_USD) return null
+              return (
+                <div className="rounded-xl px-3 py-2 flex items-center gap-2 text-[10px]" style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.18)' }}>
+                  <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                  <span className="text-yellow-300">
+                    Swap grande (~${swapUsd.toFixed(0)} USD). Puede haber mayor impacto de precio o comisiones. El slippage se ajusta automáticamente.
+                  </span>
+                </div>
+              )
+            })()}
+
+            {/* High impact inline warning (informacional, no bloquea) */}
             {impact !== null && impact > IMPACT_WARN_BPS && !swapping && quote && (
               <div className="rounded-xl px-3 py-2 flex items-center gap-2 text-[10px]" style={{
                 background: impact > IMPACT_HIGH_BPS ? 'rgba(239,68,68,0.07)' : 'rgba(234,179,8,0.06)',
@@ -1930,7 +1991,7 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
                 <ShieldAlert className={cn('w-3.5 h-3.5 shrink-0', impact > IMPACT_HIGH_BPS ? 'text-red-400' : 'text-yellow-400')} />
                 <span className={impact > IMPACT_HIGH_BPS ? 'text-red-300' : 'text-yellow-300'}>
                   Impacto de precio: <strong>{(impact / 100).toFixed(2)}%</strong>
-                  {impact > IMPACT_HIGH_BPS ? ' — alto, el slippage auto cubre la diferencia.' : ' — slippage ajustado automáticamente.'}
+                  {impact > IMPACT_HIGH_BPS ? ' — alto. Considera reducir el monto o el slippage se ajusta automáticamente.' : ' — slippage ajustado automáticamente.'}
                 </span>
               </div>
             )}
@@ -1960,9 +2021,14 @@ export function SwapPanel({ userAddress, walletMode, importedSigner }: {
 
             {/* No liquidity warning */}
             {!quoting && fromAmt && parseFloat(fromAmt) > 0 && !quote && (
-              <div className="rounded-xl px-3 py-2 flex items-center gap-2 text-[10px] text-yellow-400/80" style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.15)' }}>
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                Sin liquidez para este par en World Chain. Prueba otro token o monto.
+              <div className="rounded-xl px-3 py-2.5 space-y-1.5" style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.15)' }}>
+                <div className="flex items-center gap-2 text-[10px] text-yellow-400/90">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span className="font-semibold">Sin ruta disponible para este par</span>
+                </div>
+                <p className="text-[9px] text-white/40 pl-5 leading-relaxed">
+                  No se encontró liquidez en ningún pool de Uniswap V3 (directa ni via puentes USDC/WLD/WETH/H2O). Prueba: reducir el monto, cambiar uno de los tokens, o esperar a que haya más liquidez.
+                </p>
               </div>
             )}
           </div>
