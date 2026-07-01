@@ -31,8 +31,8 @@ async function main() {
     { symbol: "WCOP",  address: "0x8a1d45e102e886510e891d2ec656a708991e2d76", amount: "0" },
     { symbol: "WARS",  address: "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d", amount: "0" },
     { symbol: "FIRE",  address: "0x22c40632c13a7f3cae9c343480607d886832c686", amount: "0" },
-    { symbol: "BTCH2O",address: "0xEcC4dAe4DC3D359a93046bd944e9ee3421A6A484", amount: "0" },
-    { symbol: "WLD",   address: "0x2cFc85d8E48F8EAB294be644d9E25C3030863003", amount: "5" },
+    { symbol: "BTCH2O",address: "0xEcC4dAe4DC3D359a93046bd944e9ee3421A6A484", amount: "10" },
+    { symbol: "WLD",   address: "0x2cFc85d8E48F8EAB294be644d9E25C3030863003", amount: "0" },
     { symbol: "UTH2",  address: "0x9eA8653640E22A5b69887985BB75d496dc97022a", amount: "0" },
   ];
 
