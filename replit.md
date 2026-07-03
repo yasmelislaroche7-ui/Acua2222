@@ -42,7 +42,7 @@ ACUA MINIEXCHANGE is a full exchange-style DeFi mini app for the World Chain eco
 - **AI agent draggable**: pointer capture API (`setPointerCapture`) on the button, snaps to nearest screen corner on release, position persisted in localStorage `acua_agent_pos`
 
 ## Product
-- **Staking**: H2O (12% APY), H2O 2.0, H2O v3, StakeV2, Stake+ (8 tokens), SUSHI 2.0 (300% APR), WLD 2.0 (100% APR)
+- **Staking**: H2O (12% APY), H2O 2.0, H2O v3, StakeV2, Stake+ (8 tokens), SUSHI 2.0 (300% APR — migration mode: deposit/claim removed, withdraw-only), WLD 2.0 (100% APR)
 - **Mining**: UTH2→H2O, WLD→7 tokens, TIME→WLD
 - **BNB Exchange**: Send / Receive (QR) / TX History / Swap (PancakeSwap V2 w/ WBNB 3-hop) / Balances
 - **Bridge**: SUSHI WLD↔BNB, cancel/refund, configurable peerContract, receiveFee() for stake routing

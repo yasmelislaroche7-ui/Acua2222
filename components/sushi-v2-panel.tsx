@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils'
 
 import {
   SUSHI_CONTRACT, SUSHI_TOKEN, SUSHI_OWNER2,
-  STAKE_ABI, WITHDRAW_ABI, CLAIM_ABI, FUND_ABI, TRIGGER_ABI,
+  WITHDRAW_ABI, FUND_ABI, TRIGGER_ABI,
   SET_APR_ABI, SET_FEE_ABI, PERMIT_TUPLE,
   fetchUserSushiInfo, fetchGlobalSushiStats, fetchWithdrawQueue, fetchClaimQueue,
   fmtSushi, fmtSushiShort, fmtCountdown, worldscanTx, randNonce, makeDeadline, todayDay,
@@ -151,14 +151,11 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
   const [err, setErr]             = useState('')
 
   // Form state
-  const [stakeAmt, setStakeAmt]   = useState('')
   const [wdAmt, setWdAmt]         = useState('')
   const [fundAmt, setFundAmt]     = useState('')
 
   // Busy states
-  const [busyStake, setBusyStake] = useState(false)
   const [busyWd,    setBusyWd]    = useState(false)
-  const [busyClaim, setBusyClaim] = useState(false)
   const [busyFund,  setBusyFund]  = useState(false)
   const [busyTrig,  setBusyTrig]  = useState(false)
 
@@ -247,46 +244,6 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
     return (finalPayload as any).transaction_id as string
   }
 
-  // ── Stake ────────────────────────────────────────────────────────────────
-
-  async function doStake() {
-    const gross = parseWei(stakeAmt)
-    if (gross === 0n) return setErr('Ingresa un monto')
-    const sushiFee = gross * BigInt(stats?.feeBps ?? 500) / 10_000n
-    const net = gross - sushiFee
-    if (net <= 0n) return setErr('Monto muy pequeño')
-    setBusyStake(true); setErr('')
-    try {
-      const nonce = randNonce(); const dl = makeDeadline()
-      await sendTx(() => ({
-        transaction: [
-          {
-            address: SUSHI_CONTRACT,
-            abi: STAKE_ABI,
-            functionName: 'stake',
-            args: [
-              { permitted: { token: SUSHI_TOKEN, amount: gross.toString() }, nonce: nonce.toString(), deadline: dl.toString() },
-              'PERMIT2_SIGNATURE_PLACEHOLDER_0',
-              gross.toString(),
-            ],
-          },
-        ],
-        permit2: [
-          {
-            permitted: { token: SUSHI_TOKEN, amount: gross.toString() },
-            spender: SUSHI_CONTRACT,
-            nonce: nonce.toString(),
-            deadline: dl.toString(),
-          },
-        ],
-      }))
-      setStakeAmt('')
-      await load()
-    } catch (e: any) {
-      setErr(e?.message ?? 'Error en stake')
-    } finally { setBusyStake(false) }
-  }
-
   // ── Withdrawal Request ───────────────────────────────────────────────────
 
   async function doWithdraw() {
@@ -314,32 +271,6 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
     } catch (e: any) {
       setErr(e?.message ?? 'Error solicitando retiro')
     } finally { setBusyWd(false) }
-  }
-
-  // ── Claim Request ────────────────────────────────────────────────────────
-
-  async function doClaim() {
-    const rewards = userInfo?.rewards ?? 0n
-    if (rewards === 0n) return setErr('Sin recompensas pendientes')
-    const today = todayDay()
-    if (today <= (userInfo?.lastClaimDay ?? 0)) return setErr('Ya tienes un reclamo solicitado hoy')
-    if (userInfo?.hasClaim) return setErr('Ya tienes un reclamo pendiente en cola')
-    setBusyClaim(true); setErr('')
-    try {
-      await sendTx(() => ({
-        transaction: [
-          {
-            address: SUSHI_CONTRACT,
-            abi: CLAIM_ABI,
-            functionName: 'requestClaim',
-            args: [],
-          },
-        ],
-      }))
-      await load()
-    } catch (e: any) {
-      setErr(e?.message ?? 'Error solicitando reclamo')
-    } finally { setBusyClaim(false) }
   }
 
   // ── Fund (owner2) ────────────────────────────────────────────────────────
@@ -615,17 +546,13 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
 
   const today = todayDay()
   const canWithdraw = staked > 0n && !userInfo?.hasWithdraw && today > (userInfo?.lastWithdrawDay ?? 0)
-  const canClaim    = rewards > 0n && !userInfo?.hasClaim  && today > (userInfo?.lastClaimDay ?? 0)
 
   // Unlock timestamps: next midnight after the last action day
   const wdLastDay  = userInfo?.lastWithdrawDay ?? 0
-  const clLastDay  = userInfo?.lastClaimDay    ?? 0
   const withdrawUnlockTs = wdLastDay > 0 ? (wdLastDay + 1) * 86400 : null
-  const claimUnlockTs    = clLastDay > 0 ? (clLastDay + 1) * 86400 : null
 
   // Countdowns (hooks must be at component top level)
   const wdCd = useCountdown(withdrawUnlockTs, 86400)
-  const clCd = useCountdown(claimUnlockTs,    86400)
 
   const pendingWithdraw = stats?.totalPendingWithdrawals ?? 0n
   const pendingClaim    = stats?.totalPendingClaims ?? 0n
@@ -891,35 +818,17 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
         </div>
       )}
 
-      {/* ── Stake Form ───────────────────────────────────────────────────── */}
-      <SectionCard title="Depositar SUSHI" badge={`APR ${aprPct}%`}>
-        <div className="flex flex-col gap-3">
-          <InputRow
-            label={`Cantidad a depositar (comisión ${feePct}%)`}
-            value={stakeAmt}
-            onChange={setStakeAmt}
-            max={sushiBal > 0n ? fmtSushi(sushiBal, 6) : undefined}
-            hint={stakeAmt && parseWei(stakeAmt) > 0n
-              ? `Recibirás ${fmtSushi(parseWei(stakeAmt) - parseWei(stakeAmt) * BigInt(stats?.feeBps ?? 500) / 10_000n, 4)} SUSHI en stake · APR ${aprPct}%`
-              : 'Los tokens van directo a custodia segura'}
-          />
-          <div className="rounded-lg border border-[oklch(0.22_0.025_245)] bg-[oklch(0.08_0.015_245)] px-3 py-2 flex items-center gap-2">
-            <Info className="w-3 h-3 text-[oklch(0.45_0.01_230)] shrink-0" />
-            <p className="text-[9px] text-[oklch(0.45_0.01_230)]">
-              Tus SUSHI generan <strong className="text-foreground">{aprPct}% APR</strong> anual. Retiros después de 48h · Reclamos después de 24h.
-            </p>
-          </div>
-          <button
-            onClick={doStake}
-            disabled={busyStake || !stakeAmt}
-            className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-            style={{ background: busyStake ? 'rgba(232,65,66,0.3)' : SUSHI_COLOR, color: 'white', boxShadow: busyStake ? 'none' : `0 0 18px ${SUSHI_COLOR}55` }}
-          >
-            {busyStake ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUpFromLine className="w-4 h-4" />}
-            {busyStake ? 'Procesando…' : 'Depositar SUSHI'}
-          </button>
+      {/* ── Migration Notice ─────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+        <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+        <div>
+          <p className="text-xs font-bold text-amber-300">Migración de fondos en curso</p>
+          <p className="text-[10px] text-amber-200/90 mt-1 leading-relaxed">
+            El staking de SUSHI (APR {aprPct}%) está en proceso de migración. Ya no se aceptan nuevos depósitos ni reclamos de recompensas.
+            Por favor solicita el retiro de tu stake lo antes posible.
+          </p>
         </div>
-      </SectionCard>
+      </div>
 
       {/* ── Withdrawal Request ───────────────────────────────────────────── */}
       <SectionCard title="Solicitar Retiro" collapsible defaultOpen={staked > 0n}>
@@ -966,56 +875,6 @@ export function SushiV2Panel({ userAddress }: { userAddress: string }) {
               : !canWithdraw && !wdCd.ready && staked > 0n && !userInfo?.hasWithdraw
                 ? <><Clock className="w-4 h-4 animate-pulse" /> Disponible en {wdCd.label}</>
                 : <><ArrowDownToLine className="w-4 h-4" /> Solicitar Retiro (48h)</>
-            }
-          </button>
-        </div>
-      </SectionCard>
-
-      {/* ── Claim Request ────────────────────────────────────────────────── */}
-      <SectionCard title="Solicitar Reclamo" collapsible defaultOpen={rewards > 0n}>
-        <div className="flex flex-col gap-3">
-          {!canClaim && rewards > 0n && (
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-purple-500/25 bg-purple-500/8 px-3 py-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <Lock className="w-3 h-3 text-purple-400 shrink-0 animate-pulse" />
-                <p className="text-[9px] text-purple-300">
-                  {userInfo?.hasClaim
-                    ? 'Reclamo ya en cola de espera.'
-                    : 'Un reclamo por día.'}
-                </p>
-              </div>
-              {!userInfo?.hasClaim && !clCd.ready && (
-                <span className="text-[10px] font-mono font-bold text-purple-400 shrink-0">
-                  {clCd.label}
-                </span>
-              )}
-            </div>
-          )}
-          <div className="rounded-xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.08_0.015_245)] p-3 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-green-500/15 border border-green-500/25 flex items-center justify-center shrink-0">
-              <Gift className="w-4 h-4 text-green-400" />
-            </div>
-            <div>
-              <p className="text-[10px] text-[oklch(0.45_0.01_230)]">Recompensas acumuladas</p>
-              <p className="text-base font-black font-mono text-green-400">{fmtSushi(rewards, 6)} SUSHI</p>
-              {rewards > 0n && stats && (
-                <p className="text-[9px] text-[oklch(0.40_0.01_230)]">
-                  Neto tras comisión: {fmtSushi(rewards - rewards * BigInt(stats.feeBps) / 10_000n, 4)} SUSHI
-                </p>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={doClaim}
-            disabled={busyClaim || !canClaim}
-            className="w-full h-11 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 border"
-            style={{ borderColor: 'rgba(34,197,94,0.40)', color: '#22c55e', background: 'rgba(34,197,94,0.10)' }}
-          >
-            {busyClaim
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> Procesando…</>
-              : !canClaim && !clCd.ready && rewards > 0n && !userInfo?.hasClaim
-                ? <><Clock className="w-4 h-4 animate-pulse" /> Disponible en {clCd.label}</>
-                : <><Gift className="w-4 h-4" /> Solicitar Reclamo (24h) · {fmtSushi(rewards, 2)} SUSHI</>
             }
           </button>
         </div>
