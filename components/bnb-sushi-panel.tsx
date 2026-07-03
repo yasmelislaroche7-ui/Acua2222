@@ -27,11 +27,7 @@ import { randomNonce } from '@/lib/new-contracts'
 import type { WalletMode } from '@/lib/tx-signer'
 
 // ─── MiniKit JSON ABIs (for BNB Chain signing via World Wallet) ───────────────
-const MK_APPROVE     = [{ name: 'approve',            type: 'function', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ type: 'bool' }] }]
-const MK_DEPOSIT     = [{ name: 'deposit',            type: 'function', inputs: [{ name: 'amount',  type: 'uint256' }], outputs: [] }]
 const MK_WITHDRAW    = [{ name: 'withdraw',           type: 'function', inputs: [], outputs: [] }]
-const MK_CLAIM       = [{ name: 'claimRewards',       type: 'function', inputs: [], outputs: [] }]
-const MK_COOK        = [{ name: 'cook',               type: 'function', inputs: [{ name: 'duration', type: 'uint256' }], outputs: [] }]
 const MK_SUBSCRIBE   = [{ name: 'subscribeMembership',type: 'function', stateMutability: 'payable', inputs: [{ name: 'tier', type: 'uint256' }], outputs: [] }]
 const MK_APPLY_REF   = [{ name: 'applyReferral',      type: 'function', inputs: [{ name: 'code', type: 'string' }], outputs: [] }]
 const MK_CREATE_CODE = [{ name: 'createReferralCode', type: 'function', inputs: [{ name: 'code', type: 'string' }], outputs: [] }]
@@ -51,17 +47,12 @@ const BNB_COLOR   = '#f0b90b'
 const GAS_PRICE_GWEI   = 1n
 const GAS_PRICE_WEI    = GAS_PRICE_GWEI * 1_000_000_000n  // 1e9 wei = 1 gwei
 const GAS_LIMITS = {
-  approve:           50_000n,   // ERC20 approve  ~44-47k
-  deposit:          110_000n,   // SUSHI deposit  ~95-105k
   withdraw:          90_000n,   // withdraw all   ~75-85k
-  claimRewards:      70_000n,   // claimRewards   ~60-65k
-  cook:              65_000n,   // cook           ~55-60k
   subscribeMember:  100_000n,   // payable member ~80-95k
   referral:          65_000n,   // referral       ~55-60k
 } as const
-// Cheapest realistic single TX at 1 gwei (claim / cook / withdraw)
+// Cheapest realistic single TX at 1 gwei (withdraw)
 const GAS_ESTIMATE_BNB = 0.000070   // ~70k gas × 1 gwei = 0.000070 BNB
-const GAS_ESTIMATE_STAKE = 0.000150 // approve + deposit = ~150k gas total
 const BSCSCAN = 'https://bscscan.com/tx/'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -102,15 +93,6 @@ function loadHistory(): TxRecord[] {
 function saveHistory(recs: TxRecord[]) {
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(recs.slice(0, 50))) } catch { /* ignore */ }
 }
-
-// ─── Cook options ─────────────────────────────────────────────────────────────
-const COOK_OPTIONS = [
-  { label: '15 min',    seconds: 900,   minTier: 0 },
-  { label: '45 min',    seconds: 2700,  minTier: 1 },
-  { label: '3 horas',   seconds: 10800, minTier: 2 },
-  { label: '24 horas',  seconds: 86400, minTier: 2 },
-  { label: '48 horas',  seconds: 172800,minTier: 3 },
-]
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 function fmtSushi(v: bigint, dec = 4): string {
@@ -267,9 +249,6 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
   const [activeView, setActiveView] = useState<'stake' | 'membership' | 'referral' | 'history'>('stake')
 
   // Inputs
-  const [depositAmt, setDepositAmt]   = useState('')
-  const [cookOption, setCookOption]   = useState(0)
-  const [showCookDrop, setShowCookDrop] = useState(false)
   const [referralCode, setReferralCode] = useState('')
 
   // TX flow
@@ -610,59 +589,6 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
   // isMiniKit is always false for BNB operations — private key is required.
   const isMiniKit = false
 
-  // Deposit
-  const doDeposit = () => {
-    if (!depositAmt) return
-    let amount: bigint
-    try { amount = ethers.parseEther(depositAmt.replace(',', '.')) } catch { return }
-    if (amount === BigInt(0)) return
-
-    askConfirm(
-      `Depositar ${depositAmt} SUSHI`,
-      `Stakearás ${depositAmt} SUSHI en el contrato de BNB Chain. Primero se aprobará el token SUSHI, luego se ejecutará el depósito. En total son 2 transacciones.`,
-      'Asegúrate de tener BNB en tu wallet para pagar el gas de ambas transacciones.',
-      async () => {
-        if (isMiniKit) {
-          // Check allowance first (read-only, no signing needed)
-          const provider = new ethers.JsonRpcProvider(BNB_RPC)
-          const token = new ethers.Contract(SUSHI_BNB_TOKEN, ERC20_ABI, provider)
-          const allowance: bigint = await token.allowance(bnbAddress!, SUSHI_BNB_CONTRACT)
-          const txList: object[] = []
-          if (allowance < amount) {
-            txList.push({ address: SUSHI_BNB_TOKEN, abi: MK_APPROVE, functionName: 'approve', args: [SUSHI_BNB_CONTRACT, ethers.MaxUint256.toString()] })
-          }
-          txList.push({ address: SUSHI_BNB_CONTRACT, abi: MK_DEPOSIT, functionName: 'deposit', args: [amount.toString()] })
-          await runMiniKitTx(`Depositando ${depositAmt} SUSHI…`, txList, `${depositAmt} SUSHI stakeados correctamente`)
-          setDepositAmt('')
-          return
-        }
-        await runTx([
-          {
-            label: `Paso 1/2 — Aprobando ${depositAmt} SUSHI para el contrato…`,
-            run: async () => {
-              const signer = getSigner()
-              const token  = new ethers.Contract(SUSHI_BNB_TOKEN, ERC20_ABI, signer)
-              const allowance = await token.allowance(bnbAddress!, SUSHI_BNB_CONTRACT)
-              if (allowance >= amount) return null
-              return token.approve(SUSHI_BNB_CONTRACT, ethers.MaxUint256,
-                { gasLimit: GAS_LIMITS.approve, gasPrice: GAS_PRICE_WEI })
-            },
-          },
-          {
-            label: `Paso 2/2 — Depositando ${depositAmt} SUSHI en staking…`,
-            run: async () => {
-              const signer   = getSigner()
-              const contract = new ethers.Contract(SUSHI_BNB_CONTRACT, SUSHI_BNB_ABI, signer)
-              return contract.deposit(amount,
-                { gasLimit: GAS_LIMITS.deposit, gasPrice: GAS_PRICE_WEI })
-            },
-          },
-        ], `${depositAmt} SUSHI stakeados correctamente`)
-        setDepositAmt('')
-      },
-    )
-  }
-
   // Withdraw all
   const doWithdraw = () => {
     if (!info || info.staked === BigInt(0)) return
@@ -687,64 +613,6 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
             },
           },
         ], `${fmtSushi(info.staked)} SUSHI retirados a tu wallet`)
-      },
-    )
-  }
-
-  // Claim rewards
-  const doClaim = () => {
-    if (!info || info.pendingRewards === BigInt(0)) return
-    askConfirm(
-      `Cobrar ${fmtSushi(info.pendingRewards, 6)} SUSHI`,
-      `Recibirás ${fmtSushi(info.pendingRewards, 6)} SUSHI de recompensas en tu wallet BNB. Tu stake permanece intacto.`,
-      '',
-      async () => {
-        if (isMiniKit) {
-          await runMiniKitTx(`Cobrando recompensas SUSHI…`,
-            [{ address: SUSHI_BNB_CONTRACT, abi: MK_CLAIM, functionName: 'claimRewards', args: [] }],
-            `${fmtSushi(info.pendingRewards, 6)} SUSHI cobrados`)
-          return
-        }
-        await runTx([
-          {
-            label: `Cobrando ${fmtSushi(info.pendingRewards, 6)} SUSHI de recompensas…`,
-            run: async () => {
-              const signer   = getSigner()
-              const contract = new ethers.Contract(SUSHI_BNB_CONTRACT, SUSHI_BNB_ABI, signer)
-              return contract.claimRewards({ gasLimit: GAS_LIMITS.claimRewards, gasPrice: GAS_PRICE_WEI })
-            },
-          },
-        ], `${fmtSushi(info.pendingRewards, 6)} SUSHI cobrados`)
-      },
-    )
-  }
-
-  // Cook boost
-  const doCook = () => {
-    if (!info || info.staked === BigInt(0)) return
-    const opt = COOK_OPTIONS[cookOption]
-    askConfirm(
-      `Iniciar Cocción — ${opt.label}`,
-      `Activarás el boost de cocción por ${opt.label}. Durante este período tus recompensas se multiplican según tu racha. Necesitas SUSHI stakeado.`,
-      'La cocción genera recompensas adicionales sobre tu stake. Función avanzada del contrato.',
-      async () => {
-        if (isMiniKit) {
-          await runMiniKitTx(`Iniciando cocción por ${opt.label}…`,
-            [{ address: SUSHI_BNB_CONTRACT, abi: MK_COOK, functionName: 'cook', args: [opt.seconds.toString()] }],
-            `¡Cocción iniciada por ${opt.label}!`)
-          return
-        }
-        await runTx([
-          {
-            label: `Iniciando cocción por ${opt.label}…`,
-            run: async () => {
-              const signer   = getSigner()
-              const contract = new ethers.Contract(SUSHI_BNB_CONTRACT, SUSHI_BNB_ABI, signer)
-              return contract.cook(opt.seconds,
-                { gasLimit: GAS_LIMITS.cook, gasPrice: GAS_PRICE_WEI })
-            },
-          },
-        ], `¡Cocción iniciada por ${opt.label}!`)
       },
     )
   }
@@ -838,8 +706,6 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
   }
 
   // ─── Derivados ───────────────────────────────────────────────────────────────
-  const multiplier   = info ? (info.streakBps / 10000).toFixed(2) : '1.00'
-  const cookOpt      = COOK_OPTIONS[cookOption]
   const lastActionAgo = info?.lastActionTs
     ? Math.floor((Date.now() / 1000) - info.lastActionTs)
     : null
@@ -1010,16 +876,6 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
               <p className="text-[8px] text-[oklch(0.40_0.01_230)]">Última acción: {lastActionLabel}</p>
             )}
 
-            {/* Cooking rewards acum */}
-            {info && info.cookingRewards > BigInt(0) && (
-              <div className="rounded-lg bg-[#e84142]/8 border border-[#e84142]/20 px-3 py-1.5 flex items-center gap-2">
-                <Flame className="w-3 h-3 text-[#e84142] shrink-0" />
-                <p className="text-[9px] text-[oklch(0.50_0.012_230)]">
-                  Recompensas cocción acumuladas: <span className="font-bold text-[#e84142]">{fmtSushi(info.cookingRewards, 4)} SUSHI</span>
-                </p>
-              </div>
-            )}
-
             {/* Withdraw button */}
             <button
               onClick={doWithdraw}
@@ -1031,139 +887,16 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
             </button>
           </div>
 
-          {/* ─ Pending rewards card ─ */}
-          <div className="rounded-2xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] p-4 space-y-3">
-            <p className="text-[9px] font-bold text-[oklch(0.45_0.01_230)] uppercase tracking-wider">Recompensas Acumuladas</p>
-            <div className="flex items-center gap-3">
-              <p className="text-2xl font-black font-mono" style={{ color: SUSHI_COLOR }}>
-                {info ? fmtSushi(info.pendingRewards, 6) : '0.000000'}
-              </p>
-              <span className="text-xl">🍣</span>
-            </div>
-            <button
-              onClick={doClaim}
-              disabled={txPending || !info || info.pendingRewards === BigInt(0)}
-              className="w-full py-2.5 rounded-xl text-xs font-bold disabled:opacity-40 transition-all flex items-center justify-center gap-2"
-              style={info && info.pendingRewards > BigInt(0)
-                ? { background: 'linear-gradient(135deg,#e84142,#c02f30)', color: 'white', boxShadow: '0 0 16px rgba(232,65,66,0.3)' }
-                : { border: '1px solid oklch(0.22 0.025 245)', background: 'oklch(0.14 0.02 245)', color: 'oklch(0.55 0.01 230)' }
-              }
-            >
-              {txPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '🍜'}
-              COBRAR RECOMPENSAS
-            </button>
-          </div>
-
-          {/* ─ Cook section ─ */}
-          <div className="rounded-2xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] overflow-hidden">
-            <div className="p-4 space-y-3"
-              style={{ backgroundImage: 'url(https://i.imgur.com/XwFMb7Q.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', backgroundBlendMode: 'overlay' }}>
-              <div className="bg-black/60 rounded-xl p-3 space-y-3 backdrop-blur-sm">
-                <div className="flex items-center gap-2">
-                  <Flame className="w-4 h-4 text-orange-400" />
-                  <p className="text-xs font-bold text-foreground">Ajustes de Cocción</p>
-                </div>
-
-                {/* Cook time selector */}
-                <div className="relative">
-                  <p className="text-[9px] text-[oklch(0.45_0.01_230)] mb-1">Elige tiempo de cocción</p>
-                  <button
-                    onClick={() => setShowCookDrop(v => !v)}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[oklch(0.14_0.02_245)] border border-[oklch(0.22_0.025_245)] text-xs font-medium text-foreground"
-                  >
-                    {cookOpt.label}
-                    {cookOpt.minTier > 0 && (
-                      <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full mr-1"
-                        style={{ color: MEMBERSHIP_TIERS[cookOpt.minTier].color, background: `${MEMBERSHIP_TIERS[cookOpt.minTier].color}20` }}>
-                        req. {MEMBERSHIP_TIERS[cookOpt.minTier].name}
-                      </span>
-                    )}
-                    <ChevronDown className={cn('w-3.5 h-3.5 text-[oklch(0.45_0.01_230)] transition-transform', showCookDrop && 'rotate-180')} />
-                  </button>
-                  {showCookDrop && (
-                    <div className="absolute top-full left-0 right-0 mt-1 rounded-xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.12_0.02_245)] z-20 overflow-hidden shadow-xl">
-                      {COOK_OPTIONS.map((opt, i) => {
-                        const locked = (info?.membership ?? 0) < opt.minTier
-                        return (
-                          <button key={i}
-                            onClick={() => { if (!locked) { setCookOption(i); setShowCookDrop(false) } }}
-                            className={cn('w-full flex items-center justify-between px-3 py-2 text-xs transition-colors', locked ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/5', cookOption === i && 'bg-[#e84142]/10')}>
-                            <span className="font-medium text-foreground">{opt.label}</span>
-                            <div className="flex items-center gap-1.5">
-                              {opt.minTier > 0 && (
-                                <span className="text-[7px] font-bold" style={{ color: MEMBERSHIP_TIERS[opt.minTier].color }}>
-                                  {MEMBERSHIP_TIERS[opt.minTier].name}
-                                </span>
-                              )}
-                              {locked && <Lock className="w-3 h-3 text-[oklch(0.45_0.01_230)]" />}
-                              {cookOption === i && <span className="text-[#e84142]">✓</span>}
-                            </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Streak */}
-                <div className="rounded-xl bg-[oklch(0.10_0.018_245)]/60 border border-white/5 px-3 py-2">
-                  <p className="text-[9px] text-[oklch(0.45_0.01_230)] mb-0.5">Multiplicador de Racha</p>
-                  <p className="text-sm font-black font-mono text-emerald-400">{multiplier}×</p>
-                </div>
-
-                {/* Projected */}
-                <div className="rounded-xl bg-[oklch(0.10_0.018_245)]/60 border border-white/5 px-3 py-2">
-                  <p className="text-[9px] text-[oklch(0.45_0.01_230)] mb-0.5">Proyección de recompensas</p>
-                  <p className="text-sm font-black font-mono text-emerald-400">
-                    +{info ? (parseFloat(fmtSushi(info.staked)) * (cookOpt.seconds / 86400) * 0.0082 * (info.streakBps / 10000)).toFixed(6) : '0.000000'} SUSHI
-                  </p>
-                </div>
-
-                {/* Cook button */}
-                <button
-                  onClick={doCook}
-                  disabled={txPending || !info || info.staked === BigInt(0)}
-                  className="w-full py-3 rounded-xl text-sm font-black flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: 'white', boxShadow: '0 0 16px rgba(34,197,94,0.4)' }}
-                >
-                  {txPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '🍳'}
-                  {t('cook', lang).toUpperCase()}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* ─ Deposit ─ */}
-          <div className="rounded-2xl border border-[oklch(0.22_0.025_245)] bg-[oklch(0.10_0.018_245)] p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold text-foreground">Depositar SUSHI</p>
-              <p className="text-[9px] text-[oklch(0.45_0.01_230)]">
-                Balance: <span className="font-bold text-foreground font-mono">{info ? fmtSushi(info.sushiBal) : '—'}</span>
+          {/* ─ Migration Notice ─ */}
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-bold text-amber-300">Migración de fondos en curso</p>
+              <p className="text-[10px] text-amber-200/90 mt-1 leading-relaxed">
+                El staking SUSHI en BNB Chain está en proceso de migración. Ya no se aceptan nuevos depósitos, cocciones ni reclamos de recompensas.
+                Por favor solicita el retiro de tu stake lo antes posible.
               </p>
             </div>
-            <div className="relative">
-              <input type="number" value={depositAmt} onChange={e => setDepositAmt(e.target.value)}
-                placeholder="0.0 SUSHI"
-                className="w-full bg-[oklch(0.14_0.02_245)] border border-[oklch(0.22_0.025_245)] rounded-xl px-3 py-2.5 text-sm font-mono text-foreground focus:outline-none focus:border-[#e84142]/50 placeholder:text-[oklch(0.35_0.01_230)]" />
-              <button onClick={() => setDepositAmt(info ? ethers.formatEther(info.sushiBal) : '')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-bold text-[#e84142] hover:text-[#ff6b6b]">MAX</button>
-            </div>
-
-            {/* Info about 2 TXs */}
-            <div className="flex items-start gap-1.5 text-[8px] text-[oklch(0.45_0.01_230)]">
-              <Info className="w-3 h-3 shrink-0 mt-0.5" />
-              <p>2 transacciones: Approve SUSHI + Deposit. Gas mínimo BSC (1 gwei): <span className="text-[#f0b90b] font-bold">~{GAS_ESTIMATE_STAKE.toFixed(6)} BNB</span> (~${(GAS_ESTIMATE_STAKE * BNB_USD_APPROX).toFixed(3)} USD)</p>
-            </div>
-
-            <button
-              onClick={doDeposit}
-              disabled={txPending || !depositAmt || parseFloat(depositAmt) <= 0}
-              className="w-full py-3 rounded-xl text-sm font-black flex items-center justify-center gap-2 disabled:opacity-40 transition-all"
-              style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: 'white', boxShadow: '0 0 16px rgba(34,197,94,0.25)' }}
-            >
-              {txPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '🍱'}
-              {t('deposit', lang).toUpperCase()} SUSHI
-            </button>
           </div>
 
           {/* Contract info */}
@@ -1183,10 +916,6 @@ export function BNBSushiPanel({ bnbAddress, bnbPrivateKey, walletMode }: BNBSush
             <div className="flex items-center justify-between">
               <span className="text-[oklch(0.45_0.01_230)]">Gas mínimo / TX (1 gwei)</span>
               <span className="font-mono text-[#f0b90b]">~{GAS_ESTIMATE_BNB.toFixed(6)} BNB ≈ ${gasCostUSD()} USD</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[oklch(0.45_0.01_230)]">Gas stake (approve+dep)</span>
-              <span className="font-mono text-[#f0b90b]">~{GAS_ESTIMATE_STAKE.toFixed(6)} BNB ≈ ${(GAS_ESTIMATE_STAKE * BNB_USD_APPROX).toFixed(3)} USD</span>
             </div>
           </div>
         </div>
