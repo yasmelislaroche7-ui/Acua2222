@@ -5,7 +5,7 @@ import { MiniKit } from '@worldcoin/minikit-js'
 import {
   Factory, Plus, Coins, Users, Loader2, CheckCircle2, XCircle,
   Fuel, ArrowUpFromLine, ArrowDownToLine, Shield, Info, ChevronLeft,
-  UserPlus, UserMinus, Pause, Play, ImageIcon, ExternalLink,
+  UserPlus, UserMinus, Pause, Play, ImageIcon, ExternalLink, Copy, Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -14,7 +14,7 @@ import {
   DEPOSIT_ABI_FRAG, DEPOSIT_NORMAL_ABI_FRAG, WITHDRAW_ABI_FRAG, CLAIM_ABI_FRAG,
   FUND_ABI_FRAG, FUND_DIRECT_ABI_FRAG, ADD_OWNER_ABI_FRAG, REMOVE_OWNER_ABI_FRAG,
   SET_APR_ABI_FRAG, SET_PAUSED_ABI_FRAG,
-  fetchStakeFactoryConfig, fetchAllPools, fetchUserStakeInfo, fetchPoolOwners,
+  fetchStakeFactoryConfig, fetchAllPools, fetchPoolInfo, fetchUserStakeInfo, fetchPoolOwners,
   fetchErc20Meta, fetchErc20Balance,
   type StakeFactoryConfig, type StakeFactoryPoolInfo, type StakeFactoryUserInfo,
   formatToken, formatAPR, formatFee, randomNonce,
@@ -42,6 +42,29 @@ function MsgBox({ msg, onClear }: { msg: Msg; onClear: () => void }) {
       {msg.ok ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <XCircle className="w-4 h-4 shrink-0 mt-0.5" />}
       <span className="flex-1 text-xs leading-relaxed break-words">{msg.text}</span>
       <button onClick={onClear} className="shrink-0 text-xs opacity-60 hover:opacity-100">✕</button>
+    </div>
+  )
+}
+function CopyRow({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false)
+  const doCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* clipboard unavailable */ }
+  }
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-xl bg-black/30 border border-white/10 px-3 py-2">
+      <div className="min-w-0">
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wider">{label}</p>
+        <p className="text-[11px] font-mono text-white truncate">{value}</p>
+      </div>
+      <button onClick={doCopy}
+        className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-bold text-cyan-300 transition-colors">
+        {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+        {copied ? 'Copiado' : 'Copiar'}
+      </button>
     </div>
   )
 }
@@ -86,6 +109,9 @@ export function StakeFactoryPanel({ userAddress, walletMode, importedSigner }: P
   const [pools, setPools] = useState<StakeFactoryPoolInfo[]>([])
   const [selectedPool, setSelectedPool] = useState<number | null>(null)
   const [usdcBalance, setUsdcBalance] = useState(0n)
+  const [searchId, setSearchId] = useState('')
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchErr, setSearchErr] = useState('')
 
   const load = useCallback(async () => {
     if (!STAKE_FACTORY_ADDRESS) { setLoading(false); return }
@@ -117,6 +143,22 @@ export function StakeFactoryPanel({ userAddress, walletMode, importedSigner }: P
   }
 
   const pool = selectedPool !== null ? pools.find(p => p.poolId === selectedPool) ?? null : null
+
+  const handleSearch = async () => {
+    const id = parseInt(searchId.trim(), 10)
+    if (isNaN(id) || id < 0) { setSearchErr('Ingresa un número de ID válido'); return }
+    setSearchErr('')
+    const existing = pools.find(p => p.poolId === id)
+    if (existing) { setSelectedPool(id); return }
+    setSearchLoading(true)
+    try {
+      const p = await fetchPoolInfo(id)
+      setPools(prev => (prev.some(x => x.poolId === id) ? prev : [...prev, p]))
+      setSelectedPool(id)
+    } catch {
+      setSearchErr(`No existe ningún pool con ID #${id}`)
+    } finally { setSearchLoading(false) }
+  }
 
   return (
     <div className="space-y-4 pb-6">
@@ -172,6 +214,23 @@ export function StakeFactoryPanel({ userAddress, walletMode, importedSigner }: P
       {/* ── POOLS LIST ── */}
       {!pool && !loading && tab === 'pools' && (
         <div className="space-y-3">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-2">
+            <div className="flex gap-2 items-center">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                <input value={searchId} onChange={e => { setSearchId(e.target.value.replace(/[^0-9]/g, '')); setSearchErr('') }}
+                  onKeyDown={e => { if (e.key === 'Enter') handleSearch() }}
+                  placeholder="Buscar pool por ID (ej: 3)"
+                  className="w-full rounded-xl bg-black/40 border border-white/15 pl-9 pr-3 py-2 text-xs font-mono text-white placeholder-muted-foreground outline-none" />
+              </div>
+              <button onClick={handleSearch} disabled={searchLoading || !searchId}
+                className={cn('shrink-0 px-4 py-2 rounded-xl text-xs font-black border bg-cyan-500/25 border-cyan-500/50 text-cyan-200',
+                  (searchLoading || !searchId) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-cyan-500/35')}>
+                {searchLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Buscar'}
+              </button>
+            </div>
+            {searchErr && <p className="text-[10px] text-red-300">{searchErr}</p>}
+          </div>
           {pools.length === 0 && (
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
               <p className="text-sm text-muted-foreground">Aún no hay pools creados. ¡Sé el primero!</p>
@@ -607,12 +666,20 @@ function PoolDetail({ pool, userAddress, isMK, importedSigner, onBack, onRefresh
         )}
         <div className="flex-1 min-w-0">
           <p className="text-base font-black text-white truncate">{pool.name} <span className="text-xs text-muted-foreground">${pool.symbol}</span></p>
-          <p className="text-[10px] text-muted-foreground font-mono truncate">Token: {shortAddr(pool.token)} · {pool.tokenDecimals} dec</p>
+          <p className="text-[10px] text-muted-foreground font-mono truncate">Pool #{pool.poolId} · Token: {shortAddr(pool.token)} · {pool.tokenDecimals} dec</p>
         </div>
         <div className="text-right shrink-0">
           <p className="text-lg font-black text-amber-300">{formatAPR(pool.aprBps)}</p>
           <p className="text-[9px] text-muted-foreground">APR</p>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-2">
+        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+          <Shield className="w-3 h-3" /> Contratos (World Chain)
+        </p>
+        <CopyRow label={`ID de pool #${pool.poolId} — Contrato del stake (Stake Factory)`} value={STAKE_FACTORY_ADDRESS} />
+        <CopyRow label={`Contrato del token $${pool.symbol}`} value={pool.token} />
       </div>
 
       {pool.paused && (
