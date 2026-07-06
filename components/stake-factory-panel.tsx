@@ -782,21 +782,8 @@ function PoolDetail({ pool, userAddress, isMK, importedSigner, onBack, onRefresh
               icon={pool.paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
               color={pool.paused ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' : 'bg-red-500/20 border-red-500/40 text-red-300'} />
           </div>
-
-          {isCreator && (
-            <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-4 space-y-2">
-              <p className="text-xs font-bold text-red-300 flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Retiro de emergencia (creador)</p>
-              <p className="text-[10px] text-muted-foreground">Retira el excedente del fondo ({formatToken(pool.fundPool, dec, 2)} {pool.symbol}) a tu wallet.</p>
-              <ActionBtn onClick={doEmergencyWithdraw} loading={lEmergency} disabled={pool.fundPool === 0n}
-                label="Retirar fondo del pool" icon={<Shield className="w-4 h-4" />}
-                color="bg-red-500/20 border-red-500/40 text-red-300" />
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
+         </div>
+        )} 
 
 // ─── Info Tab ─────────────────────────────────────────────────────────────────
 function InfoTab({ config }: { config: StakeFactoryConfig | null }) {
