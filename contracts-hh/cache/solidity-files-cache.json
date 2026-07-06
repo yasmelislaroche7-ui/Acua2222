@@ -1313,6 +1313,46 @@
         "H2OStakeV4",
         "IH2OV4Token"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/H2OStakeV5.sol": {
+      "lastModificationDate": 1783303041759,
+      "contentHash": "fe670ae952f0f77e55e4cca63dbdd035",
+      "sourceName": "contracts/H2OStakeV5.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "H2OStakeV5",
+        "IH2OV5Token"
+      ]
     }
   }
 }
