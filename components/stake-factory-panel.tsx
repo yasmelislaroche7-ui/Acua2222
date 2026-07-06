@@ -13,7 +13,7 @@ import {
   CREATE_POOL_ABI_FRAG, CREATE_POOL_NORMAL_ABI_FRAG,
   DEPOSIT_ABI_FRAG, DEPOSIT_NORMAL_ABI_FRAG, WITHDRAW_ABI_FRAG, CLAIM_ABI_FRAG,
   FUND_ABI_FRAG, FUND_DIRECT_ABI_FRAG, ADD_OWNER_ABI_FRAG, REMOVE_OWNER_ABI_FRAG,
-  SET_APR_ABI_FRAG, SET_PAUSED_ABI_FRAG, EMERGENCY_WITHDRAW_ABI_FRAG,
+  SET_APR_ABI_FRAG, SET_PAUSED_ABI_FRAG,
   fetchStakeFactoryConfig, fetchAllPools, fetchUserStakeInfo, fetchPoolOwners,
   fetchErc20Meta, fetchErc20Balance,
   type StakeFactoryConfig, type StakeFactoryPoolInfo, type StakeFactoryUserInfo,
@@ -374,7 +374,6 @@ function PoolDetail({ pool, userAddress, isMK, importedSigner, onBack, onRefresh
   const [lRemoveOwner, setLRemoveOwner] = useState(false)
   const [lApr, setLApr] = useState(false)
   const [lPause, setLPause] = useState(false)
-  const [lEmergency, setLEmergency] = useState(false)
 
   const [depMsg, setDepMsg] = useState<Msg>(null)
   const [withMsg, setWithMsg] = useState<Msg>(null)
@@ -588,26 +587,6 @@ function PoolDetail({ pool, userAddress, isMK, importedSigner, onBack, onRefresh
       } else setAdminMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
     } catch (e: any) { setAdminMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
     finally { setLPause(false) }
-  }
-
-  const doEmergencyWithdraw = async () => {
-    if (!confirm('¿Retirar excedente del fondo del pool a tu wallet?')) return
-    setLEmergency(true); setAdminMsg(null)
-    try {
-      const amount = pool.fundPool
-      if (isMK) {
-        const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-          transaction: [{ address: STAKE_FACTORY_ADDRESS, abi: EMERGENCY_WITHDRAW_ABI_FRAG, functionName: 'poolEmergencyWithdraw', args: [pool.poolId.toString(), amount.toString()] }],
-        })
-        if (finalPayload.status === 'success') { setAdminMsg({ ok: true, text: '✓ Fondo retirado' }); refresh() }
-        else setAdminMsg({ ok: false, text: parseMkErr(finalPayload) })
-      } else if (importedSigner) {
-        const sc = new ethers.Contract(STAKE_FACTORY_ADDRESS, EMERGENCY_WITHDRAW_ABI_FRAG, importedSigner)
-        await (await sc.poolEmergencyWithdraw(pool.poolId, amount)).wait()
-        setAdminMsg({ ok: true, text: '✓ Fondo retirado' }); refresh()
-      } else setAdminMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
-    } catch (e: any) { setAdminMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
-    finally { setLEmergency(false) }
   }
 
   return (
