@@ -1353,6 +1353,47 @@
         "H2OStakeV5",
         "IH2OV5Token"
       ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaStakeFactory.sol": {
+      "lastModificationDate": 1783305447967,
+      "contentHash": "45fb56a8c44918ffb6311a6fa8086ca7",
+      "sourceName": "contracts/AcuaStakeFactory.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaStakeFactory",
+        "IERC20MetaOpt",
+        "IERC20Min"
+      ]
     }
   }
 }

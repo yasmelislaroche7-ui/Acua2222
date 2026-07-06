@@ -79,7 +79,7 @@ interface Props {
   isAdmin?: boolean
 }
 
-type PanelTab = 'stake' | 'ref' | 'admin'
+type PanelTab = 'stake' | 'ref' | 'stats' | 'admin'
 
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 export function StakeV5Panel({ userAddress, walletMode, importedSigner, isAdmin = false }: Props) {
@@ -447,6 +447,7 @@ export function StakeV5Panel({ userAddress, walletMode, importedSigner, isAdmin 
   const tabs: { id: PanelTab; label: string }[] = [
     { id: 'stake', label: '🪙 Stake' },
     { id: 'ref', label: '👥 Referidos' },
+    { id: 'stats', label: '📊 Estadísticas' },
     ...(showAdmin ? [{ id: 'admin' as PanelTab, label: '🛡 Admin' }] : []),
   ]
 
@@ -652,12 +653,9 @@ export function StakeV5Panel({ userAddress, walletMode, importedSigner, isAdmin 
         </div>
       )}
 
-      {/* ─── ADMIN TAB ──────────────────────────────────────────────────── */}
-      {tab === 'admin' && showAdmin && (
+      {/* ─── STATS TAB (público, visible para todos) ───────────────────────── */}
+      {tab === 'stats' && (
         <div className="space-y-4">
-          {adminMsg && <Msg msg={adminMsg} onClear={() => setAdminMsg(null)} />}
-
-          {/* Global stats */}
           <div className="rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-4 space-y-2">
             <p className="text-xs font-bold text-fuchsia-300 flex items-center gap-1.5">
               <TrendingUp className="w-3.5 h-3.5" /> Estadísticas globales
@@ -679,6 +677,13 @@ export function StakeV5Panel({ userAddress, walletMode, importedSigner, isAdmin 
               <p className="text-[9px] font-mono text-muted-foreground truncate">Contrato: {STAKE_V5_ADDRESS.slice(0, 10)}…{STAKE_V5_ADDRESS.slice(-6)}</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ─── ADMIN TAB ──────────────────────────────────────────────────── */}
+      {tab === 'admin' && showAdmin && (
+        <div className="space-y-4">
+          {adminMsg && <Msg msg={adminMsg} onClear={() => setAdminMsg(null)} />}
 
           {/* Fund Permit2 */}
           <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-2">

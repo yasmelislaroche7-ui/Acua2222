@@ -1,0 +1,18 @@
+{
+  "deployedAt": "2026-07-06T02:38:05.917Z",
+  "network": "worldchain",
+  "chainId": 480,
+  "deployer": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
+  "factoryOwner": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
+  "acuaOwner": "0xC2Ef127734F296952DE75c1B58A6Cec605Cc2E59",
+  "contract": "0xb5E4a0D5BD1973153C9250b1329993CA498D3Fcc",
+  "creationFeeToken": "0x79A02482A880bCE3F13e09Da970dC34db4CD24d1",
+  "creationFeeAmount": "2000000",
+  "maxAprBps": 100000,
+  "depositFeeBps": 500,
+  "withdrawFeeBps": 500,
+  "claimFeeBps": 500,
+  "creatorShareBps": 400,
+  "acuaShareBps": 100,
+  "features": "any-erc20-token, any-decimals, permit2, per-second-rewards, instant-withdraw, instant-claim, multi-owner-pools, variable-apr-max-1000%"
+}
