@@ -115,7 +115,6 @@ contract AcuaStakeFactory {
     event Funded(uint256 indexed poolId, address indexed funder, uint256 amount);
     event AprUpdated(uint256 indexed poolId, uint256 newAprBps);
     event PausedUpdated(uint256 indexed poolId, bool val);
-    event PoolEmergencyWithdraw(uint256 indexed poolId, address indexed to, uint256 amount);
     event CreationFeeUpdated(address token, uint256 amount);
     event FactoryOwnerUpdated(address newOwner);
 
@@ -427,14 +426,6 @@ contract AcuaStakeFactory {
     function setPaused(uint256 poolId, bool val) external poolExists(poolId) onlyPoolOwner(poolId) {
         pools[poolId].paused = val;
         emit PausedUpdated(poolId, val);
-    }
-
-    /// @notice Válvula de seguridad: el creador puede retirar excedente del fondo de su propio pool.
-    function poolEmergencyWithdraw(uint256 poolId, uint256 amount) external poolExists(poolId) onlyPoolCreator(poolId) {
-        require(amount <= pools[poolId].fundPool, "exceeds fund pool");
-        pools[poolId].fundPool -= amount;
-        _safeTransfer(pools[poolId].token, pools[poolId].creator, amount);
-        emit PoolEmergencyWithdraw(poolId, pools[poolId].creator, amount);
     }
 
     // ─── Administración de la fábrica ─────────────────────────────────────────

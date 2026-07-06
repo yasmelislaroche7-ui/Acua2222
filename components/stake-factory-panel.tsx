@@ -762,7 +762,10 @@ function PoolDetail({ pool, userAddress, isMK, importedSigner, onBack, onRefresh
               color={pool.paused ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' : 'bg-red-500/20 border-red-500/40 text-red-300'} />
           </div>
          </div>
-        )} 
+        )}
+    </div>
+  )
+}
 
 // ─── Info Tab ─────────────────────────────────────────────────────────────────
 function InfoTab({ config }: { config: StakeFactoryConfig | null }) {

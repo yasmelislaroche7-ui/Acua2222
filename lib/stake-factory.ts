@@ -165,16 +165,6 @@ export const SET_PAUSED_ABI_FRAG = [{
   outputs: [],
 }] as const
 
-// poolEmergencyWithdraw(poolId, amount)
-export const EMERGENCY_WITHDRAW_ABI_FRAG = [{
-  name: 'poolEmergencyWithdraw', type: 'function', stateMutability: 'nonpayable',
-  inputs: [
-    { name: 'poolId', type: 'uint256', internalType: 'uint256' },
-    { name: 'amount', type: 'uint256', internalType: 'uint256' },
-  ],
-  outputs: [],
-}] as const
-
 // ─── Read ABI ─────────────────────────────────────────────────────────────────
 const READ_ABI = [
   'function poolCount() view returns (uint256)',
