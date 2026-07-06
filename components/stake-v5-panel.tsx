@@ -5,18 +5,19 @@ import { MiniKit } from '@worldcoin/minikit-js'
 import {
   Droplets, TrendingUp, Users, Gift, Copy, Check, Zap,
   RefreshCw, Shield, Loader2, CheckCircle2, XCircle,
-  Fuel, ArrowUpFromLine, ArrowDownToLine,
+  Fuel, ArrowUpFromLine, ArrowDownToLine, Percent,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
-  STAKE_V4_ADDRESS, ACUA_TOKEN_ADDRESS,
+  STAKE_V5_ADDRESS, ACUA_TOKEN_ADDRESS,
   STAKE_ABI_FRAG, STAKE_NORMAL_ABI_FRAG, WITHDRAW_ABI_FRAG,
   CLAIM_ABI_FRAG, REGISTER_ABI_FRAG,
   FUND_ABI_FRAG, FUND_DIRECT_ABI_FRAG, SET_APR_ABI_FRAG, SET_PAUSED_ABI_FRAG,
-  fetchStakeV4UserInfo, fetchStakeV4GlobalStats,
-  type StakeV4UserInfo, type StakeV4GlobalStats,
-  formatToken, formatAPR, randomNonce,
-} from '@/lib/stake-v4'
+  SET_DEPOSIT_FEE_ABI_FRAG, SET_WITHDRAW_FEE_ABI_FRAG,
+  fetchStakeV5UserInfo, fetchStakeV5GlobalStats,
+  type StakeV5UserInfo, type StakeV5GlobalStats,
+  formatToken, formatAPR, formatFee, randomNonce,
+} from '@/lib/stake-v5'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DECIMALS = 18
@@ -57,19 +58,6 @@ function Msg({ msg, onClear }: { msg: { ok: boolean; text: string }; onClear: ()
     </div>
   )
 }
-function Input({ value, onChange, placeholder, label }: { value: string; onChange: (v: string) => void; placeholder?: string; label?: string }) {
-  return (
-    <div>
-      {label && <p className="text-[10px] text-muted-foreground mb-1">{label}</p>}
-      <input
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-xl bg-black/30 border border-white/10 px-3 py-2.5 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-violet-500/50"
-      />
-    </div>
-  )
-}
 function ActionBtn({ onClick, loading, disabled, label, icon, color = 'bg-violet-500/20 border-violet-500/40 text-violet-300' }: {
   onClick: () => void; loading?: boolean; disabled?: boolean; label: string; icon: React.ReactNode; color?: string
 }) {
@@ -94,15 +82,13 @@ interface Props {
 type PanelTab = 'stake' | 'ref' | 'admin'
 
 // ─── Main Panel ───────────────────────────────────────────────────────────────
-export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin = false }: Props) {
+export function StakeV5Panel({ userAddress, walletMode, importedSigner, isAdmin = false }: Props) {
   const [tab, setTab] = useState<PanelTab>('stake')
-  const [user, setUser]   = useState<StakeV4UserInfo | null>(null)
-  const [global, setGlobal] = useState<StakeV4GlobalStats | null>(null)
+  const [user, setUser]   = useState<StakeV5UserInfo | null>(null)
+  const [global, setGlobal] = useState<StakeV5GlobalStats | null>(null)
   const [loading, setLoading] = useState(true)
-  // Admin = isAdmin prop (global owner) OR StakeV4-specific owner/owner2
-  const [isStakeV4Admin, setIsStakeV4Admin] = useState(false)
+  const [isStakeV5Admin, setIsStakeV5Admin] = useState(false)
 
-  // Real-time reward tick (increments display every second)
   const [rewardDisplay, setRewardDisplay] = useState(0n)
   const rewardRef = useRef({ base: 0n, staked: 0n, aprBps: 0n, lastAt: 0 })
 
@@ -112,6 +98,8 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
   const [fundAmt, setFundAmt]   = useState('')
   const [fundDirectAmt, setFundDirectAmt] = useState('')
   const [aprInput, setAprInput] = useState('')
+  const [depFeeInput, setDepFeeInput] = useState('')
+  const [wdFeeInput, setWdFeeInput] = useState('')
   const [refInput, setRefInput] = useState('')
   const [urlRef, setUrlRef]     = useState('')
 
@@ -122,6 +110,8 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
   const [lFund, setLF]      = useState(false)
   const [lFundD, setLFD]    = useState(false)
   const [lApr, setLA]       = useState(false)
+  const [lDepFee, setLDepFee] = useState(false)
+  const [lWdFee, setLWdFee]   = useState(false)
   const [lPause, setLP]     = useState(false)
   const [lReg, setLReg]     = useState(false)
 
@@ -146,24 +136,22 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
 
   // ── Load on-chain data ─────────────────────────────────────────────────────
   const load = useCallback(async () => {
-    if (!addr || !STAKE_V4_ADDRESS) return
+    if (!addr || !STAKE_V5_ADDRESS) return
     setLoading(true)
     try {
       const [u, g] = await Promise.all([
-        fetchStakeV4UserInfo(addr),
-        fetchStakeV4GlobalStats(),
+        fetchStakeV5UserInfo(addr),
+        fetchStakeV5GlobalStats(),
       ])
       setUser(u)
       setGlobal(g)
-      // Detect if user is StakeV4-specific owner or owner2
       const addrLow = addr.toLowerCase()
-      setIsStakeV4Admin(
+      setIsStakeV5Admin(
         addrLow === g.owner.toLowerCase() || addrLow === g.owner2.toLowerCase()
       )
-      // Seed reward tick
       rewardRef.current = { base: u.rewards, staked: u.staked, aprBps: g.aprBps, lastAt: Date.now() }
       setRewardDisplay(u.rewards)
-    } catch (e) { console.error('StakeV4 load:', e) }
+    } catch (e) { console.error('StakeV5 load:', e) }
     finally { setLoading(false) }
   }, [addr])
 
@@ -184,9 +172,23 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
 
   const refresh = () => setTimeout(load, 4000)
   const noRef = !user?.referrer || user.referrer === ethers.ZeroAddress
-  // Admin strictly gated by StakeV4 owner/owner2 fetched from the contract on-chain.
-  // The global `isAdmin` prop (main exchange owner) does NOT grant StakeV4 admin access here.
-  const showAdmin = isStakeV4Admin
+  const showAdmin = isStakeV5Admin
+
+  const depFeePct = global ? formatFee(global.depositFeeBps) : '5.0%'
+  const wdFeePct  = global ? formatFee(global.withdrawFeeBps) : '5.0%'
+
+  // Estimated net amounts based on current fee bps
+  const stakeGrossPreview = (() => {
+    try { return ethers.parseUnits((stakeAmt || '0').replace(',', '.'), DECIMALS) } catch { return 0n }
+  })()
+  const stakeFeePreview = global ? stakeGrossPreview * global.depositFeeBps / 10_000n : 0n
+  const stakeNetPreview = stakeGrossPreview - stakeFeePreview
+
+  const withdrawGrossPreview = (() => {
+    try { return withdrawAmt ? ethers.parseUnits(withdrawAmt.replace(',', '.'), DECIMALS) : (user?.staked ?? 0n) } catch { return 0n }
+  })()
+  const withdrawFeePreview = global ? withdrawGrossPreview * global.withdrawFeeBps / 10_000n : 0n
+  const withdrawNetPreview = withdrawGrossPreview - withdrawFeePreview
 
   // ── STAKE ──────────────────────────────────────────────────────────────────
   const doStake = async () => {
@@ -205,7 +207,7 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
         const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
           transaction: [{
-            address: STAKE_V4_ADDRESS,
+            address: STAKE_V5_ADDRESS,
             abi: STAKE_ABI_FRAG,
             functionName: 'stake',
             args: [
@@ -215,19 +217,19 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
               refToPass,
             ],
           }],
-          permit2: [{ permitted: { token: ACUA_TOKEN_ADDRESS, amount: gross.toString() }, spender: STAKE_V4_ADDRESS, nonce: nonce.toString(), deadline: deadline.toString() }],
+          permit2: [{ permitted: { token: ACUA_TOKEN_ADDRESS, amount: gross.toString() }, spender: STAKE_V5_ADDRESS, nonce: nonce.toString(), deadline: deadline.toString() }],
         })
         if (finalPayload.status === 'success') {
-          setStakeMsg({ ok: true, text: `✓ ${s} ACUA stakeados` }); setStakeAmt(''); refresh()
+          setStakeMsg({ ok: true, text: `✓ ${s} ACUA depositados (5% comisión aplicada)` }); setStakeAmt(''); refresh()
         } else setStakeMsg({ ok: false, text: parseMkErr(finalPayload) })
       } else if (importedSigner) {
         const ERC20_ABI = ['function allowance(address,address) view returns (uint256)', 'function approve(address,uint256) nonpayable returns (bool)']
         const tc = new ethers.Contract(ACUA_TOKEN_ADDRESS, ERC20_ABI, importedSigner)
-        const allow = await tc.allowance(addr, STAKE_V4_ADDRESS)
-        if (allow < gross) await (await tc.approve(STAKE_V4_ADDRESS, gross * 100n)).wait()
-        const sc = new ethers.Contract(STAKE_V4_ADDRESS, STAKE_NORMAL_ABI_FRAG, importedSigner)
+        const allow = await tc.allowance(addr, STAKE_V5_ADDRESS)
+        if (allow < gross) await (await tc.approve(STAKE_V5_ADDRESS, gross * 100n)).wait()
+        const sc = new ethers.Contract(STAKE_V5_ADDRESS, STAKE_NORMAL_ABI_FRAG, importedSigner)
         await (await sc.stakeNormal(gross, refToPass)).wait()
-        setStakeMsg({ ok: true, text: `✓ ${s} ACUA stakeados` }); setStakeAmt(''); refresh()
+        setStakeMsg({ ok: true, text: `✓ ${s} ACUA depositados (5% comisión aplicada)` }); setStakeAmt(''); refresh()
       } else setStakeMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
     } catch (e: any) { setStakeMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
     finally { setLS(false) }
@@ -247,15 +249,15 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
     try {
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-          transaction: [{ address: STAKE_V4_ADDRESS, abi: WITHDRAW_ABI_FRAG, functionName: 'withdraw', args: [amount.toString()] }],
+          transaction: [{ address: STAKE_V5_ADDRESS, abi: WITHDRAW_ABI_FRAG, functionName: 'withdraw', args: [amount.toString()] }],
         })
         if (finalPayload.status === 'success') {
-          setWithMsg({ ok: true, text: '✓ Retiro instantáneo completado' }); setWithdrawAmt(''); refresh()
+          setWithMsg({ ok: true, text: '✓ Retiro completado (5% comisión aplicada)' }); setWithdrawAmt(''); refresh()
         } else setWithMsg({ ok: false, text: parseMkErr(finalPayload) })
       } else if (importedSigner) {
-        const sc = new ethers.Contract(STAKE_V4_ADDRESS, WITHDRAW_ABI_FRAG, importedSigner)
+        const sc = new ethers.Contract(STAKE_V5_ADDRESS, WITHDRAW_ABI_FRAG, importedSigner)
         await (await sc.withdraw(amount)).wait()
-        setWithMsg({ ok: true, text: '✓ Retiro instantáneo completado' }); setWithdrawAmt(''); refresh()
+        setWithMsg({ ok: true, text: '✓ Retiro completado (5% comisión aplicada)' }); setWithdrawAmt(''); refresh()
       } else setWithMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
     } catch (e: any) { setWithMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
     finally { setLW(false) }
@@ -268,13 +270,13 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
     try {
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-          transaction: [{ address: STAKE_V4_ADDRESS, abi: CLAIM_ABI_FRAG, functionName: 'claimRewards', args: [] }],
+          transaction: [{ address: STAKE_V5_ADDRESS, abi: CLAIM_ABI_FRAG, functionName: 'claimRewards', args: [] }],
         })
         if (finalPayload.status === 'success') {
           setClaimMsg({ ok: true, text: '✓ Recompensas reclamadas' }); refresh()
         } else setClaimMsg({ ok: false, text: parseMkErr(finalPayload) })
       } else if (importedSigner) {
-        const sc = new ethers.Contract(STAKE_V4_ADDRESS, CLAIM_ABI_FRAG, importedSigner)
+        const sc = new ethers.Contract(STAKE_V5_ADDRESS, CLAIM_ABI_FRAG, importedSigner)
         await (await sc.claimRewards()).wait()
         setClaimMsg({ ok: true, text: '✓ Recompensas reclamadas' }); refresh()
       } else setClaimMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
@@ -291,13 +293,13 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
     try {
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-          transaction: [{ address: STAKE_V4_ADDRESS, abi: REGISTER_ABI_FRAG, functionName: 'register', args: [referrer] }],
+          transaction: [{ address: STAKE_V5_ADDRESS, abi: REGISTER_ABI_FRAG, functionName: 'register', args: [referrer] }],
         })
         if (finalPayload.status === 'success') {
           setRefMsg({ ok: true, text: '✓ Referido registrado' }); refresh()
         } else setRefMsg({ ok: false, text: parseMkErr(finalPayload) })
       } else if (importedSigner) {
-        const sc = new ethers.Contract(STAKE_V4_ADDRESS, REGISTER_ABI_FRAG, importedSigner)
+        const sc = new ethers.Contract(STAKE_V5_ADDRESS, REGISTER_ABI_FRAG, importedSigner)
         await (await sc.register(referrer)).wait()
         setRefMsg({ ok: true, text: '✓ Referido registrado' }); refresh()
       } else setRefMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
@@ -317,7 +319,7 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{
-          address: STAKE_V4_ADDRESS,
+          address: STAKE_V5_ADDRESS,
           abi: FUND_ABI_FRAG,
           functionName: 'fund',
           args: [
@@ -326,7 +328,7 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
             amount.toString(),
           ],
         }],
-        permit2: [{ permitted: { token: ACUA_TOKEN_ADDRESS, amount: amount.toString() }, spender: STAKE_V4_ADDRESS, nonce: nonce.toString(), deadline: deadline.toString() }],
+        permit2: [{ permitted: { token: ACUA_TOKEN_ADDRESS, amount: amount.toString() }, spender: STAKE_V5_ADDRESS, nonce: nonce.toString(), deadline: deadline.toString() }],
       })
       if (finalPayload.status === 'success') {
         setAdminMsg({ ok: true, text: `✓ Pool fondeado con ${s} ACUA` }); setFundAmt(''); refresh()
@@ -346,9 +348,9 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
     try {
       const ERC20_ABI = ['function allowance(address,address) view returns (uint256)', 'function approve(address,uint256) nonpayable returns (bool)']
       const tc = new ethers.Contract(ACUA_TOKEN_ADDRESS, ERC20_ABI, importedSigner)
-      const allow = await tc.allowance(addr, STAKE_V4_ADDRESS)
-      if (allow < amount) await (await tc.approve(STAKE_V4_ADDRESS, amount * 100n)).wait()
-      const sc = new ethers.Contract(STAKE_V4_ADDRESS, FUND_DIRECT_ABI_FRAG, importedSigner)
+      const allow = await tc.allowance(addr, STAKE_V5_ADDRESS)
+      if (allow < amount) await (await tc.approve(STAKE_V5_ADDRESS, amount * 100n)).wait()
+      const sc = new ethers.Contract(STAKE_V5_ADDRESS, FUND_DIRECT_ABI_FRAG, importedSigner)
       await (await sc.fundDirect(amount)).wait()
       setAdminMsg({ ok: true, text: `✓ Pool fondeado con ${s} ACUA (directo)` }); setFundDirectAmt(''); refresh()
     } catch (e: any) { setAdminMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
@@ -363,18 +365,62 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
     try {
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-          transaction: [{ address: STAKE_V4_ADDRESS, abi: SET_APR_ABI_FRAG, functionName: 'setApr', args: [bps.toString()] }],
+          transaction: [{ address: STAKE_V5_ADDRESS, abi: SET_APR_ABI_FRAG, functionName: 'setApr', args: [bps.toString()] }],
         })
         if (finalPayload.status === 'success') {
           setAdminMsg({ ok: true, text: `✓ APR actualizado a ${(bps / 100).toFixed(2)}%` }); setAprInput(''); refresh()
         } else setAdminMsg({ ok: false, text: parseMkErr(finalPayload) })
       } else if (importedSigner) {
-        const sc = new ethers.Contract(STAKE_V4_ADDRESS, SET_APR_ABI_FRAG, importedSigner)
+        const sc = new ethers.Contract(STAKE_V5_ADDRESS, SET_APR_ABI_FRAG, importedSigner)
         await (await sc.setApr(bps)).wait()
         setAdminMsg({ ok: true, text: `✓ APR actualizado a ${(bps / 100).toFixed(2)}%` }); setAprInput(''); refresh()
       } else setAdminMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
     } catch (e: any) { setAdminMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
     finally { setLA(false) }
+  }
+
+  // ── Admin: SET DEPOSIT FEE ────────────────────────────────────────────────
+  const doSetDepositFee = async () => {
+    const bps = parseInt(depFeeInput)
+    if (isNaN(bps) || bps < 0 || bps > 2000) { setAdminMsg({ ok: false, text: 'Fee inválido (0–2000 bps, máx 20%)' }); return }
+    setLDepFee(true); setAdminMsg(null)
+    try {
+      if (isMK) {
+        const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+          transaction: [{ address: STAKE_V5_ADDRESS, abi: SET_DEPOSIT_FEE_ABI_FRAG, functionName: 'setDepositFee', args: [bps.toString()] }],
+        })
+        if (finalPayload.status === 'success') {
+          setAdminMsg({ ok: true, text: `✓ Comisión de depósito actualizada a ${(bps / 100).toFixed(2)}%` }); setDepFeeInput(''); refresh()
+        } else setAdminMsg({ ok: false, text: parseMkErr(finalPayload) })
+      } else if (importedSigner) {
+        const sc = new ethers.Contract(STAKE_V5_ADDRESS, SET_DEPOSIT_FEE_ABI_FRAG, importedSigner)
+        await (await sc.setDepositFee(bps)).wait()
+        setAdminMsg({ ok: true, text: `✓ Comisión de depósito actualizada a ${(bps / 100).toFixed(2)}%` }); setDepFeeInput(''); refresh()
+      } else setAdminMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
+    } catch (e: any) { setAdminMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
+    finally { setLDepFee(false) }
+  }
+
+  // ── Admin: SET WITHDRAW FEE ───────────────────────────────────────────────
+  const doSetWithdrawFee = async () => {
+    const bps = parseInt(wdFeeInput)
+    if (isNaN(bps) || bps < 0 || bps > 2000) { setAdminMsg({ ok: false, text: 'Fee inválido (0–2000 bps, máx 20%)' }); return }
+    setLWdFee(true); setAdminMsg(null)
+    try {
+      if (isMK) {
+        const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+          transaction: [{ address: STAKE_V5_ADDRESS, abi: SET_WITHDRAW_FEE_ABI_FRAG, functionName: 'setWithdrawFee', args: [bps.toString()] }],
+        })
+        if (finalPayload.status === 'success') {
+          setAdminMsg({ ok: true, text: `✓ Comisión de retiro actualizada a ${(bps / 100).toFixed(2)}%` }); setWdFeeInput(''); refresh()
+        } else setAdminMsg({ ok: false, text: parseMkErr(finalPayload) })
+      } else if (importedSigner) {
+        const sc = new ethers.Contract(STAKE_V5_ADDRESS, SET_WITHDRAW_FEE_ABI_FRAG, importedSigner)
+        await (await sc.setWithdrawFee(bps)).wait()
+        setAdminMsg({ ok: true, text: `✓ Comisión de retiro actualizada a ${(bps / 100).toFixed(2)}%` }); setWdFeeInput(''); refresh()
+      } else setAdminMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
+    } catch (e: any) { setAdminMsg({ ok: false, text: e?.reason || e?.message || 'Error' }) }
+    finally { setLWdFee(false) }
   }
 
   // ── Admin: PAUSE / UNPAUSE ────────────────────────────────────────────────
@@ -383,13 +429,13 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
     try {
       if (isMK) {
         const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-          transaction: [{ address: STAKE_V4_ADDRESS, abi: SET_PAUSED_ABI_FRAG, functionName: 'setPaused', args: [val] }],
+          transaction: [{ address: STAKE_V5_ADDRESS, abi: SET_PAUSED_ABI_FRAG, functionName: 'setPaused', args: [val] }],
         })
         if (finalPayload.status === 'success') {
           setAdminMsg({ ok: true, text: val ? '✓ Contrato pausado' : '✓ Contrato reactivado' }); refresh()
         } else setAdminMsg({ ok: false, text: parseMkErr(finalPayload) })
       } else if (importedSigner) {
-        const sc = new ethers.Contract(STAKE_V4_ADDRESS, SET_PAUSED_ABI_FRAG, importedSigner)
+        const sc = new ethers.Contract(STAKE_V5_ADDRESS, SET_PAUSED_ABI_FRAG, importedSigner)
         await (await sc.setPaused(val)).wait()
         setAdminMsg({ ok: true, text: val ? '✓ Pausado' : '✓ Reactivado' }); refresh()
       } else setAdminMsg({ ok: false, text: 'Conecta World App o importa un wallet' })
@@ -407,17 +453,17 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
   return (
     <div className="space-y-4 pb-6">
       {/* ── Header ── */}
-      <div className="rounded-3xl p-4 border border-violet-500/25 bg-gradient-to-br from-violet-500/10 to-purple-500/5">
+      <div className="rounded-3xl p-4 border border-fuchsia-500/25 bg-gradient-to-br from-fuchsia-500/10 to-purple-500/5">
         <div className="flex items-center gap-2 mb-2">
-          <div className="w-9 h-9 rounded-full flex items-center justify-center bg-violet-500/20 border border-violet-500/40 text-xl">🪙</div>
+          <div className="w-9 h-9 rounded-full flex items-center justify-center bg-fuchsia-500/20 border border-fuchsia-500/40 text-xl">🪙</div>
           <div className="flex-1">
-            <h2 className="text-sm font-black text-white">Stake V4 — H2O ACUA</h2>
-            <p className="text-[10px] text-violet-400/80">
-              Retiros y reclamos 24/7 · Recompensas por segundo
+            <h2 className="text-sm font-black text-white">Stake V5 — H2O ACUA</h2>
+            <p className="text-[10px] text-fuchsia-400/80">
+              Retiros y reclamos 24/7 · {depFeePct} comisión depósito · {wdFeePct} comisión retiro
               {global?.paused && <span className="ml-1 text-red-400 font-bold">· PAUSADO</span>}
             </p>
           </div>
-          <button onClick={load} className="text-violet-400/60 hover:text-violet-400">
+          <button onClick={load} className="text-fuchsia-400/60 hover:text-fuchsia-400">
             <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
           </button>
         </div>
@@ -425,7 +471,7 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
         <div className="grid grid-cols-3 gap-2 mt-2">
           <div className="rounded-xl bg-black/30 border border-white/10 p-2 text-center">
             <p className="text-[9px] text-muted-foreground">APR</p>
-            <p className="text-xs font-black text-violet-300">{global ? formatAPR(global.aprBps) : '—'}</p>
+            <p className="text-xs font-black text-fuchsia-300">{global ? formatAPR(global.aprBps) : '—'}</p>
           </div>
           <div className="rounded-xl bg-black/30 border border-white/10 p-2 text-center">
             <p className="text-[9px] text-muted-foreground">Stakeado</p>
@@ -444,7 +490,7 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
           <button key={t.id} onClick={() => setTab(t.id)}
             className={cn('flex-1 rounded-xl py-2 text-xs font-bold transition-all',
               tab === t.id
-                ? 'bg-violet-500/25 border border-violet-500/40 text-violet-300'
+                ? 'bg-fuchsia-500/25 border border-fuchsia-500/40 text-fuchsia-300'
                 : 'text-muted-foreground hover:text-white')}>
             {t.label}
           </button>
@@ -482,13 +528,39 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
           )}
           {claimMsg && tab === 'stake' && user && user.staked === 0n && <Msg msg={claimMsg} onClear={() => setClaimMsg(null)} />}
 
-          {/* Migration notice — depósitos deshabilitados en V4 */}
-          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1">
-            <p className="text-xs font-bold text-amber-300">⚠️ V4 solo acepta retiro y reclamo</p>
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
-              Los nuevos depósitos se movieron a <span className="text-fuchsia-300 font-bold">Stake V5</span>.
-              Retira tu stake aquí (sin comisión, instantáneo) y deposítalo en V5 para seguir generando recompensas.
+          {/* Stake */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-fuchsia-300 flex items-center gap-1.5">
+              <ArrowDownToLine className="w-3.5 h-3.5" /> Depositar ACUA
+              <span className="ml-auto text-[10px] font-bold text-amber-400 flex items-center gap-0.5">
+                <Percent className="w-3 h-3" /> {depFeePct} comisión
+              </span>
             </p>
+            {noRef && urlRef && (
+              <p className="text-[10px] text-amber-400 bg-amber-500/10 rounded-xl px-3 py-1.5 border border-amber-500/20">
+                🔗 Referido: {shortAddr(urlRef)} · se registrará al stakear
+              </p>
+            )}
+            <div className="flex gap-2">
+              <input value={stakeAmt} onChange={e => setStakeAmt(e.target.value)}
+                placeholder="Cantidad ACUA"
+                className="flex-1 rounded-xl bg-black/30 border border-white/10 px-3 py-2.5 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:border-fuchsia-500/50" />
+              {user && user.tokenBalance > 0n && (
+                <button onClick={() => setStakeAmt(ethers.formatUnits(user.tokenBalance, DECIMALS))}
+                  className="shrink-0 px-2 rounded-xl bg-fuchsia-500/15 border border-fuchsia-500/30 text-[10px] font-bold text-fuchsia-400 hover:bg-fuchsia-500/25">
+                  MAX
+                </button>
+              )}
+            </div>
+            {stakeGrossPreview > 0n && (
+              <p className="text-[10px] text-muted-foreground px-1">
+                Comisión: <span className="text-amber-400 font-bold">{fmt(stakeFeePreview, 4)} ACUA</span> · Neto stakeado: <span className="text-emerald-400 font-bold">{fmt(stakeNetPreview, 4)} ACUA</span>
+              </p>
+            )}
+            <ActionBtn onClick={doStake} loading={lStake} disabled={!stakeAmt}
+              label="Stakear" icon={<ArrowDownToLine className="w-4 h-4 shrink-0" />}
+              color="bg-fuchsia-500/20 border-fuchsia-500/40 text-fuchsia-300" />
+            {stakeMsg && <Msg msg={stakeMsg} onClear={() => setStakeMsg(null)} />}
           </div>
 
           {/* Withdraw */}
@@ -496,6 +568,9 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
             <div className="space-y-2 pt-2 border-t border-white/5">
               <p className="text-xs font-bold text-red-300 flex items-center gap-1.5">
                 <ArrowUpFromLine className="w-3.5 h-3.5" /> Retirar (instantáneo 24/7)
+                <span className="ml-auto text-[10px] font-bold text-amber-400 flex items-center gap-0.5">
+                  <Percent className="w-3 h-3" /> {wdFeePct} comisión
+                </span>
               </p>
               <div className="flex gap-2">
                 <input value={withdrawAmt} onChange={e => setWithdrawAmt(e.target.value)}
@@ -506,6 +581,11 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
                   TODO
                 </button>
               </div>
+              {withdrawGrossPreview > 0n && (
+                <p className="text-[10px] text-muted-foreground px-1">
+                  Comisión: <span className="text-amber-400 font-bold">{fmt(withdrawFeePreview, 4)} ACUA</span> · Recibes: <span className="text-emerald-400 font-bold">{fmt(withdrawNetPreview, 4)} ACUA</span>
+                </p>
+              )}
               <ActionBtn onClick={doWithdraw} loading={lWith} disabled={!user || user.staked === 0n}
                 label="Retirar ahora" icon={<ArrowUpFromLine className="w-4 h-4 shrink-0" />}
                 color="bg-red-500/15 border-red-500/30 text-red-300" />
@@ -561,11 +641,12 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
 
           {/* Referral structure */}
           <div className="rounded-2xl border border-white/10 bg-black/10 p-3 space-y-1">
-            <p className="text-[10px] font-bold text-muted-foreground">Distribución de recompensas</p>
+            <p className="text-[10px] font-bold text-muted-foreground">Distribución</p>
             <div className="space-y-0.5 text-[10px] text-muted-foreground">
-              <p>• Sin referido → <span className="text-white font-bold">100% del gross</span></p>
-              <p>• Con referido → neto <span className="text-white font-bold">90%</span> (85% + 5% bonus de vuelta)</p>
-              <p>• 5% → referrer · 5% → owner2 · 5% → referido (bonus)</p>
+              <p>• Depósito → <span className="text-white font-bold">{depFeePct} comisión</span></p>
+              <p>• Retiro → <span className="text-white font-bold">{wdFeePct} comisión</span></p>
+              <p>• Claim sin referido → 100% del gross</p>
+              <p>• Claim con referido → neto 90% (85% + 5% bonus) · 5% referrer · 5% owner2</p>
             </div>
           </div>
         </div>
@@ -577,8 +658,8 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
           {adminMsg && <Msg msg={adminMsg} onClear={() => setAdminMsg(null)} />}
 
           {/* Global stats */}
-          <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4 space-y-2">
-            <p className="text-xs font-bold text-violet-300 flex items-center gap-1.5">
+          <div className="rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-4 space-y-2">
+            <p className="text-xs font-bold text-fuchsia-300 flex items-center gap-1.5">
               <TrendingUp className="w-3.5 h-3.5" /> Estadísticas globales
             </p>
             <div className="grid grid-cols-2 gap-2">
@@ -588,11 +669,14 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
               <Stat label="Usuarios" value={global ? global.totalUsers.toString() : '—'} c="text-blue-300" />
               <Stat label="Total claimed" value={global ? fmt(global.totalClaimed, 2) : '—'} c="text-pink-300" />
               <Stat label="Total fondeado" value={global ? fmt(global.totalFunded, 2) : '—'} c="text-teal-300" />
+              <Stat label="Comisión depósito" value={global ? formatFee(global.depositFeeBps) : '—'} c="text-amber-300" />
+              <Stat label="Comisión retiro" value={global ? formatFee(global.withdrawFeeBps) : '—'} c="text-amber-300" />
+              <Stat label="Total comisiones cobradas" value={global ? fmt(global.totalFeesPaid, 2) : '—'} c="text-red-300" />
             </div>
             <div className="rounded-xl bg-black/30 border border-white/10 p-2 space-y-0.5">
               <p className="text-[9px] font-mono text-muted-foreground truncate">Owner: {shortAddr(global?.owner ?? '')}</p>
-              <p className="text-[9px] font-mono text-muted-foreground truncate">Owner2: {shortAddr(global?.owner2 ?? '')}</p>
-              <p className="text-[9px] font-mono text-muted-foreground truncate">Contrato: {STAKE_V4_ADDRESS.slice(0, 10)}…{STAKE_V4_ADDRESS.slice(-6)}</p>
+              <p className="text-[9px] font-mono text-muted-foreground truncate">Owner2 (recibe comisiones): {shortAddr(global?.owner2 ?? '')}</p>
+              <p className="text-[9px] font-mono text-muted-foreground truncate">Contrato: {STAKE_V5_ADDRESS.slice(0, 10)}…{STAKE_V5_ADDRESS.slice(-6)}</p>
             </div>
           </div>
 
@@ -635,7 +719,7 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
             <p className="text-xs font-bold text-amber-300">Ajustar APR</p>
             <p className="text-[10px] text-muted-foreground">
-              Actual: {global ? formatAPR(global.aprBps) : '—'} · Ingresa en bps (100bps = 1% · 1200bps = 12%)
+              Actual: {global ? formatAPR(global.aprBps) : '—'} · Ingresa en bps (100bps = 1% · máx 100000bps = 1000%)
             </p>
             <div className="flex gap-2">
               <input value={aprInput} onChange={e => setAprInput(e.target.value)}
@@ -645,6 +729,42 @@ export function StakeV4Panel({ userAddress, walletMode, importedSigner, isAdmin 
                 className={cn('shrink-0 px-3 rounded-xl text-xs font-black border bg-amber-500/25 border-amber-500/50 text-amber-200',
                   (lApr || !aprInput) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-amber-500/35')}>
                 {lApr ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Actualizar'}
+              </button>
+            </div>
+          </div>
+
+          {/* Set Deposit Fee */}
+          <div className="rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-4 space-y-2">
+            <p className="text-xs font-bold text-fuchsia-300">Ajustar comisión de depósito</p>
+            <p className="text-[10px] text-muted-foreground">
+              Actual: {global ? formatFee(global.depositFeeBps) : '—'} · bps (500 = 5% · máx 2000 = 20%)
+            </p>
+            <div className="flex gap-2">
+              <input value={depFeeInput} onChange={e => setDepFeeInput(e.target.value)}
+                placeholder="ej: 500 = 5%"
+                className="flex-1 rounded-xl bg-black/40 border border-white/15 px-3 py-2 text-xs font-mono text-white placeholder-muted-foreground outline-none" />
+              <button onClick={doSetDepositFee} disabled={lDepFee || !depFeeInput}
+                className={cn('shrink-0 px-3 rounded-xl text-xs font-black border bg-fuchsia-500/25 border-fuchsia-500/50 text-fuchsia-200',
+                  (lDepFee || !depFeeInput) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-fuchsia-500/35')}>
+                {lDepFee ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Actualizar'}
+              </button>
+            </div>
+          </div>
+
+          {/* Set Withdraw Fee */}
+          <div className="rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-4 space-y-2">
+            <p className="text-xs font-bold text-fuchsia-300">Ajustar comisión de retiro</p>
+            <p className="text-[10px] text-muted-foreground">
+              Actual: {global ? formatFee(global.withdrawFeeBps) : '—'} · bps (500 = 5% · máx 2000 = 20%)
+            </p>
+            <div className="flex gap-2">
+              <input value={wdFeeInput} onChange={e => setWdFeeInput(e.target.value)}
+                placeholder="ej: 500 = 5%"
+                className="flex-1 rounded-xl bg-black/40 border border-white/15 px-3 py-2 text-xs font-mono text-white placeholder-muted-foreground outline-none" />
+              <button onClick={doSetWithdrawFee} disabled={lWdFee || !wdFeeInput}
+                className={cn('shrink-0 px-3 rounded-xl text-xs font-black border bg-fuchsia-500/25 border-fuchsia-500/50 text-fuchsia-200',
+                  (lWdFee || !wdFeeInput) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-fuchsia-500/35')}>
+                {lWdFee ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Actualizar'}
               </button>
             </div>
           </div>

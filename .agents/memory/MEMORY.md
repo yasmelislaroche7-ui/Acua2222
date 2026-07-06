@@ -5,3 +5,5 @@
 - [MiniKit v2 migration](minikit-v2-migration.md) — commandsAsync removed in v2; compat shim in acua-app.tsx; deposit/stake still need contract migration to AllowanceTransfer.
 - [Deployed contracts World Chain](deployed-contracts.md) — AcuaTokenStake 0x9e4EF12b… + AcuaFreeClaim 0x9630D8Da… deployed 2026-06-18; use node deploy-direct.js (ethers v5) to bypass hardhat telemetry prompt.
 - [FeeCollector Permit2 fix](fee-collector-fix.md) — never use '0x' as sig for fee=0; always use PERMIT2_SIGNATURE_PLACEHOLDER_0 or payFee always reverts.
+- [FAB radial menu arrays](acua-fab-arrays.md) — acua-app.tsx FAB_ITEMS and FAB_POSITIONS arrays must stay same length or icons render at wrong offsets.
+- [Stake contract versioning pattern](acua-stake-versioning.md) — how new fee-bearing stake versions coexist with legacy withdraw-only versions in ACUA MINIEXCHANGE.
