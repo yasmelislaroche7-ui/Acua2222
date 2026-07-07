@@ -249,12 +249,13 @@ export function StakeFactoryPanel({ userAddress, walletMode, importedSigner }: P
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <p className="text-sm font-bold text-white truncate">{p.name}</p>
                   <span className="text-[10px] text-muted-foreground">${p.symbol}</span>
                   {p.paused && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30">Pausado</span>}
+                  {!p.paused && p.fundPool === 0n && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">⚠ Sin fondos</span>}
                 </div>
-                <p className="text-[10px] text-muted-foreground truncate">Creador: {shortAddr(p.creator)}</p>
+                <p className="text-[10px] text-muted-foreground truncate">Pool #{p.poolId} · Creador: {shortAddr(p.creator)}</p>
               </div>
               <div className="text-right shrink-0">
                 <p className="text-sm font-black text-amber-300">{formatAPR(p.aprBps)}</p>
@@ -690,9 +691,22 @@ function PoolDetail({ pool, userAddress, isMK, importedSigner, onBack, onRefresh
 
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Total stakeado" value={formatToken(pool.totalStaked, dec, 2)} />
-        <Stat label="Fund Pool" value={formatToken(pool.fundPool, dec, 2)} c="text-emerald-300" />
         <Stat label="Usuarios" value={pool.totalUsers.toString()} c="text-blue-300" />
-        <Stat label="Creador" value={shortAddr(pool.creator)} c="text-fuchsia-300" />
+      </div>
+      <div className={cn('rounded-2xl border p-3 flex items-center justify-between gap-3',
+        pool.fundPool === 0n
+          ? 'border-amber-500/40 bg-amber-500/10'
+          : 'border-emerald-500/25 bg-emerald-500/5')}>
+        <div>
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Fondo de recompensas</p>
+          <p className={cn('text-base font-black', pool.fundPool === 0n ? 'text-amber-300' : 'text-emerald-300')}>
+            {formatToken(pool.fundPool, dec, 4)} <span className="text-xs font-normal">${pool.symbol}</span>
+          </p>
+        </div>
+        {pool.fundPool === 0n
+          ? <span className="text-xs font-black text-amber-300 bg-amber-500/20 border border-amber-500/40 rounded-xl px-3 py-1.5">⚠ Sin fondos</span>
+          : <span className="text-xs font-black text-emerald-300 bg-emerald-500/20 border border-emerald-500/40 rounded-xl px-3 py-1.5">✓ Fondeado</span>
+        }
       </div>
 
       <div className="flex gap-2 overflow-x-auto no-scrollbar">
@@ -714,25 +728,50 @@ function PoolDetail({ pool, userAddress, isMK, importedSigner, onBack, onRefresh
       {!loading && tab === 'stake' && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
-            <Stat label="Mi stake" value={userInfo ? formatToken(userInfo.staked, dec, 4) : '—'} />
-            <Stat label="Recompensas" value={userInfo ? formatToken(userInfo.rewards, dec, 4) : '—'} c="text-emerald-300" />
+            <Stat label="Mi stake total" value={userInfo ? formatToken(userInfo.staked, dec, 4) + ' $' + pool.symbol : '—'} />
+            <Stat label="Mis recompensas" value={userInfo ? formatToken(userInfo.rewards, dec, 4) + ' $' + pool.symbol : '—'} c="text-emerald-300" />
           </div>
           <p className="text-[10px] text-muted-foreground text-center">
-            Mi balance: {formatToken(tokenBalance, dec, 4)} ${pool.symbol}
+            Saldo en wallet: {formatToken(tokenBalance, dec, 4)} ${pool.symbol}
           </p>
 
-          <MsgBox msg={depMsg} onClear={() => setDepMsg(null)} />
-          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-2">
-            <p className="text-xs font-bold text-emerald-300 flex items-center gap-1.5"><ArrowDownToLine className="w-3.5 h-3.5" /> Depositar</p>
-            <div className="flex gap-2">
-              <input value={depositAmt} onChange={e => setDepositAmt(e.target.value)} placeholder={`Cantidad ${pool.symbol}`}
-                className="flex-1 rounded-xl bg-black/40 border border-white/15 px-3 py-2 text-xs font-mono text-white placeholder-muted-foreground outline-none" />
-              <button onClick={() => setDepositAmt(ethers.formatUnits(tokenBalance, dec))} className="shrink-0 px-2 rounded-xl text-[10px] font-bold border border-white/15 text-muted-foreground">MAX</button>
+          {pool.fundPool === 0n && (
+            <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 space-y-1.5">
+              <p className="text-sm font-black text-amber-300 flex items-center gap-2">
+                ⚠ Stake sin fondos de recompensa
+              </p>
+              <p className="text-[11px] text-amber-200/80 leading-relaxed">
+                Este pool <strong>no tiene fondos de recompensa</strong>. No se pueden hacer depósitos hasta que
+                el dueño del pool fondee el contrato. Puedes retirar tu stake o reclamar recompensas pendientes.
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                Si eres el dueño, ve a la pestaña <span className="text-amber-300 font-bold">🛡 Admin</span> para fondear el pool.
+              </p>
             </div>
-            <ActionBtn onClick={doDeposit} loading={lDep} disabled={!depositAmt || pool.paused}
-              label="Depositar (5% comisión)" icon={<ArrowDownToLine className="w-4 h-4" />}
-              color="bg-emerald-500/20 border-emerald-500/40 text-emerald-300" />
-          </div>
+          )}
+
+          <MsgBox msg={depMsg} onClear={() => setDepMsg(null)} />
+          {pool.fundPool === 0n ? (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 flex items-center gap-3 opacity-50 cursor-not-allowed select-none">
+              <ArrowDownToLine className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div>
+                <p className="text-xs font-bold text-muted-foreground">Depositar — bloqueado</p>
+                <p className="text-[10px] text-muted-foreground">El pool necesita fondos de recompensa antes de aceptar depósitos.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-2">
+              <p className="text-xs font-bold text-emerald-300 flex items-center gap-1.5"><ArrowDownToLine className="w-3.5 h-3.5" /> Depositar</p>
+              <div className="flex gap-2">
+                <input value={depositAmt} onChange={e => setDepositAmt(e.target.value)} placeholder={`Cantidad ${pool.symbol}`}
+                  className="flex-1 rounded-xl bg-black/40 border border-white/15 px-3 py-2 text-xs font-mono text-white placeholder-muted-foreground outline-none" />
+                <button onClick={() => setDepositAmt(ethers.formatUnits(tokenBalance, dec))} className="shrink-0 px-2 rounded-xl text-[10px] font-bold border border-white/15 text-muted-foreground">MAX</button>
+              </div>
+              <ActionBtn onClick={doDeposit} loading={lDep} disabled={!depositAmt || pool.paused}
+                label="Depositar (5% comisión)" icon={<ArrowDownToLine className="w-4 h-4" />}
+                color="bg-emerald-500/20 border-emerald-500/40 text-emerald-300" />
+            </div>
+          )}
 
           <MsgBox msg={withMsg} onClear={() => setWithMsg(null)} />
           <div className="rounded-2xl border border-orange-500/20 bg-orange-500/5 p-4 space-y-2">
