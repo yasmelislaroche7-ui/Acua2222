@@ -1355,8 +1355,8 @@
       ]
     },
     "/home/runner/workspace/contracts-hh/contracts/AcuaStakeFactory.sol": {
-      "lastModificationDate": 1783305447967,
-      "contentHash": "45fb56a8c44918ffb6311a6fa8086ca7",
+      "lastModificationDate": 1783959535365,
+      "contentHash": "ff57965c6d308a0eed30d238c8625269",
       "sourceName": "contracts/AcuaStakeFactory.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -1393,6 +1393,46 @@
         "AcuaStakeFactory",
         "IERC20MetaOpt",
         "IERC20Min"
+      ]
+    },
+    "/home/runner/workspace/contracts-hh/contracts/AcuaAutoStake.sol": {
+      "lastModificationDate": 1783964655717,
+      "contentHash": "39e1a9db97219f097a0377fd482cac5b",
+      "sourceName": "contracts/AcuaAutoStake.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "./IPermit2.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "AcuaAutoStake",
+        "IERC20"
       ]
     }
   }

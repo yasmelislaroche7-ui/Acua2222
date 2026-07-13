@@ -480,7 +480,9 @@ const FAB_ITEMS: FabItem[] = [
   { tab: 'acua-claim', icon: <Sparkles className="w-3 h-3" />,        label: 'Claim',   color: '#34d399' },
   { tab: 'stake-v4',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⚡</span>, label: 'V4',    color: '#a855f7' },
   { tab: 'stake-v5',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>💎</span>, label: 'V5',    color: '#e879f9' },
-  { tab: 'stake-factory', icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🏭</span>, label: 'Factory', color: '#22d3ee' },
+  { tab: 'stake-factory',  icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🏭</span>, label: 'Factory', color: '#22d3ee' },
+  { tab: 'autostake',      icon: <span style={{ fontSize: 11, lineHeight: 1 }}>♻️</span>, label: 'AutoStake', color: '#10b981' },
+  { tab: 'autostake-mine', icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⛏</span>, label: 'AutoMine', color: '#6366f1' },
 ]
 
 // Triple-arc: inner R=90, outer R=162, far R=234

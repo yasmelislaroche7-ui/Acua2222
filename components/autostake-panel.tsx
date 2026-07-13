@@ -197,11 +197,12 @@ export function AutoStakePanel({ userAddress }: Props) {
 
       {/* Stats row */}
       {selectedToken && (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {[
             { label: 'APR', value: formatApr(selectedToken.aprBps), color: 'text-emerald-400' },
             { label: 'Stakers', value: selectedToken.stakersCount.toString(), color: 'text-[oklch(0.65_0.22_255)]' },
-            { label: 'Fondo', value: `${fmtToken(selectedToken.rewardFund, 18, 2)} ${selectedToken.symbol}`, color: 'text-amber-400' },
+            { label: 'Fondo rewards', value: `${fmtToken(selectedToken.rewardFund, 18, 2)} ${selectedToken.symbol}`, color: 'text-amber-400' },
+            { label: 'Stake mínimo', value: selectedToken.minStake > 0n ? `${fmtToken(selectedToken.minStake, 18, 0)} ${selectedToken.symbol}` : 'Sin mínimo', color: 'text-rose-400' },
           ].map(s => (
             <div key={s.label} className="rounded-xl border border-border bg-muted/20 p-3 text-center">
               <p className={cn('text-sm font-bold', s.color)}>{s.value}</p>

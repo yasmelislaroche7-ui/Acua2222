@@ -1,26 +1,20 @@
-// lib/autostake.ts
-// ABI, dirección y helpers para AcuaAutoStake.
-// NOTA: contrato AÚN NO DESPLEGADO — placeholder address.
+// lib/autostake.ts — ABI, dirección y helpers para AcuaAutoStake v2
 
 import { ethers } from 'ethers'
 import { getProvider } from '@/lib/new-contracts'
 
-// ─── Dirección del contrato ───────────────────────────────────────────────────
-// TODO: reemplazar con la dirección real después del deploy.
-export const ACUA_AUTOSTAKE_ADDRESS = '0x0000000000000000000000000000000000000001'
-export const DEPLOYED = false
+// ─── Address (actualizar tras deploy) ────────────────────────────────────────
+export const ACUA_AUTOSTAKE_ADDRESS = '0x9a3B08D4debB17e494023A23ec21cB53Ab233062'
+export const DEPLOYED = true
 
-// H2O token en World Chain
 export const H2O_TOKEN = '0xeC8399bC6B301D72C632F45D97C3C73D6971B7dd'
 export const PERMIT2   = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
 
-// ─── ABIs ────────────────────────────────────────────────────────────────────
-
+// ─── ABI fragments ───────────────────────────────────────────────────────────
 const PERMIT_TUPLE = {
   name: 'permit', type: 'tuple', internalType: 'struct IPermit2.PermitTransferFrom',
   components: [
-    {
-      name: 'permitted', type: 'tuple', internalType: 'struct IPermit2.TokenPermissions',
+    { name: 'permitted', type: 'tuple', internalType: 'struct IPermit2.TokenPermissions',
       components: [
         { name: 'token',  type: 'address', internalType: 'address' },
         { name: 'amount', type: 'uint256', internalType: 'uint256' },
@@ -83,8 +77,9 @@ export const FUND_PERMIT2_ABI = [{
 export const ADD_TOKEN_ABI = [{
   name: 'addToken', type: 'function', stateMutability: 'nonpayable',
   inputs: [
-    { name: 'token',  type: 'address', internalType: 'address' },
-    { name: 'aprBps', type: 'uint256', internalType: 'uint256' },
+    { name: 'token',          type: 'address', internalType: 'address' },
+    { name: 'aprBps',         type: 'uint256', internalType: 'uint256' },
+    { name: 'minStakeAmount', type: 'uint256', internalType: 'uint256' },
   ],
   outputs: [],
 }] as const
@@ -94,6 +89,15 @@ export const SET_APR_ABI = [{
   inputs: [
     { name: 'token',  type: 'address', internalType: 'address' },
     { name: 'aprBps', type: 'uint256', internalType: 'uint256' },
+  ],
+  outputs: [],
+}] as const
+
+export const SET_MIN_STAKE_ABI = [{
+  name: 'setMinStake', type: 'function', stateMutability: 'nonpayable',
+  inputs: [
+    { name: 'token',          type: 'address', internalType: 'address' },
+    { name: 'minStakeAmount', type: 'uint256', internalType: 'uint256' },
   ],
   outputs: [],
 }] as const
@@ -114,13 +118,28 @@ export const ADD_OWNER_ABI = [{
   outputs: [],
 }] as const
 
+export const REMOVE_OWNER_ABI = [{
+  name: 'removeOwner', type: 'function', stateMutability: 'nonpayable',
+  inputs: [{ name: 'addr', type: 'address', internalType: 'address' }],
+  outputs: [],
+}] as const
+
 export const SET_OWNER2_ABI = [{
   name: 'setOwner2', type: 'function', stateMutability: 'nonpayable',
   inputs: [{ name: 'addr', type: 'address', internalType: 'address' }],
   outputs: [],
 }] as const
 
-// Read-only ABI (ethers.js)
+export const EMERGENCY_WITHDRAW_ABI = [{
+  name: 'emergencyWithdraw', type: 'function', stateMutability: 'nonpayable',
+  inputs: [
+    { name: 'token',  type: 'address', internalType: 'address' },
+    { name: 'amount', type: 'uint256', internalType: 'uint256' },
+  ],
+  outputs: [],
+}] as const
+
+// ethers.js read ABI
 export const READ_ABI = [
   'function stakeFeeBps() view returns (uint256)',
   'function unstakeFeeBps() view returns (uint256)',
@@ -128,7 +147,7 @@ export const READ_ABI = [
   'function owner2() view returns (address)',
   'function getOwners() view returns (address[])',
   'function getTokenList() view returns (address[])',
-  'function tokens(address) view returns (bool allowed, uint256 aprBps, uint256 rewardFund)',
+  'function tokens(address) view returns (bool allowed, uint256 aprBps, uint256 rewardFund, uint256 minStake)',
   'function positions(address,address) view returns (uint256 amount, uint256 lastClaimed)',
   'function pendingReward(address,address) view returns (uint256)',
   'function stakersCount(address) view returns (uint256)',
@@ -154,6 +173,7 @@ export interface TokenInfo {
   aprBps: bigint
   aprPct: number
   rewardFund: bigint
+  minStake: bigint
   stakersCount: bigint
 }
 
@@ -163,7 +183,7 @@ export interface UserPosition {
   amount: bigint
   pendingReward: bigint
   lastClaimed: bigint
-  cooldownRemaining: number // seconds
+  cooldownRemaining: number
 }
 
 export interface ClaimablePosition {
@@ -172,8 +192,8 @@ export interface ClaimablePosition {
   symbol: string
   stake: bigint
   reward: bigint
-  elapsed: number // seconds
-  processorEarns: bigint // 1% of reward
+  elapsed: number
+  processorEarns: bigint
 }
 
 export interface ContractStats {
@@ -200,17 +220,13 @@ export async function fetchContractStats(): Promise<ContractStats> {
   const p = getProvider()
   const c = new ethers.Contract(ACUA_AUTOSTAKE_ADDRESS, READ_ABI, p)
   const [stakeFeeBps, unstakeFeeBps, claimFeeBps, owner2addr, owners, tokenAddrs] = await Promise.all([
-    c.stakeFeeBps(),
-    c.unstakeFeeBps(),
-    c.claimFeeBps(),
-    c.owner2(),
-    c.getOwners(),
-    c.getTokenList(),
+    c.stakeFeeBps(), c.unstakeFeeBps(), c.claimFeeBps(),
+    c.owner2(), c.getOwners(), c.getTokenList(),
   ])
 
   const tokenInfos: TokenInfo[] = await Promise.all(
     (tokenAddrs as string[]).map(async (addr) => {
-      const cfg = await c.tokens(addr)
+      const cfg  = await c.tokens(addr)
       const erc20 = new ethers.Contract(addr, ERC20_ABI, p)
       const [symbol, name, sc] = await Promise.all([
         erc20.symbol().catch(() => 'TKN'),
@@ -218,14 +234,13 @@ export async function fetchContractStats(): Promise<ContractStats> {
         c.stakersCount(addr),
       ])
       return {
-        address: addr,
-        symbol,
-        name,
+        address: addr, symbol, name,
         aprBps: cfg.aprBps as bigint,
         aprPct: Number(cfg.aprBps) / 100,
         rewardFund: cfg.rewardFund as bigint,
+        minStake: cfg.minStake as bigint,
         stakersCount: sc as bigint,
-      }
+      } satisfies TokenInfo
     })
   )
 
@@ -254,14 +269,12 @@ export async function fetchUserPositions(userAddress: string): Promise<UserPosit
         erc20.symbol().catch(() => 'TKN'),
       ])
       const lastClaimed = Number(pos.lastClaimed)
-      const cooldown = Math.max(0, lastClaimed + 600 - now)
       return {
-        token: addr,
-        symbol,
+        token: addr, symbol,
         amount: pos.amount as bigint,
         pendingReward: pending as bigint,
         lastClaimed: pos.lastClaimed as bigint,
-        cooldownRemaining: cooldown,
+        cooldownRemaining: Math.max(0, lastClaimed + 600 - now),
       } satisfies UserPosition
     })
   )
@@ -272,20 +285,35 @@ export async function fetchUserPositions(userAddress: string): Promise<UserPosit
 export async function fetchClaimablePositions(
   tokenAddress: string,
   tokenSymbol: string,
-  limit = 50
+  limit = 100
 ): Promise<ClaimablePosition[]> {
   const p = getProvider()
   const c = new ethers.Contract(ACUA_AUTOSTAKE_ADDRESS, READ_ABI, p)
   const [users, stakes, rewards, elapsed] = await c.getClaimablePositions(tokenAddress, 0, limit)
-
   return (users as string[]).map((user, i) => ({
-    user,
-    token: tokenAddress,
-    symbol: tokenSymbol,
+    user, token: tokenAddress, symbol: tokenSymbol,
     stake: stakes[i] as bigint,
     reward: rewards[i] as bigint,
     elapsed: Number(elapsed[i]),
     processorEarns: (rewards[i] as bigint) / 100n,
+  }))
+}
+
+export async function fetchAllPositions(
+  tokenAddress: string,
+  tokenSymbol: string,
+  limit = 100
+): Promise<Array<{ user: string; stake: bigint; pending: bigint; lastClaimed: number; cooldownRemaining: number; symbol: string }>> {
+  const p = getProvider()
+  const c = new ethers.Contract(ACUA_AUTOSTAKE_ADDRESS, READ_ABI, p)
+  const now = Math.floor(Date.now() / 1000)
+  const [users, stakes, pending, lastClaimed] = await c.getAllPositions(tokenAddress, 0, limit)
+  return (users as string[]).map((user, i) => ({
+    user, symbol: tokenSymbol,
+    stake: stakes[i] as bigint,
+    pending: pending[i] as bigint,
+    lastClaimed: Number(lastClaimed[i]),
+    cooldownRemaining: Math.max(0, Number(lastClaimed[i]) + 600 - now),
   }))
 }
 

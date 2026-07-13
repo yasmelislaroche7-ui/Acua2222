@@ -1,6 +1,6 @@
 'use client'
 
-import { Droplets, Flame, Coins, Globe, TrendingUp, Pickaxe, Zap, HelpCircle, Info, ArrowRight, Star, Shield, Clock } from 'lucide-react'
+import { Droplets, Flame, Coins, Globe, TrendingUp, Pickaxe, Zap, HelpCircle, Info, ArrowRight, Star, Shield, Clock, RefreshCw, Building2, Factory, Cpu } from 'lucide-react'
 
 interface TokenInfo {
   symbol: string
@@ -18,7 +18,7 @@ const TOKENS_INFO: TokenInfo[] = [
     description: 'Token principal de Acua. Se obtiene hackeando stake de H2O o comprando con WLD. Es el token de rewards del Stake H2O y de la Minería UTH₂.',
     color: '#06b6d4',
     icon: <Droplets className="w-4 h-4" />,
-    uses: ['Stakear en el contrato H2O (gana 12% APY)', 'Recibir como reward de Minería UTH₂', 'Vender por WLD dentro de la app'],
+    uses: ['Stakear en el contrato H2O (gana 12% APY)', 'Recibir como reward de Minería UTH₂', 'Vender por WLD dentro de la app', 'Auto-compounding en AutoStake (50% APR)'],
   },
   {
     symbol: 'WLD',
@@ -111,6 +111,34 @@ interface GuideStep {
 
 const GUIDES: GuideStep[] = [
   {
+    title: 'AutoStake H2O (50% APR · Auto-compound)',
+    icon: <RefreshCw className="w-4 h-4" />,
+    color: '#10b981',
+    steps: [
+      'Ve a la pestaña "AutoStake" (botón ♻️ en el menú abanico)',
+      'Mínimo 1.000 H2O para activar (ajustable por admin)',
+      'Acepta con Permit2 en World App — sin approve manual',
+      'Tu stake se auto-reinvierte cada 10 minutos automáticamente',
+      'Cualquier usuario puede minar tus bloques (tú ganas el compound)',
+      'Para retirar: escribe la cantidad y presiona "Unstake"',
+      'Rewards se capitalizan: el interés gana interés (compound)',
+    ],
+  },
+  {
+    title: 'Mine AutoStake — Gana 1% procesando TXs',
+    icon: <Cpu className="w-4 h-4" />,
+    color: '#6366f1',
+    steps: [
+      'Ve a "AutoMine" (botón ⛏ en el menú abanico)',
+      'El panel escanea la blockchain en busca de posiciones listas (≥10 min)',
+      '"Minar bloque" procesa el reinvest de un usuario y te paga 1% del reward',
+      '"Minar todos" hace el batch completo en 1 sola TX',
+      'El marcador "Todos" muestra en tiempo real todas las posiciones activas',
+      'El panel se auto-recarga al terminar cada ciclo de 10 minutos',
+      'Sin bots ni privilegios — cualquier wallet puede minar y ganar',
+    ],
+  },
+  {
     title: 'Stake H2O (12% APY)',
     icon: <Droplets className="w-4 h-4" />,
     color: '#06b6d4',
@@ -153,6 +181,20 @@ const GUIDES: GuideStep[] = [
     ],
   },
   {
+    title: 'Factory Stake & Mine — Crea tu propio pool',
+    icon: <Factory className="w-4 h-4" />,
+    color: '#22d3ee',
+    steps: [
+      'Ve a "Factory" (botón 🏭 en el menú abanico)',
+      'Despliega tu propio contrato de staking en World Chain sin código',
+      'Define el token, APR, fees y mínimo de stake',
+      'Fondea el pool de recompensas con Permit2',
+      'Los usuarios pueden stakear directamente en tu pool',
+      'Tú recibes las comisiones como owner del contrato',
+      'Compatible con el sistema de AutoMine para auto-compounding',
+    ],
+  },
+  {
     title: 'Minería UTH₂ → H2O permanente',
     icon: <Pickaxe className="w-4 h-4" />,
     color: '#8b5cf6',
@@ -181,9 +223,49 @@ const GUIDES: GuideStep[] = [
   },
 ]
 
+// ─── ACUA Company section ─────────────────────────────────────────────────────
+const COMPANY_INFO = [
+  {
+    q: '¿Qué es Acua?',
+    a: 'Acua es un ecosistema DeFi nativo de World Chain construido dentro de World App. Ofrece staking, minería, bridge y swap con tokens propios, todo sin custodia y usando Permit2 para transacciones gasless.',
+  },
+  {
+    q: '¿Es seguro?',
+    a: 'Todos los contratos usan Permit2 para transacciones sin aprobaciones previas. Las firmas ocurren directamente en World App. Los contratos están desplegados en World Chain (Chain ID 480).',
+  },
+  {
+    q: '¿Cómo generan rendimientos los pools?',
+    a: 'Los pools de rewards se fondean por los owners y por las comisiones de stake/unstake (5% dividido: 4% al owner2, 1% al fondo). El APR está fijado en el contrato y no depende de otros usuarios.',
+  },
+  {
+    q: '¿Qué es Permit2?',
+    a: 'Permit2 es un contrato universal de Uniswap que permite mover tokens con una firma offline. No necesitas gastar gas en approve. World App firma automáticamente al confirmar la TX.',
+  },
+  {
+    q: '¿Quién puede minar bloques?',
+    a: 'Cualquier wallet. Cuando minas un bloque de AutoStake ganas el 1% del reward como incentivo. No se necesita ser owner ni tener ningún rol especial.',
+  },
+]
+
 export function InfoPanel() {
   return (
     <div className="space-y-6 pb-4">
+
+      {/* ACUA Company */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <Building2 className="w-4 h-4 text-primary" />
+          <h2 className="text-sm font-bold text-foreground uppercase tracking-wider">ACUA Company</h2>
+        </div>
+        <div className="space-y-2">
+          {COMPANY_INFO.map(item => (
+            <div key={item.q} className="rounded-xl border border-border bg-surface-2 p-3 space-y-1.5">
+              <p className="text-xs font-semibold text-foreground">{item.q}</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">{item.a}</p>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Cómo usar */}
       <div>
@@ -258,6 +340,7 @@ export function InfoPanel() {
             Todos los contratos usan Permit2 para transacciones seguras sin aprobaciones previas.
             Las transacciones se confirman directamente en World App.
             Los contratos están desplegados en World Chain (Chain ID 480).
+            AutoStake v2: mínimo 1.000 H2O, comisión 5% stake/unstake, 10% claim.
           </p>
         </div>
       </div>
