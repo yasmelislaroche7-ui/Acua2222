@@ -466,46 +466,48 @@ const BNB_TAB_LABELS: Record<BNBTab, string> = {
 interface FabItem { tab: Tab; icon: React.ReactNode; label: string; color: string }
 
 const FAB_ITEMS: FabItem[] = [
-  { tab: 'h2o',        icon: <Droplets className="w-3 h-3" />,        label: 'H2O',     color: '#06b6d4' },
-  { tab: 'swap',       icon: <Repeat2 className="w-3 h-3" />,         label: 'Swap',    color: '#3b82f6' },
+  // ── Inner arc (R=90) ──
+  { tab: 'h2o',        icon: <Droplets className="w-3 h-3" />,        label: 'H2O',      color: '#06b6d4' },
+  { tab: 'swap',       icon: <Repeat2 className="w-3 h-3" />,         label: 'Swap',     color: '#3b82f6' },
   { tab: 'h2o-new',    icon: <img src="/tokens/h2o2.webp" className="w-3 h-3 rounded-full object-cover" alt="H2O 2.0" />, label: 'H2O 2.0', color: '#60a5fa' },
-  { tab: 'h2o-v3',     icon: <Droplets className="w-3 h-3" />,        label: 'H2O v3',  color: '#22d3ee' },
-  { tab: 'stake-v2',   icon: <Wind className="w-3 h-3" />,            label: 'StakeV2', color: '#a78bfa' },
-  { tab: 'stake-plus', icon: <TrendingUp className="w-3 h-3" />,      label: 'Stake+',  color: '#10b981' },
-  { tab: 'wld',        icon: <Star className="w-3 h-3" />,            label: 'WLD',     color: '#fbbf24' },
-  { tab: 'uth2',       icon: <Pickaxe className="w-3 h-3" />,         label: 'UTH2',    color: '#f97316' },
-  { tab: 'time',       icon: <Clock className="w-3 h-3" />,           label: 'TIME',    color: '#c084fc' },
+  { tab: 'h2o-v3',     icon: <Droplets className="w-3 h-3" />,        label: 'H2O v3',   color: '#22d3ee' },
+  { tab: 'stake-v2',   icon: <Wind className="w-3 h-3" />,            label: 'StakeV2',  color: '#a78bfa' },
+  // ── Outer arc (R=162) ──
+  { tab: 'stake-plus', icon: <TrendingUp className="w-3 h-3" />,      label: 'Stake+',   color: '#10b981' },
+  { tab: 'wld',        icon: <Star className="w-3 h-3" />,            label: 'WLD',      color: '#fbbf24' },
+  { tab: 'uth2',       icon: <Pickaxe className="w-3 h-3" />,         label: 'UTH2',     color: '#f97316' },
   { tab: 'sushi-v2',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🍣</span>, label: 'SUSHI', color: '#ef4444' },
-  { tab: 'tnt',        icon: <ArrowLeftRight className="w-3 h-3" />,  label: 'T+T',     color: '#8b5cf6' },
-  { tab: 'acua-claim', icon: <Sparkles className="w-3 h-3" />,        label: 'Claim',   color: '#34d399' },
-  { tab: 'stake-v4',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⚡</span>, label: 'V4',    color: '#a855f7' },
-  { tab: 'stake-v5',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>💎</span>, label: 'V5',    color: '#e879f9' },
-  { tab: 'stake-factory',  icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🏭</span>, label: 'Factory', color: '#22d3ee' },
-  { tab: 'autostake',      icon: <span style={{ fontSize: 11, lineHeight: 1 }}>♻️</span>, label: 'AutoStake', color: '#10b981' },
-  { tab: 'autostake-mine', icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⛏</span>, label: 'AutoMine', color: '#6366f1' },
+  { tab: 'tnt',        icon: <ArrowLeftRight className="w-3 h-3" />,  label: 'T+T',      color: '#8b5cf6' },
+  // ── Far arc (R=234, 6 items, 18° steps) ──
+  { tab: 'acua-claim',     icon: <Sparkles className="w-3 h-3" />,                          label: 'Claim',    color: '#34d399' },
+  { tab: 'stake-v4',       icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⚡</span>,   label: 'V4',       color: '#a855f7' },
+  { tab: 'stake-v5',       icon: <span style={{ fontSize: 11, lineHeight: 1 }}>💎</span>,   label: 'V5',       color: '#e879f9' },
+  { tab: 'stake-factory',  icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🏭</span>,   label: 'Factory',  color: '#22d3ee' },
+  { tab: 'autostake',      icon: <span style={{ fontSize: 11, lineHeight: 1 }}>♻️</span>,   label: 'AutoStake',color: '#10b981' },
+  { tab: 'autostake-mine', icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⛏</span>,   label: 'AutoMine', color: '#6366f1' },
 ]
 
-// Triple-arc: inner R=90, outer R=162, far R=234
-// Angles sweep from 90° (up) to 180° (left) in 22.5° steps
+// Triple-arc: inner R=90 (5), outer R=162 (5), far R=234 (6, 18° steps)
 const FAB_POSITIONS = [
-  // ── Inner arc (R=90) ──
+  // ── Inner arc (R=90, 22.5° steps, θ=90°→180°) ──
   { dx:   0, dy:  -90 },  // H2O       θ=90°
   { dx: -34, dy:  -83 },  // Swap      θ=112.5°
   { dx: -64, dy:  -64 },  // H2O 2.0   θ=135°
   { dx: -83, dy:  -34 },  // H2O v3    θ=157.5°
   { dx: -90, dy:    0 },  // Stake V2  θ=180°
-  // ── Outer arc (R=162) ──
+  // ── Outer arc (R=162, 22.5° steps, θ=90°→180°) ──
   { dx:   0,  dy: -162 }, // Stake+    θ=90°
   { dx: -62,  dy: -150 }, // WLD       θ=112.5°
   { dx: -115, dy: -115 }, // UTH2      θ=135°
-  { dx: -150, dy:  -62 }, // TIME      θ=157.5°
-  { dx: -162, dy:    0 }, // SUSHI     θ=180°
-  // ── Far arc (R=234) ──
-  { dx:   0,  dy: -234 }, // T+T       θ=90°
-  { dx:  -90, dy: -216 }, // Free Claim θ=112.5°
-  { dx: -166, dy: -166 }, // Stake V4  θ=135°
-  { dx: -216, dy:  -90 }, // Stake V5  θ=157.5°
-  { dx: -234, dy:    0 }, // Factory   θ=180°
+  { dx: -150, dy:  -62 }, // SUSHI     θ=157.5°
+  { dx: -162, dy:    0 }, // T+T       θ=180°
+  // ── Far arc (R=234, 18° steps, θ=90°→180°) ──
+  { dx:   0,  dy: -234 }, // Claim     θ=90°
+  { dx:  -72, dy: -223 }, // V4        θ=108°
+  { dx: -138, dy: -189 }, // V5        θ=126°
+  { dx: -189, dy: -138 }, // Factory   θ=144°
+  { dx: -222, dy:  -72 }, // AutoStake θ=162°
+  { dx: -234, dy:    0 }, // AutoMine  θ=180°
 ]
 
 function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; activeTab: Tab }) {

@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { MiniKit } from '@worldcoin/minikit-js'
-import { ethers } from 'ethers'
 import {
-  Cpu, Zap, RefreshCw, Loader2, Hash, BarChart3, AlertTriangle, Users,
+  Cpu, Zap, Loader2, Activity, AlertTriangle, ChevronRight,
+  Hash, Clock, Users, CheckCircle2, RefreshCw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,80 +17,130 @@ import { cn } from '@/lib/utils'
 
 interface Props { userAddress: string }
 
-const COOLDOWN_SEC = 600  // 10 minutes
+const COOLDOWN_SEC = 600
 
-function genHash() {
-  const c = '0123456789abcdef'; let h = '0x'
-  for (let i = 0; i < 16; i++) h += c[Math.floor(Math.random() * 16)]
-  return h
-}
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function shortAddr(a: string) { return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '' }
 function fmtElapsed(s: number) {
   if (s < 60) return `${s}s`
   if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
 }
+function hashOf(s: string) {
+  let h = 0n
+  for (let i = 0; i < s.length; i++) h = (h * 31n + BigInt(s.charCodeAt(i))) & 0xFFFFFFFFFFFFFFFFn
+  return '0x' + h.toString(16).padStart(16, '0').slice(0, 12)
+}
+function pseudoHeight(addr: string) {
+  let n = 0
+  for (const c of addr.slice(2, 8)) n = n * 16 + parseInt(c, 16)
+  return 4_200_000 + (n % 800_000)
+}
 
-// ─── Single block card ────────────────────────────────────────────────────────
-function BlockCard({ pos, idx, mining, mined, earned, onMine }: {
+// ─── Log entry ───────────────────────────────────────────────────────────────
+interface LogEntry {
+  id: string
+  type: 'mine' | 'batch' | 'refresh' | 'scan'
+  text: string
+  timestamp: number
+  ok: boolean
+}
+
+// ─── Block card (blockchain style) ───────────────────────────────────────────
+function BlockCard({ pos, idx, mining, mined, earned, onMine, blockNum }: {
   pos: ClaimablePosition; idx: number; mining: boolean; mined: boolean
-  earned: bigint | null; onMine: () => void
+  earned: bigint | null; onMine: () => void; blockNum: number
 }) {
-  const [hash, setHash] = useState(genHash())
-  const iv = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [fakeHash, setFakeHash] = useState(hashOf(pos.user + idx))
+  const iv = useRef<ReturnType<typeof setInterval>>()
   useEffect(() => {
-    if (mining) iv.current = setInterval(() => setHash(genHash()), 100)
-    else { if (iv.current) clearInterval(iv.current) }
-    return () => { if (iv.current) clearInterval(iv.current) }
-  }, [mining])
+    if (mining) {
+      iv.current = setInterval(() => {
+        const r = Math.random().toString(16).slice(2, 14)
+        setFakeHash('0x' + r)
+      }, 80)
+    } else {
+      clearInterval(iv.current)
+      setFakeHash(hashOf(pos.user + idx + (mined ? 'mined' : '')))
+    }
+    return () => clearInterval(iv.current)
+  }, [mining, mined])
+
+  const prevHash = hashOf(pos.user + (idx - 1))
+  const mineColor = mined ? '#10b981' : mining ? '#3b82f6' : '#6366f1'
 
   return (
     <div className={cn(
-      'rounded-xl border transition-all duration-200 overflow-hidden',
-      mined ? 'border-emerald-500/50 bg-emerald-500/5'
-            : mining ? 'border-[oklch(0.65_0.22_255)]/60 bg-[oklch(0.65_0.22_255)]/5 shadow-[0_0_12px_oklch(0.65_0.22_255)/20]'
-                     : 'border-border bg-muted/10'
-    )}>
-      <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5 border-b border-border/40">
-        <span className={cn('text-[9px] font-bold w-5 h-5 rounded flex items-center justify-center',
-          mined ? 'bg-emerald-500/20 text-emerald-400' : 'bg-muted text-muted-foreground')}>
-          {mined ? '✓' : `#${idx + 1}`}
-        </span>
-        <Hash className={cn('w-3 h-3', mining ? 'text-[oklch(0.65_0.22_255)] animate-pulse' : 'text-muted-foreground/30')} />
-        <span className={cn('font-mono text-[9px] flex-1 truncate',
-          mining ? 'text-[oklch(0.65_0.22_255)]' : 'text-muted-foreground/40')}>
-          {mining ? hash : pos.user.slice(0, 14) + '…'}
-        </span>
-        <span className="text-[9px] text-muted-foreground/50">{fmtElapsed(pos.elapsed)}</span>
+      'rounded-2xl border overflow-hidden transition-all duration-300 font-mono',
+      mined ? 'border-emerald-500/60' : mining ? 'border-blue-500/80 shadow-[0_0_20px_#3b82f640]' : 'border-border/60'
+    )} style={{ background: mined ? '#10b98108' : mining ? '#3b82f608' : '#0a0a0f' }}>
+
+      {/* ── Block header ── */}
+      <div className="px-3 py-2 border-b border-border/40 flex items-center gap-2"
+        style={{ background: mineColor + '14' }}>
+        <div className="flex gap-1">
+          {['#ef4444','#f59e0b','#10b981'].map(c=><div key={c} className="w-2 h-2 rounded-full" style={{ background: c + 'bb' }}/>)}
+        </div>
+        <span className="text-[9px] text-muted-foreground flex-1 text-center">BLOCK #{blockNum + idx}</span>
+        {mined && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+        {mining && <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />}
       </div>
-      <div className="px-3 py-2.5 space-y-2">
-        <div className="flex justify-between text-[10px]">
-          <span className="text-muted-foreground">Usuario</span>
-          <span className="font-mono text-foreground">{shortAddr(pos.user)}</span>
+
+      {/* ── Hash chain ── */}
+      <div className="px-3 py-2 border-b border-border/30 space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[8px] text-muted-foreground/50">PREV HASH</span>
+          <span className="text-[9px]" style={{ color: mineColor + 'aa' }}>{prevHash}</span>
         </div>
-        <div className="flex justify-between text-[10px]">
-          <span className="text-muted-foreground">Stake</span>
-          <span className="font-medium">{fmtToken(pos.stake, 18, 2)} {pos.symbol}</span>
+        <div className="flex items-center justify-between">
+          <span className="text-[8px] text-muted-foreground/50">BLOCK HASH</span>
+          <span className={cn('text-[9px] tabular-nums', mining ? 'text-blue-400 animate-pulse' : '')}
+            style={!mining ? { color: mineColor } : undefined}>{fakeHash}</span>
         </div>
-        <div className="flex justify-between">
-          <span className="text-[10px] text-muted-foreground">Reward</span>
-          <span className={cn('text-sm font-bold', mined ? 'text-emerald-400' : 'text-amber-400')}>
+      </div>
+
+      {/* ── Tx data ── */}
+      <div className="px-3 py-2.5 space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[8px] text-muted-foreground/50">FROM</span>
+          <span className="text-[10px] text-foreground/80">{shortAddr(pos.user)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[8px] text-muted-foreground/50">STAKED</span>
+          <span className="text-[10px] font-bold text-foreground">{fmtToken(pos.stake, 18, 2)} {pos.symbol}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[8px] text-muted-foreground/50">REWARD</span>
+          <span className="text-sm font-black" style={{ color: mined ? '#10b981' : '#f59e0b' }}>
             +{fmtToken(pos.reward, 18, 6)} {pos.symbol}
           </span>
         </div>
-        <div className="flex justify-between text-[10px]">
-          <span className="text-muted-foreground">Tu ganancia (1%)</span>
-          <span className="font-semibold text-[oklch(0.65_0.22_255)]">+{fmtToken(pos.processorEarns, 18, 8)}</span>
+        <div className="flex items-center justify-between">
+          <span className="text-[8px] text-muted-foreground/50">YOUR 1%</span>
+          <span className="text-[10px] font-bold text-[oklch(0.65_0.22_255)]">+{fmtToken(pos.processorEarns, 18, 8)}</span>
         </div>
-        {mined && earned !== null ? (
-          <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-2 py-1.5 text-center">
-            <p className="text-[10px] text-emerald-400 font-semibold">⛏ BLOQUE MINADO · +{fmtToken(earned, 18, 8)} {pos.symbol}</p>
+        <div className="flex items-center justify-between">
+          <span className="text-[8px] text-muted-foreground/50">ELAPSED</span>
+          <span className="text-[9px] text-muted-foreground">{fmtElapsed(pos.elapsed)}</span>
+        </div>
+      </div>
+
+      {/* ── Mine button / Mined badge ── */}
+      <div className="px-3 pb-3">
+        {mined ? (
+          <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 py-2 text-center">
+            <p className="text-[10px] text-emerald-400 font-bold">
+              ⛏ BLOQUE CONFIRMADO · +{fmtToken(earned ?? 0n, 18, 8)} {pos.symbol}
+            </p>
           </div>
         ) : (
           <Button size="sm" disabled={mining} onClick={onMine}
-            className={cn('w-full h-8 text-xs font-bold',
-              mining ? 'bg-[oklch(0.65_0.22_255)]/80 animate-pulse' : 'bg-muted/40 hover:bg-[oklch(0.65_0.22_255)] hover:text-white text-muted-foreground')}>
-            {mining ? <><Loader2 className="w-3 h-3 animate-spin mr-1" />Minando…</> : <><Zap className="w-3 h-3 mr-1" />Minar bloque</>}
+            className={cn('w-full h-9 text-xs font-bold tracking-wide border-0 transition-all',
+              mining ? 'opacity-70 cursor-not-allowed' : 'hover:shadow-[0_0_12px_#6366f160]')}
+            style={{ background: mining ? '#6366f180' : 'linear-gradient(135deg, #6366f1, #3b82f6)' }}>
+            {mining
+              ? <><Loader2 className="w-3 h-3 animate-spin mr-1.5" />MINANDO TX...</>
+              : <><Zap className="w-3 h-3 mr-1.5" />MINAR BLOQUE</>}
           </Button>
         )}
       </div>
@@ -98,27 +148,37 @@ function BlockCard({ pos, idx, mining, mined, earned, onMine }: {
   )
 }
 
-// ─── All-positions scoreboard ─────────────────────────────────────────────────
-function ScoreboardRow({ user, stake, pending, countdown, symbol }: {
-  user: string; stake: bigint; pending: bigint; countdown: number; symbol: string
+// ─── Live log row ─────────────────────────────────────────────────────────────
+function LogRow({ entry }: { entry: LogEntry }) {
+  const icons: Record<string, string> = { mine: '⛏', batch: '🚀', refresh: '🔄', scan: '🔍' }
+  const ts = new Date(entry.timestamp).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return (
+    <div className="flex items-start gap-2 py-1 border-b border-border/20 last:border-0">
+      <span className="text-[10px] shrink-0">{icons[entry.type]}</span>
+      <span className={cn('text-[9px] font-mono flex-1', entry.ok ? 'text-muted-foreground' : 'text-red-400/70')}>{entry.text}</span>
+      <span className="text-[8px] font-mono text-muted-foreground/40 shrink-0">{ts}</span>
+    </div>
+  )
+}
+
+// ─── Scoreboard row ───────────────────────────────────────────────────────────
+function ScoreRow({ user, stake, pending, countdown, symbol, i }: {
+  user: string; stake: bigint; pending: bigint; countdown: number; symbol: string; i: number
 }) {
   const [cd, setCd] = useState(countdown)
-  useEffect(() => {
-    const t = setInterval(() => setCd(p => Math.max(0, p - 1)), 1000)
-    return () => clearInterval(t)
-  }, [])
+  useEffect(() => { const t = setInterval(() => setCd(p => Math.max(0, p - 1)), 1000); return () => clearInterval(t) }, [])
   return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/10 hover:bg-muted/20">
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/5 font-mono border-b border-border/20 last:border-0">
+      <span className="text-[9px] text-muted-foreground/40 w-5 shrink-0">{String(i + 1).padStart(2, '0')}</span>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-mono text-foreground truncate">{shortAddr(user)}</p>
-        <p className="text-[9px] text-muted-foreground">{fmtToken(stake, 18, 2)} {symbol}</p>
+        <p className="text-[10px] text-foreground truncate">{shortAddr(user)}</p>
+        <p className="text-[8px] text-muted-foreground">{fmtToken(stake, 18, 2)} {symbol}</p>
       </div>
       <div className="text-right shrink-0">
-        <p className="text-[10px] font-semibold text-amber-400">+{fmtToken(pending, 18, 6)}</p>
+        <p className="text-[10px] font-bold text-amber-400">+{fmtToken(pending, 18, 6)}</p>
         {cd > 0
-          ? <p className="text-[9px] text-muted-foreground">⏳ {fmtElapsed(cd)}</p>
-          : <p className="text-[9px] text-emerald-400 font-medium">✓ Listo</p>
-        }
+          ? <p className="text-[8px] text-muted-foreground">⏳ {fmtElapsed(cd)}</p>
+          : <p className="text-[8px] text-emerald-400">● READY</p>}
       </div>
     </div>
   )
@@ -126,81 +186,86 @@ function ScoreboardRow({ user, stake, pending, countdown, symbol }: {
 
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 export function AutoStakeMiningPanel({ userAddress }: Props) {
-  const [tokens, setTokens]             = useState<TokenInfo[]>([])
+  const [tokens, setTokens]         = useState<TokenInfo[]>([])
   const [selectedToken, setSelectedToken] = useState<TokenInfo | null>(null)
-  const [claimable, setClaimable]       = useState<ClaimablePosition[]>([])
-  const [allPositions, setAllPositions] = useState<any[]>([])
-  const [loading, setLoading]           = useState(false)
-  const [tab, setTab]                   = useState<'mine' | 'all'>('mine')
-  const [miningIdx, setMiningIdx]       = useState<number | null>(null)
-  const [minedSet, setMinedSet]         = useState<Set<number>>(new Set())
-  const [earnedMap, setEarnedMap]       = useState<Map<number, bigint>>(new Map())
-  const [batchLoading, setBatchLoading] = useState(false)
-  const [msg, setMsg]                   = useState<{ ok: boolean; text: string } | null>(null)
-  const [totalEarned, setTotalEarned]   = useState(0n)
+  const [claimable, setClaimable]   = useState<ClaimablePosition[]>([])
+  const [allPos, setAllPos]         = useState<any[]>([])
+  const [loading, setLoading]       = useState(false)
+  const [tab, setTab]               = useState<'mine' | 'all' | 'log'>('mine')
+  const [miningIdx, setMiningIdx]   = useState<number | null>(null)
+  const [minedSet, setMinedSet]     = useState<Set<number>>(new Set())
+  const [earnedMap, setEarnedMap]   = useState<Map<number, bigint>>(new Map())
+  const [batchLoading, setBatch]    = useState(false)
+  const [totalEarned, setTotal]     = useState(0n)
+  const [logs, setLogs]             = useState<LogEntry[]>([])
+  const [nextRefresh, setNext]      = useState(COOLDOWN_SEC)
+  const [uptime, setUptime]         = useState(0)
+  const [baseBlock]                 = useState(() => pseudoHeight(userAddress || '0x1234'))
+  const logRef = useRef<HTMLDivElement>(null)
 
-  // Countdown to next auto-refresh (10 min cycle)
-  const [nextRefresh, setNextRefresh]   = useState(COOLDOWN_SEC)
-  const [uptime, setUptime]             = useState(0)
+  function addLog(type: LogEntry['type'], text: string, ok = true) {
+    setLogs(prev => [{ id: crypto.randomUUID?.() ?? Math.random().toString(), type, text, timestamp: Date.now(), ok }, ...prev].slice(0, 50))
+  }
 
-  // Live clock
+  async function loadClaimable(tk: TokenInfo, silent = false) {
+    if (!silent) setLoading(true)
+    try {
+      const c = await fetchClaimablePositions(tk.address, tk.symbol, 100)
+      setClaimable(c)
+      setMinedSet(new Set()); setEarnedMap(new Map())
+      addLog('scan', `Scan: ${c.length} bloques en cola · token ${tk.symbol}`)
+    } catch (e: any) {
+      addLog('scan', `Error scan: ${e?.message ?? 'unknown'}`, false)
+    } finally { if (!silent) setLoading(false) }
+  }
+
+  async function loadAll(tk: TokenInfo) {
+    try {
+      const all = await fetchAllPositions(tk.address, tk.symbol, 200)
+      setAllPos(all)
+    } catch { /* silent */ }
+  }
+
+  const init = useCallback(async () => {
+    setLoading(true)
+    try {
+      const stats = await fetchContractStats()
+      setTokens(stats.tokens)
+      const tk = stats.tokens[0] ?? null
+      if (tk) { setSelectedToken(tk); await Promise.all([loadClaimable(tk), loadAll(tk)]) }
+    } finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { init() }, [init])
+
+  // Clock + auto-refresh
   useEffect(() => {
     const t = setInterval(() => {
       setUptime(p => p + 1)
-      setNextRefresh(p => {
+      setNext(p => {
         if (p <= 1) {
-          // Auto-reload claimable queue
-          if (selectedToken) loadClaimable(selectedToken)
+          if (selectedToken) {
+            loadClaimable(selectedToken, true)
+            addLog('refresh', `Auto-refresh ciclo ${Math.floor(uptime / COOLDOWN_SEC) + 1}`)
+          }
           return COOLDOWN_SEC
         }
         return p - 1
       })
     }, 1000)
     return () => clearInterval(t)
-  }, [selectedToken])
-
-  async function loadClaimable(tk: TokenInfo) {
-    try {
-      const c = await fetchClaimablePositions(tk.address, tk.symbol, 100)
-      setClaimable(c)
-      setMinedSet(new Set())
-      setEarnedMap(new Map())
-    } catch (e) { console.error('[AutoStakeMining] loadClaimable', e) }
-  }
-
-  async function loadAllPositions(tk: TokenInfo) {
-    try {
-      const all = await fetchAllPositions(tk.address, tk.symbol, 200)
-      setAllPositions(all)
-    } catch (e) { console.error('[AutoStakeMining] loadAll', e) }
-  }
-
-  const initialLoad = useCallback(async () => {
-    setLoading(true)
-    try {
-      const stats = await fetchContractStats()
-      setTokens(stats.tokens)
-      const tk = stats.tokens[0] ?? null
-      if (tk) {
-        setSelectedToken(tk)
-        await Promise.all([loadClaimable(tk), loadAllPositions(tk)])
-      }
-    } catch (e) { console.error('[AutoStakeMining] init', e) }
-    finally { setLoading(false) }
-  }, [])
-
-  useEffect(() => { initialLoad() }, [initialLoad])
+  }, [selectedToken, uptime])
 
   async function switchToken(tk: TokenInfo) {
-    setSelectedToken(tk); setClaimable([]); setAllPositions([])
-    setMinedSet(new Set()); setEarnedMap(new Map())
+    setSelectedToken(tk); setClaimable([]); setAllPos([])
     setLoading(true)
-    try { await Promise.all([loadClaimable(tk), loadAllPositions(tk)]) }
+    try { await Promise.all([loadClaimable(tk), loadAll(tk)]) }
     finally { setLoading(false) }
   }
 
   async function doMine(pos: ClaimablePosition, idx: number) {
-    setMiningIdx(idx); setMsg(null)
+    setMiningIdx(idx)
+    addLog('mine', `Minando bloque #${baseBlock + idx} · user ${shortAddr(pos.user)}`)
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{ address: ACUA_AUTOSTAKE_ADDRESS, abi: CLAIM_FOR_ABI, functionName: 'claimFor', args: [pos.token, pos.user] }],
@@ -209,31 +274,35 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
         const e = pos.processorEarns
         setMinedSet(prev => new Set([...prev, idx]))
         setEarnedMap(prev => new Map([...prev, [idx, e]]))
-        setTotalEarned(prev => prev + e)
-        setMsg({ ok: true, text: `⛏ Bloque #${idx + 1} minado · +${fmtToken(e, 18, 8)} ${pos.symbol}` })
-      } else setMsg({ ok: false, text: (finalPayload as any).message ?? 'Rechazado' })
-    } catch (e: any) { setMsg({ ok: false, text: e?.message ?? 'Error' }) }
-    finally { setMiningIdx(null) }
+        setTotal(prev => prev + e)
+        addLog('mine', `✓ Bloque #${baseBlock + idx} minado · +${fmtToken(e, 18, 8)} ${pos.symbol}`)
+      } else {
+        addLog('mine', `✗ Rechazado: ${(finalPayload as any).message ?? 'user rejected'}`, false)
+      }
+    } catch (e: any) {
+      addLog('mine', `✗ Error: ${e?.message ?? 'unknown'}`, false)
+    } finally { setMiningIdx(null) }
   }
 
   async function doMineAll() {
-    if (!selectedToken || claimable.length === 0) return
-    setBatchLoading(true); setMsg(null)
+    if (!selectedToken || !claimable.length) return
+    setBatch(true)
+    const eligible = claimable.filter((_, i) => !minedSet.has(i))
+    if (!eligible.length) { setBatch(false); return }
+    addLog('batch', `Iniciando batch: ${eligible.length} bloques`)
     try {
-      const eligible = claimable.filter((_, i) => !minedSet.has(i))
-      if (!eligible.length) return setMsg({ ok: false, text: 'Sin posiciones disponibles' })
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{ address: ACUA_AUTOSTAKE_ADDRESS, abi: CLAIM_BATCH_ABI, functionName: 'claimForBatch', args: [selectedToken.address, eligible.map(p => p.user)] }],
       })
       if (finalPayload.status === 'success') {
         const totalE = eligible.reduce((a, p) => a + p.processorEarns, 0n)
-        const newMined = new Set(minedSet); const newEarned = new Map(earnedMap)
-        claimable.forEach((p, i) => { if (!minedSet.has(i)) { newMined.add(i); newEarned.set(i, p.processorEarns) } })
-        setMinedSet(newMined); setEarnedMap(newEarned); setTotalEarned(prev => prev + totalE)
-        setMsg({ ok: true, text: `✓ ${eligible.length} bloques minados · +${fmtToken(totalE, 18, 8)} ${selectedToken.symbol}` })
-      } else setMsg({ ok: false, text: (finalPayload as any).message ?? 'Rechazado' })
-    } catch (e: any) { setMsg({ ok: false, text: e?.message ?? 'Error' }) }
-    finally { setBatchLoading(false) }
+        const nm = new Set(minedSet); const ne = new Map(earnedMap)
+        claimable.forEach((p, i) => { if (!minedSet.has(i)) { nm.add(i); ne.set(i, p.processorEarns) } })
+        setMinedSet(nm); setEarnedMap(ne); setTotal(prev => prev + totalE)
+        addLog('batch', `✓ Batch confirmado · ${eligible.length} bloques · +${fmtToken(totalE, 18, 8)} ${selectedToken.symbol}`)
+      } else addLog('batch', `✗ Batch rechazado`, false)
+    } catch (e: any) { addLog('batch', `✗ Batch error: ${e?.message ?? 'unknown'}`, false) }
+    finally { setBatch(false) }
   }
 
   const pendingCount = claimable.filter((_, i) => !minedSet.has(i)).length
@@ -242,127 +311,144 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
     return (
       <div className="flex flex-col items-center py-12 px-4 space-y-4">
         <AlertTriangle className="w-7 h-7 text-yellow-400" />
-        <p className="font-semibold">Contrato en preparación</p>
-        <p className="text-xs text-muted-foreground text-center">El panel de minería estará disponible tras el deploy.</p>
+        <p className="font-semibold text-center">Contrato en preparación</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-4 pb-6 font-mono">
-      {/* Terminal header */}
-      <div className="rounded-xl border border-[oklch(0.65_0.22_255)]/40 bg-background overflow-hidden">
-        <div className="flex items-center gap-2 px-3 py-2 bg-[oklch(0.65_0.22_255)]/10 border-b border-[oklch(0.65_0.22_255)]/20">
+    <div className="space-y-4 pb-6">
+
+      {/* ── Terminal header ── */}
+      <div className="rounded-2xl border border-[oklch(0.65_0.22_255)]/40 overflow-hidden font-mono"
+        style={{ background: 'linear-gradient(180deg, #0a0a14 0%, #080810 100%)' }}>
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-[oklch(0.65_0.22_255)]/20"
+          style={{ background: 'oklch(0.65 0.22 255)/10' }}>
           <div className="flex gap-1">
-            {['bg-red-500/70', 'bg-yellow-500/70', 'bg-green-500/70'].map(c => <div key={c} className={`w-2.5 h-2.5 rounded-full ${c}`} />)}
+            {['#ef4444','#f59e0b','#10b981'].map(c=><div key={c} className="w-2 h-2 rounded-full" style={{ background: c }}/>)}
           </div>
-          <span className="text-[10px] text-[oklch(0.65_0.22_255)] flex-1 text-center">ACUA_AUTOSTAKE :: MINING POOL v2.0</span>
+          <span className="text-[9px] text-[oklch(0.65_0.22_255)] flex-1 text-center tracking-widest">ACUA_AUTOSTAKE :: MINING NODE v2.0</span>
           <button onClick={() => selectedToken && loadClaimable(selectedToken)} disabled={loading}>
             <RefreshCw className={cn('w-3 h-3 text-muted-foreground', loading && 'animate-spin')} />
           </button>
         </div>
-        <div className="p-3 grid grid-cols-2 gap-x-4 gap-y-1 text-[10px]">
-          <div className="flex justify-between"><span className="text-muted-foreground">STATUS</span><span className="text-green-400">● ONLINE</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">UPTIME</span><span className="text-muted-foreground">{uptime}s</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">EN COLA</span><span className="text-amber-400">{pendingCount}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">PRÓX. CICLO</span><span className="text-[oklch(0.65_0.22_255)]">{fmtElapsed(nextRefresh)}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">MINADOS</span><span className="text-[oklch(0.65_0.22_255)]">{minedSet.size}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">GANADO (1%)</span><span className="text-emerald-400">{fmtToken(totalEarned, 18, 8)} {selectedToken?.symbol ?? '?'}</span></div>
+        <div className="px-3 py-2.5 grid grid-cols-3 gap-2 text-[9px]">
+          <div className="space-y-1.5">
+            <div className="flex justify-between"><span className="text-muted-foreground">STATUS</span><span className="text-emerald-400">● ONLINE</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">UPTIME</span><span className="text-muted-foreground">{uptime}s</span></div>
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex justify-between"><span className="text-muted-foreground">EN COLA</span><span className="text-amber-400">{pendingCount}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">MINADOS</span><span className="text-[oklch(0.65_0.22_255)]">{minedSet.size}</span></div>
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex justify-between"><span className="text-muted-foreground">CICLO</span><span className="text-[oklch(0.65_0.22_255)]">{fmtElapsed(nextRefresh)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">GANADO</span><span className="text-emerald-400">{fmtToken(totalEarned, 18, 6)}</span></div>
+          </div>
+        </div>
+        {/* refresh bar */}
+        <div className="mx-3 mb-3 h-1 rounded-full bg-muted/20 overflow-hidden">
+          <div className="h-full rounded-full bg-[oklch(0.65_0.22_255)]/60 transition-all"
+            style={{ width: `${((COOLDOWN_SEC - nextRefresh) / COOLDOWN_SEC) * 100}%` }} />
         </div>
       </div>
 
       {/* Token selector */}
       {tokens.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="flex gap-2 overflow-x-auto pb-0.5">
           {tokens.map(tk => (
             <button key={tk.address} onClick={() => switchToken(tk)}
-              className={cn('flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
-                selectedToken?.address === tk.address ? 'bg-[oklch(0.65_0.22_255)] text-white border-transparent' : 'border-border text-muted-foreground')}>
-              {tk.symbol} <span className="opacity-60 ml-1">{tk.aprPct.toFixed(0)}%</span>
+              className={cn('flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] font-bold border transition-all font-mono',
+                selectedToken?.address === tk.address
+                  ? 'bg-[oklch(0.65_0.22_255)] text-white border-transparent'
+                  : 'border-border/60 text-muted-foreground')}>
+              {tk.symbol}
             </button>
           ))}
         </div>
       )}
 
-      {/* Tabs: Mine | All positions */}
-      <div className="flex rounded-xl border border-border overflow-hidden">
-        {(['mine', 'all'] as const).map(t => (
+      {/* ── Tabs ── */}
+      <div className="flex rounded-xl border border-border/50 overflow-hidden font-mono">
+        {([['mine', `⛏ COLA (${pendingCount})`], ['all', `👥 TODOS (${allPos.length})`], ['log', `📋 LOG (${logs.length})`]] as const).map(([t, l]) => (
           <button key={t} onClick={() => setTab(t)}
-            className={cn('flex-1 py-2 text-[11px] font-semibold flex items-center justify-center gap-1.5',
-              tab === t ? 'bg-[oklch(0.65_0.22_255)] text-white' : 'text-muted-foreground hover:bg-muted/40')}>
-            {t === 'mine' ? <><Zap className="w-3 h-3" />Cola de minería ({pendingCount})</> : <><Users className="w-3 h-3" />Todos ({allPositions.length})</>}
+            className={cn('flex-1 py-2 text-[10px] font-bold transition-all',
+              tab === t ? 'bg-[oklch(0.65_0.22_255)] text-white' : 'text-muted-foreground hover:bg-muted/20')}>
+            {l}
           </button>
         ))}
       </div>
 
-      {/* Mine tab */}
+      {/* ── Mine tab ── */}
       {tab === 'mine' && (
-        <>
+        <div className="space-y-3">
           {pendingCount > 0 && (
-            <Button disabled={batchLoading || loading} onClick={doMineAll}
-              className="w-full h-11 font-bold text-sm bg-gradient-to-r from-[oklch(0.65_0.22_255)] to-purple-500 hover:opacity-90">
-              {batchLoading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Procesando…</> : <><Zap className="w-4 h-4 mr-2" />Minar todos ({pendingCount} bloques)</>}
+            <Button disabled={batchLoading} onClick={doMineAll}
+              className="w-full h-12 font-black text-sm tracking-wide border-0"
+              style={{ background: 'linear-gradient(135deg, oklch(0.55 0.25 290), oklch(0.55 0.25 255))' }}>
+              {batchLoading
+                ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />PROCESANDO BATCH...</>
+                : <><Zap className="w-4 h-4 mr-2" />MINAR TODOS ({pendingCount} BLOQUES)</>}
             </Button>
           )}
           {loading ? (
-            <div className="flex flex-col items-center py-8 gap-2">
-              <Cpu className="w-8 h-8 text-[oklch(0.65_0.22_255)] animate-pulse" />
-              <p className="text-xs text-muted-foreground">Escaneando blockchain…</p>
+            <div className="flex flex-col items-center py-10 gap-3">
+              <Cpu className="w-10 h-10 text-[oklch(0.65_0.22_255)] animate-pulse" />
+              <p className="text-xs font-mono text-muted-foreground">Escaneando blockchain...</p>
             </div>
           ) : claimable.length === 0 ? (
-            <div className="rounded-xl border border-border bg-muted/10 p-8 text-center space-y-2">
-              <BarChart3 className="w-8 h-8 text-muted-foreground/40 mx-auto" />
+            <div className="rounded-2xl border border-border/40 bg-muted/5 p-8 text-center font-mono space-y-2">
+              <Activity className="w-8 h-8 text-muted-foreground/30 mx-auto" />
               <p className="text-xs text-muted-foreground">Sin bloques pendientes</p>
-              <p className="text-[10px] text-muted-foreground/60">Próximo ciclo en {fmtElapsed(nextRefresh)}</p>
+              <p className="text-[9px] text-muted-foreground/50">Próximo ciclo en {fmtElapsed(nextRefresh)}</p>
             </div>
           ) : (
             <div className="space-y-3">
               {claimable.map((pos, i) => (
-                <BlockCard key={`${pos.user}-${i}`} pos={pos} idx={i}
+                <BlockCard key={`${pos.user}-${i}`} pos={pos} idx={i} blockNum={baseBlock}
                   mining={miningIdx === i} mined={minedSet.has(i)} earned={earnedMap.get(i) ?? null}
                   onMine={() => doMine(pos, i)} />
               ))}
             </div>
           )}
-        </>
-      )}
-
-      {/* All positions scoreboard */}
-      {tab === 'all' && (
-        <div className="space-y-1.5">
-          {allPositions.length === 0 ? (
-            <div className="rounded-xl border border-border bg-muted/10 p-8 text-center">
-              <p className="text-xs text-muted-foreground">Sin posiciones registradas</p>
-            </div>
-          ) : (
-            allPositions.map((p, i) => (
-              <ScoreboardRow key={p.user + i} user={p.user} stake={p.stake} pending={p.pending}
-                countdown={p.cooldownRemaining} symbol={p.symbol} />
-            ))
-          )}
         </div>
       )}
 
-      {msg && (
-        <p className={cn('text-xs text-center font-medium', msg.ok ? 'text-emerald-400' : 'text-red-400')}>
-          {msg.text}
-        </p>
+      {/* ── All positions scoreboard ── */}
+      {tab === 'all' && (
+        <div className="rounded-2xl border border-border/40 overflow-hidden font-mono">
+          <div className="px-3 py-2 border-b border-border/30 text-[8px] grid grid-cols-3 text-muted-foreground/60">
+            <span>#&nbsp;&nbsp;WALLET</span><span className="text-center">STAKE</span><span className="text-right">REWARD · COOLDOWN</span>
+          </div>
+          <div>
+            {allPos.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-8">Sin posiciones</p>
+            ) : (
+              allPos.map((p, i) => (
+                <ScoreRow key={p.user + i} user={p.user} stake={p.stake} pending={p.pending}
+                  countdown={p.cooldownRemaining} symbol={p.symbol} i={i} />
+              ))
+            )}
+          </div>
+        </div>
       )}
 
-      {/* How it works */}
-      <div className="rounded-xl border border-border bg-muted/10 p-3 space-y-1.5">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">⛏ Cómo funciona</p>
-        <ul className="space-y-1">
-          {[
-            '📋 Posiciones con ≥10 min aparecen en la cola automáticamente cada ciclo',
-            '⚡ "Minar bloque" procesa el auto-reinvest del usuario en la blockchain',
-            '💰 Ganas 1% del reward como incentivo por procesar la TX',
-            '🚀 "Minar todos" procesa toda la cola en una TX',
-            '👁 "Todos" muestra el marcador público de todas las posiciones',
-            '🔁 Sin bots — cualquier usuario puede minar y ganar',
-          ].map(t => <li key={t} className="text-[10px] text-muted-foreground">{t}</li>)}
-        </ul>
-      </div>
+      {/* ── Event log ── */}
+      {tab === 'log' && (
+        <div className="rounded-2xl border border-border/40 overflow-hidden font-mono"
+          style={{ background: '#05050a' }}>
+          <div className="px-3 py-2 border-b border-border/30 flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[9px] text-emerald-400">LIVE EVENT LOG</span>
+            <span className="ml-auto text-[8px] text-muted-foreground/40">{logs.length} events</span>
+          </div>
+          <div ref={logRef} className="px-3 py-2 max-h-80 overflow-y-auto">
+            {logs.length === 0 ? (
+              <p className="text-[10px] text-muted-foreground/40 py-4 text-center">Esperando eventos...</p>
+            ) : logs.map(l => <LogRow key={l.id} entry={l} />)}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
