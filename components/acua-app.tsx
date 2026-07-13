@@ -463,41 +463,31 @@ interface FabItem { tab: Tab; icon: React.ReactNode; label: string; color: strin
 
 const FAB_ITEMS: FabItem[] = [
   // ── Inner arc (R=90, 4 items, 30° steps) ──
-  { tab: 'h2o-combo',  icon: <Droplets className="w-3 h-3" />,       label: 'H2O',      color: '#06b6d4' },
-  { tab: 'swap',       icon: <Repeat2 className="w-3 h-3" />,        label: 'Swap',     color: '#3b82f6' },
-  { tab: 'h2o-v3',     icon: <Droplets className="w-3 h-3" />,       label: 'H2O v3',   color: '#22d3ee' },
-  { tab: 'stake-combo',icon: <TrendingUp className="w-3 h-3" />,     label: 'Stake',    color: '#10b981' },
-  // ── Outer arc (R=162, 4 items, 30° steps) ──
-  { tab: 'mining-combo',icon: <Pickaxe className="w-3 h-3" />,       label: 'Minería',  color: '#f97316' },
-  { tab: 'sushi-v2',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🍣</span>,  label: 'SUSHI',    color: '#ef4444' },
-  { tab: 'tnt',        icon: <ArrowLeftRight className="w-3 h-3" />, label: 'T+T',      color: '#8b5cf6' },
-  { tab: 'acua-claim', icon: <Sparkles className="w-3 h-3" />,       label: 'Claim',    color: '#34d399' },
-  // ── Far arc (R=234, 5 items, 22.5° steps) ──
-  { tab: 'stake-v4',      icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⚡</span>,  label: 'V4',       color: '#a855f7' },
-  { tab: 'stake-v5',      icon: <span style={{ fontSize: 11, lineHeight: 1 }}>💎</span>,  label: 'V5',       color: '#e879f9' },
-  { tab: 'stake-factory', icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🏭</span>,  label: 'Factory',  color: '#22d3ee' },
-  { tab: 'autostake',     icon: <span style={{ fontSize: 11, lineHeight: 1 }}>♻️</span>,  label: 'AutoStake',color: '#10b981' },
-  { tab: 'autostake-mine',icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⛏</span>,  label: 'AutoMine', color: '#6366f1' },
+  { tab: 'h2o-combo',   icon: <Droplets className="w-3 h-3" />,       label: 'H2O',      color: '#06b6d4' },
+  { tab: 'swap',        icon: <Repeat2 className="w-3 h-3" />,        label: 'Swap',     color: '#3b82f6' },
+  { tab: 'stake-combo', icon: <TrendingUp className="w-3 h-3" />,     label: 'Stake',    color: '#10b981' },
+  { tab: 'mining-combo',icon: <Pickaxe className="w-3 h-3" />,        label: 'Minería',  color: '#f97316' },
+  // ── Outer arc (R=162, 5 items, 22.5° steps) ──
+  { tab: 'autostake',     icon: <span style={{ fontSize: 11, lineHeight: 1 }}>♻️</span>, label: 'AutoStake', color: '#10b981' },
+  { tab: 'autostake-mine',icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⛏</span>,  label: 'AutoMine',  color: '#6366f1' },
+  { tab: 'sushi-v2',      icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🍣</span>,  label: 'SUSHI',     color: '#ef4444' },
+  { tab: 'tnt',           icon: <ArrowLeftRight className="w-3 h-3" />, label: 'T+T',    color: '#8b5cf6' },
+  { tab: 'acua-claim',    icon: <Sparkles className="w-3 h-3" />,       label: 'Claim',  color: '#34d399' },
 ]
 
-// Triple-arc: inner R=90 (4, 30° steps), outer R=162 (4, 30° steps), far R=234 (5, 22.5° steps)
+// Doble arco: inner R=90 (4, 30° steps), outer R=162 (5, 22.5° steps)
 const FAB_POSITIONS = [
-  // ── Inner arc (R=90, 30° steps, θ=0°→90° from vertical) ──
-  { dx:   0, dy:  -90 },  // H2O combo   θ=0°
-  { dx: -45, dy:  -78 },  // Swap        θ=30°
-  { dx: -78, dy:  -45 },  // H2O v3      θ=60°
-  { dx: -90, dy:    0 },  // Stake combo θ=90°
-  // ── Outer arc (R=162, 30° steps) ──
-  { dx:   0, dy: -162 },  // Minería     θ=0°
-  { dx: -81, dy: -140 },  // SUSHI       θ=30°
-  { dx: -140, dy:  -81 }, // T+T         θ=60°
-  { dx: -162, dy:    0 }, // Claim       θ=90°
-  // ── Far arc (R=234, 22.5° steps) ──
-  { dx:   0,  dy: -234 }, // V4          θ=0°
-  { dx:  -90, dy: -216 }, // V5          θ=22.5°
-  { dx: -166, dy: -166 }, // Factory     θ=45°
-  { dx: -216, dy:  -90 }, // AutoStake   θ=67.5°
-  { dx: -234, dy:    0 }, // AutoMine    θ=90°
+  // ── Inner arc (R=90, 30° steps, θ=0°→90° desde vertical) ──
+  { dx:   0, dy:  -90 },  // H2O combo    θ=0°
+  { dx: -45, dy:  -78 },  // Swap         θ=30°
+  { dx: -78, dy:  -45 },  // Stake combo  θ=60°
+  { dx: -90, dy:    0 },  // Minería      θ=90°
+  // ── Outer arc (R=162, 22.5° steps) ──
+  { dx:   0,  dy: -162 }, // AutoStake    θ=0°
+  { dx:  -62, dy: -150 }, // AutoMine     θ=22.5°
+  { dx: -115, dy: -115 }, // SUSHI        θ=45°
+  { dx: -150, dy:  -62 }, // T+T          θ=67.5°
+  { dx: -162, dy:    0 }, // Claim        θ=90°
 ]
 
 function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; activeTab: Tab }) {

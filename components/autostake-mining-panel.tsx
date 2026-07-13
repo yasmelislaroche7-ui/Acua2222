@@ -353,6 +353,24 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
         </div>
       </div>
 
+      {/* ── Buy Token + Vote WDD ── */}
+      <div className="grid grid-cols-2 gap-2">
+        <a
+          href="https://world.org/mini-app?app_id=app_4593f73390a9843503ec096086b43612&path=/launchpad/token/0xeC8399bC6B301D72C632F45D97C3C73D6971B7dd"
+          target="_blank" rel="noopener noreferrer"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 text-[11px] font-bold py-2.5 px-2 hover:bg-cyan-500/20 transition-colors text-center"
+        >
+          🛒 Comprar H2O
+        </a>
+        <a
+          href="https://www.worldrepublic.org/es/govern/parties/a6a92b4e-986f-4fe0-8bce-2b0cd8898775?ref=BWRGUDHS"
+          target="_blank" rel="noopener noreferrer"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-violet-500/40 bg-violet-500/10 text-violet-300 text-[11px] font-bold py-2.5 px-2 hover:bg-violet-500/20 transition-colors text-center"
+        >
+          🗳️ Votar +5 WDD
+        </a>
+      </div>
+
       {/* Token selector */}
       {tokens.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-0.5">
