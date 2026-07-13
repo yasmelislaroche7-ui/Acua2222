@@ -7,7 +7,8 @@ import { getProvider } from '@/lib/new-contracts'
 export const ACUA_AUTOSTAKE_ADDRESS = '0x9a3B08D4debB17e494023A23ec21cB53Ab233062'
 export const DEPLOYED = true
 
-export const H2O_TOKEN = '0xeC8399bC6B301D72C632F45D97C3C73D6971B7dd'
+// H2O principal — el que los usuarios tienen en World App
+export const H2O_TOKEN = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'
 export const PERMIT2   = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
 
 // ─── ABI fragments ───────────────────────────────────────────────────────────
