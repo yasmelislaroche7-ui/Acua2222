@@ -31,6 +31,9 @@ import { AcuaFreeClaimPanel }    from '@/components/acua-free-claim-panel'
 import { StakeV4Panel }          from '@/components/stake-v4-panel'
 import { StakeV5Panel }          from '@/components/stake-v5-panel'
 import { StakeFactoryPanel }     from '@/components/stake-factory-panel'
+import { AutoStakePanel }        from '@/components/autostake-panel'
+import { AutoStakeMiningPanel }  from '@/components/autostake-mining-panel'
+import { AutoStakeOwnerPanel }   from '@/components/autostake-owner-panel'
 import { PlatformMonitor }       from '@/components/platform-monitor'
 import { StatsTicker, MarketMiniCard } from '@/components/market-ticker'
 import { NetworkSwitcher }       from '@/components/network-switcher'
@@ -56,6 +59,7 @@ import { cn } from '@/lib/utils'
 type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'stake-v5'
          | 'tokens' | 'swap' | 'tnt' | 'info' | 'admin' | 'monitor' | 'contracts-admin' | 'sushi-v2'
          | 'acua-stake' | 'acua-claim' | 'stake-v4' | 'stake-factory'
+         | 'autostake' | 'autostake-mine' | 'autostake-admin'
 type BNBTab = 'bnb-stake' | 'bnb-wallet' | 'bnb-bridge'
 type InstalledState = null | true | false
 
@@ -148,11 +152,13 @@ const MENU_STAKING: MenuEntry[] = [
   { tab: 'stake-v4',  icon: <span className="text-sm leading-none">⚡</span>, label: 'Stake V4',   badge: 'SOLO RETIRO', color: 'text-purple-400' },
   { tab: 'stake-v5',  icon: <span className="text-sm leading-none">💎</span>, label: 'Stake V5',   badge: '5% FEE', color: 'text-fuchsia-400' },
   { tab: 'stake-factory', icon: <span className="text-sm leading-none">🏭</span>, label: 'Stake Factory', badge: 'CREA EL TUYO', color: 'text-cyan-400' },
+  { tab: 'autostake',    icon: <span className="text-sm leading-none">♻️</span>,  label: 'AutoStake',    badge: 'AUTO', color: 'text-emerald-400' },
 ]
 const MENU_MINING: MenuEntry[] = [
-  { tab: 'uth2', icon: <Pickaxe className="w-4 h-4" />, label: 'UTH₂ → H2O',    color: 'text-orange-400' },
-  { tab: 'wld',  icon: <Star className="w-4 h-4" />,    label: 'WLD → 7 tokens', color: 'text-yellow-400' },
-  { tab: 'time', icon: <Clock className="w-4 h-4" />,   label: 'TIME → WLD',     color: 'text-purple-400' },
+  { tab: 'uth2',          icon: <Pickaxe className="w-4 h-4" />, label: 'UTH₂ → H2O',      color: 'text-orange-400' },
+  { tab: 'wld',           icon: <Star className="w-4 h-4" />,    label: 'WLD → 7 tokens',   color: 'text-yellow-400' },
+  { tab: 'time',          icon: <Clock className="w-4 h-4" />,   label: 'TIME → WLD',       color: 'text-purple-400' },
+  { tab: 'autostake-mine',icon: <span className="text-sm leading-none">⛏</span>, label: 'AutoStake Mine', badge: 'EARN 1%', color: 'text-[oklch(0.65_0.22_255)]' },
 ]
 const MENU_MARKET: MenuEntry[] = [
   { tab: 'swap',       icon: <Repeat2 className="w-4 h-4" />,       label: 'Swap',         color: 'text-blue-400' },
@@ -421,8 +427,9 @@ function NavDrawer({
             <>
               <div className="mx-4 border-t border-[oklch(0.18_0.02_245)] my-1" />
               <Section title="Admin" items={[
-                { tab: 'admin',          icon: <Shield className="w-4 h-4" />,   label: 'Panel Admin',   badge: 'OWNER', color: 'text-violet-400' },
-                { tab: 'contracts-admin',icon: <Shield className="w-4 h-4" />,   label: 'Admin Contratos', badge: 'OWNER', color: 'text-blue-400' },
+                { tab: 'admin',           icon: <Shield className="w-4 h-4" />,   label: 'Panel Admin',      badge: 'OWNER', color: 'text-violet-400' },
+                { tab: 'contracts-admin', icon: <Shield className="w-4 h-4" />,   label: 'Admin Contratos',  badge: 'OWNER', color: 'text-blue-400' },
+                { tab: 'autostake-admin', icon: <span className="text-sm leading-none">♻️</span>, label: 'AutoStake Admin', badge: 'OWNER', color: 'text-emerald-400' },
               ]} />
             </>
           )}
@@ -446,6 +453,7 @@ const TAB_LABELS: Record<Tab, string> = {
   'contracts-admin': 'Admin Contratos', 'sushi-v2': 'SUSHI 2.0',
   'acua-stake': 'ACUA Stake', 'acua-claim': 'Free Claim', 'stake-v4': 'Stake V4 ACUA (solo retiro)',
   'stake-v5': 'Stake V5 ACUA', 'stake-factory': 'Stake Factory',
+  'autostake': 'AutoStake', 'autostake-mine': 'AutoStake Mining', 'autostake-admin': 'AutoStake Admin',
 }
 
 const BNB_TAB_LABELS: Record<BNBTab, string> = {
@@ -908,8 +916,11 @@ export default function AcuaApp() {
           {activeNetwork === 'wld' && activeTab === 'acua-claim'  && <AcuaFreeClaimPanel  userAddress={addr} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'stake-v4'    && <StakeV4Panel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'stake-v5'    && <StakeV5Panel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} isAdmin={isMainOwner} />}
-          {activeNetwork === 'wld' && activeTab === 'stake-factory' && <StakeFactoryPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
-          {activeNetwork === 'wld' && activeTab === 'info'        && <InfoPanel />}
+          {activeNetwork === 'wld' && activeTab === 'stake-factory'  && <StakeFactoryPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
+          {activeNetwork === 'wld' && activeTab === 'autostake'      && <AutoStakePanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'autostake-mine' && <AutoStakeMiningPanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'autostake-admin' && <AutoStakeOwnerPanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'info'           && <InfoPanel />}
 
           {activeNetwork === 'wld' && activeTab === 'monitor' && (
             <PlatformMonitor
