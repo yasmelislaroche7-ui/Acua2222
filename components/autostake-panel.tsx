@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { MiniKit } from '@worldcoin/minikit-js'
 import { ethers } from 'ethers'
 import {
-  RefreshCw, Loader2, AlertTriangle, Zap, TrendingUp,
+  RefreshCw, Loader2, AlertTriangle, Zap,
   ArrowDownToLine, ArrowUpFromLine, Activity, Lock,
+  CheckCircle2, XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,9 +16,6 @@ import {
   randomNonce, fmtToken, formatApr,
   type UserPosition, type TokenInfo,
 } from '@/lib/autostake'
-import {
-  buildFeePayment, fetchFeeInfo, insufficientFeeMsg,
-} from '@/lib/feeCollector'
 import { cn } from '@/lib/utils'
 
 interface Props { userAddress: string }
@@ -61,8 +59,6 @@ export function AutoStakePanel({ userAddress }: Props) {
   const [loading, setLoading]       = useState(false)
   const [txLoading, setTxLoading]   = useState(false)
   const [msg, setMsg]               = useState<{ ok: boolean; text: string } | null>(null)
-  const [feeAmount, setFeeAmount]   = useState(0n)
-  const [h2oBalance, setH2oBalance] = useState(0n)
   const [scanLine, setScanLine]     = useState(0)
 
   // Scan line animation
@@ -74,15 +70,12 @@ export function AutoStakePanel({ userAddress }: Props) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [stats, pos, feeData] = await Promise.all([
+      const [stats, pos] = await Promise.all([
         fetchContractStats(),
         fetchUserPositions(userAddress),
-        fetchFeeInfo(userAddress).catch(() => ({ fee: 0n, userH2O: 0n })),
       ])
       setTokens(stats.tokens)
       setPositions(pos)
-      setFeeAmount(feeData.fee)
-      setH2oBalance(feeData.userH2O)
       if (!selectedToken && stats.tokens.length > 0) setSelectedToken(stats.tokens[0])
     } catch (e) { console.error('[AutoStake]', e) }
     finally { setLoading(false) }
@@ -94,36 +87,49 @@ export function AutoStakePanel({ userAddress }: Props) {
 
   async function doStake() {
     if (!selectedToken || !amount || parseFloat(amount) <= 0) return
-    if (h2oBalance < feeAmount) return setMsg({ ok: false, text: insufficientFeeMsg(feeAmount) })
     setTxLoading(true); setMsg(null)
     try {
-      const amtWei = ethers.parseUnits(amount, 18)
-      const nonce  = randomNonce()
+      const amtWei   = ethers.parseUnits(amount, 18)
+      const nonce    = randomNonce()
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
-      const fee = buildFeePayment(feeAmount, deadline)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
-          fee.tx,
           {
-            address: ACUA_AUTOSTAKE_ADDRESS, abi: STAKE_ABI,
+            address: ACUA_AUTOSTAKE_ADDRESS,
+            abi: STAKE_ABI,
             functionName: 'stakeWithPermit2',
             args: [
-              selectedToken.address, amtWei.toString(),
-              { permitted: { token: selectedToken.address, amount: amtWei.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
-              'PERMIT2_SIGNATURE_PLACEHOLDER_1',
+              selectedToken.address,
+              amtWei.toString(),
+              {
+                permitted: { token: selectedToken.address, amount: amtWei.toString() },
+                nonce: nonce.toString(),
+                deadline: deadline.toString(),
+              },
+              'PERMIT2_SIGNATURE_PLACEHOLDER_0',
             ],
           },
         ],
         permit2: [
-          fee.permit2,
-          { permitted: { token: selectedToken.address, amount: amtWei.toString() }, spender: ACUA_AUTOSTAKE_ADDRESS, nonce: nonce.toString(), deadline: deadline.toString() },
+          {
+            permitted: { token: selectedToken.address, amount: amtWei.toString() },
+            spender: ACUA_AUTOSTAKE_ADDRESS,
+            nonce: nonce.toString(),
+            deadline: deadline.toString(),
+          },
         ],
       })
       if (finalPayload.status === 'success') {
-        setMsg({ ok: true, text: `✓ ${amount} ${selectedToken.symbol} depositado · auto-compound activo` })
-        setAmount(''); setTimeout(load, 3000)
-      } else setMsg({ ok: false, text: (finalPayload as any).message ?? 'Rechazado' })
-    } catch (e: any) { setMsg({ ok: false, text: e?.message ?? 'Error' }) }
+        setMsg({ ok: true, text: `✓ ¡${amount} ${selectedToken.symbol} en stake! El auto-compound empieza a trabajar.` })
+        setAmount('')
+        setTimeout(load, 3000)
+      } else {
+        const errMsg = (finalPayload as any).message ?? (finalPayload as any).description ?? ''
+        setMsg({ ok: false, text: errMsg ? `Transacción rechazada: ${errMsg}` : 'Transacción cancelada por el usuario' })
+      }
+    } catch (e: any) {
+      setMsg({ ok: false, text: e?.message ?? 'Error inesperado al enviar la transacción' })
+    }
     finally { setTxLoading(false) }
   }
 
@@ -133,13 +139,26 @@ export function AutoStakePanel({ userAddress }: Props) {
     try {
       const amtWei = ethers.parseUnits(amount, 18)
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{ address: ACUA_AUTOSTAKE_ADDRESS, abi: UNSTAKE_ABI, functionName: 'unstake', args: [selectedToken.address, amtWei.toString()] }],
+        transaction: [
+          {
+            address: ACUA_AUTOSTAKE_ADDRESS,
+            abi: UNSTAKE_ABI,
+            functionName: 'unstake',
+            args: [selectedToken.address, amtWei.toString()],
+          },
+        ],
       })
       if (finalPayload.status === 'success') {
-        setMsg({ ok: true, text: `✓ Retiro de ${amount} ${selectedToken.symbol} exitoso` })
-        setAmount(''); setTimeout(load, 3000)
-      } else setMsg({ ok: false, text: (finalPayload as any).message ?? 'Rechazado' })
-    } catch (e: any) { setMsg({ ok: false, text: e?.message ?? 'Error' }) }
+        setMsg({ ok: true, text: `✓ ¡${amount} ${selectedToken.symbol} retirado exitosamente!` })
+        setAmount('')
+        setTimeout(load, 3000)
+      } else {
+        const errMsg = (finalPayload as any).message ?? (finalPayload as any).description ?? ''
+        setMsg({ ok: false, text: errMsg ? `Transacción rechazada: ${errMsg}` : 'Transacción cancelada por el usuario' })
+      }
+    } catch (e: any) {
+      setMsg({ ok: false, text: e?.message ?? 'Error inesperado al enviar la transacción' })
+    }
     finally { setTxLoading(false) }
   }
 
@@ -332,9 +351,16 @@ export function AutoStakePanel({ userAddress }: Props) {
       </div>
 
       {msg && (
-        <div className={cn('rounded-xl border px-4 py-3 text-xs font-mono font-bold',
-          msg.ok ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-400' : 'border-red-500/40 bg-red-500/5 text-red-400')}>
-          {msg.text}
+        <div className={cn(
+          'rounded-xl border px-4 py-3 flex items-start gap-3',
+          msg.ok
+            ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
+            : 'border-red-500/50 bg-red-500/10 text-red-300',
+        )}>
+          {msg.ok
+            ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-emerald-400" />
+            : <XCircle      className="w-4 h-4 mt-0.5 shrink-0 text-red-400" />}
+          <span className="text-xs font-semibold leading-relaxed">{msg.text}</span>
         </div>
       )}
 
