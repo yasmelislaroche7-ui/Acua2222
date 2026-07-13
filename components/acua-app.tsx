@@ -11,12 +11,11 @@ import {
 } from 'lucide-react'
 import { StakePanel }            from '@/components/stake-panel'
 import { OwnerPanel }            from '@/components/owner-panel'
-import { MultiStakingPanel }     from '@/components/multi-staking-panel'
-import { StakeV2Panel }          from '@/components/stake-v2-panel'
 import { H2OV3Panel }            from '@/components/h2o-v3-panel'
-import { MiningUTH2Panel }       from '@/components/mining-uth2-panel'
-import { MiningWLDPanel }        from '@/components/mining-wld-panel'
 import { MiningTimePanel }       from '@/components/mining-time-panel'
+import { H2OComboPanel }         from '@/components/h2o-combo-panel'
+import { StakeComboPanel }       from '@/components/stake-combo-panel'
+import { MiningComboPanel }      from '@/components/mining-combo-panel'
 import { ContractsOwnerPanel }   from '@/components/contracts-owner-panel'
 import { ContractAdminPanel }    from '@/components/contracts-admin-panel'
 import { AirFunderPanel }        from '@/components/air-funder-panel'
@@ -56,7 +55,8 @@ import {
 import { cn } from '@/lib/utils'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-type Tab = 'h2o' | 'h2o-new' | 'h2o-v3' | 'stake-v2' | 'stake-plus' | 'uth2' | 'wld' | 'time' | 'stake-v5'
+type Tab = 'h2o-combo' | 'stake-combo' | 'mining-combo'
+         | 'h2o-v3' | 'time' | 'stake-v5'
          | 'tokens' | 'swap' | 'tnt' | 'info' | 'admin' | 'monitor' | 'contracts-admin' | 'sushi-v2'
          | 'acua-stake' | 'acua-claim' | 'stake-v4' | 'stake-factory'
          | 'autostake' | 'autostake-mine' | 'autostake-admin'
@@ -142,22 +142,19 @@ function installMiniKitCompat() {
 // ─── Menu config ─────────────────────────────────────────────────────────────
 interface MenuEntry { tab: Tab; icon: React.ReactNode; label: string; badge?: string; color?: string }
 const MENU_STAKING: MenuEntry[] = [
-  { tab: 'h2o',        icon: <Droplets className="w-4 h-4" />,    label: 'Stake H2O',      badge: '12% APY',  color: 'text-cyan-400' },
-  { tab: 'h2o-new',    icon: <img src="/tokens/h2o2.webp" className="w-4 h-4 rounded-full object-cover" alt="H2O 2.0" />,    label: 'H2O 2.0',        badge: 'NUEVO',    color: 'text-blue-400' },
-  { tab: 'h2o-v3',     icon: <Droplets className="w-4 h-4" />,    label: 'H2O v3 Pool',    color: 'text-cyan-300' },
-  { tab: 'stake-v2',   icon: <Wind className="w-4 h-4" />,        label: 'Stake V2',       color: 'text-violet-400' },
-  { tab: 'stake-plus', icon: <TrendingUp className="w-4 h-4" />,  label: 'Stake+',          badge: '8 tokens', color: 'text-emerald-400' },
+  { tab: 'h2o-combo',  icon: <Droplets className="w-4 h-4" />,   label: 'H2O Staking',   badge: 'H2O + 2.0',  color: 'text-cyan-400' },
+  { tab: 'h2o-v3',     icon: <Droplets className="w-4 h-4" />,   label: 'H2O v3 Pool',   color: 'text-cyan-300' },
+  { tab: 'stake-combo',icon: <TrendingUp className="w-4 h-4" />, label: 'Stake',          badge: '+ V2',       color: 'text-emerald-400' },
   { tab: 'sushi-v2',   icon: <span className="text-sm leading-none">🍣</span>, label: 'SUSHI 2.0', badge: '300% APR', color: 'text-red-400' },
   { tab: 'acua-stake', icon: <span className="text-sm leading-none">🪙</span>, label: 'ACUA Stake', badge: '12% APR', color: 'text-violet-400' },
-  { tab: 'stake-v4',  icon: <span className="text-sm leading-none">⚡</span>, label: 'Stake V4',   badge: 'SOLO RETIRO', color: 'text-purple-400' },
-  { tab: 'stake-v5',  icon: <span className="text-sm leading-none">💎</span>, label: 'Stake V5',   badge: '5% FEE', color: 'text-fuchsia-400' },
+  { tab: 'stake-v4',   icon: <span className="text-sm leading-none">⚡</span>, label: 'Stake V4',  badge: 'SOLO RETIRO', color: 'text-purple-400' },
+  { tab: 'stake-v5',   icon: <span className="text-sm leading-none">💎</span>, label: 'Stake V5',  badge: '5% FEE', color: 'text-fuchsia-400' },
   { tab: 'stake-factory', icon: <span className="text-sm leading-none">🏭</span>, label: 'Stake Factory', badge: 'CREA EL TUYO', color: 'text-cyan-400' },
-  { tab: 'autostake',    icon: <span className="text-sm leading-none">♻️</span>,  label: 'AutoStake',    badge: 'AUTO', color: 'text-emerald-400' },
+  { tab: 'autostake',  icon: <span className="text-sm leading-none">♻️</span>, label: 'AutoStake', badge: 'AUTO', color: 'text-emerald-400' },
 ]
 const MENU_MINING: MenuEntry[] = [
-  { tab: 'uth2',          icon: <Pickaxe className="w-4 h-4" />, label: 'UTH₂ → H2O',      color: 'text-orange-400' },
-  { tab: 'wld',           icon: <Star className="w-4 h-4" />,    label: 'WLD → 7 tokens',   color: 'text-yellow-400' },
-  { tab: 'time',          icon: <Clock className="w-4 h-4" />,   label: 'TIME → WLD',       color: 'text-purple-400' },
+  { tab: 'mining-combo',  icon: <Pickaxe className="w-4 h-4" />, label: 'Minería',        badge: 'UTH₂ + WLD', color: 'text-orange-400' },
+  { tab: 'time',          icon: <Clock className="w-4 h-4" />,   label: 'TIME → WLD',     color: 'text-purple-400' },
   { tab: 'autostake-mine',icon: <span className="text-sm leading-none">⛏</span>, label: 'AutoStake Mine', badge: 'EARN 1%', color: 'text-[oklch(0.65_0.22_255)]' },
 ]
 const MENU_MARKET: MenuEntry[] = [
@@ -446,9 +443,8 @@ function NavDrawer({
 
 // ─── Tab label map ───────────────────────────────────────────────────────────
 const TAB_LABELS: Record<Tab, string> = {
-  'h2o': 'Stake H2O', 'h2o-new': 'H2O 2.0', 'h2o-v3': 'H2O v3 Pool',
-  'stake-v2': 'Stake V2', 'stake-plus': 'Stake+', 'uth2': 'Minería UTH₂',
-  'wld': 'Minería WLD', 'time': 'Minería TIME', 'tokens': 'Tokens',
+  'h2o-combo': 'H2O Staking', 'stake-combo': 'Stake', 'mining-combo': 'Minería',
+  'h2o-v3': 'H2O v3 Pool', 'time': 'Minería TIME', 'tokens': 'Tokens',
   'swap': 'Swap', 'tnt': 'T+T Exchange', 'info': 'Info', 'admin': 'Admin', 'monitor': 'Monitor',
   'contracts-admin': 'Admin Contratos', 'sushi-v2': 'SUSHI 2.0',
   'acua-stake': 'ACUA Stake', 'acua-claim': 'Free Claim', 'stake-v4': 'Stake V4 ACUA (solo retiro)',
@@ -466,48 +462,42 @@ const BNB_TAB_LABELS: Record<BNBTab, string> = {
 interface FabItem { tab: Tab; icon: React.ReactNode; label: string; color: string }
 
 const FAB_ITEMS: FabItem[] = [
-  // ── Inner arc (R=90) ──
-  { tab: 'h2o',        icon: <Droplets className="w-3 h-3" />,        label: 'H2O',      color: '#06b6d4' },
-  { tab: 'swap',       icon: <Repeat2 className="w-3 h-3" />,         label: 'Swap',     color: '#3b82f6' },
-  { tab: 'h2o-new',    icon: <img src="/tokens/h2o2.webp" className="w-3 h-3 rounded-full object-cover" alt="H2O 2.0" />, label: 'H2O 2.0', color: '#60a5fa' },
-  { tab: 'h2o-v3',     icon: <Droplets className="w-3 h-3" />,        label: 'H2O v3',   color: '#22d3ee' },
-  { tab: 'stake-v2',   icon: <Wind className="w-3 h-3" />,            label: 'StakeV2',  color: '#a78bfa' },
-  // ── Outer arc (R=162) ──
-  { tab: 'stake-plus', icon: <TrendingUp className="w-3 h-3" />,      label: 'Stake+',   color: '#10b981' },
-  { tab: 'wld',        icon: <Star className="w-3 h-3" />,            label: 'WLD',      color: '#fbbf24' },
-  { tab: 'uth2',       icon: <Pickaxe className="w-3 h-3" />,         label: 'UTH2',     color: '#f97316' },
-  { tab: 'sushi-v2',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🍣</span>, label: 'SUSHI', color: '#ef4444' },
-  { tab: 'tnt',        icon: <ArrowLeftRight className="w-3 h-3" />,  label: 'T+T',      color: '#8b5cf6' },
-  // ── Far arc (R=234, 6 items, 18° steps) ──
-  { tab: 'acua-claim',     icon: <Sparkles className="w-3 h-3" />,                          label: 'Claim',    color: '#34d399' },
-  { tab: 'stake-v4',       icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⚡</span>,   label: 'V4',       color: '#a855f7' },
-  { tab: 'stake-v5',       icon: <span style={{ fontSize: 11, lineHeight: 1 }}>💎</span>,   label: 'V5',       color: '#e879f9' },
-  { tab: 'stake-factory',  icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🏭</span>,   label: 'Factory',  color: '#22d3ee' },
-  { tab: 'autostake',      icon: <span style={{ fontSize: 11, lineHeight: 1 }}>♻️</span>,   label: 'AutoStake',color: '#10b981' },
-  { tab: 'autostake-mine', icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⛏</span>,   label: 'AutoMine', color: '#6366f1' },
+  // ── Inner arc (R=90, 4 items, 30° steps) ──
+  { tab: 'h2o-combo',  icon: <Droplets className="w-3 h-3" />,       label: 'H2O',      color: '#06b6d4' },
+  { tab: 'swap',       icon: <Repeat2 className="w-3 h-3" />,        label: 'Swap',     color: '#3b82f6' },
+  { tab: 'h2o-v3',     icon: <Droplets className="w-3 h-3" />,       label: 'H2O v3',   color: '#22d3ee' },
+  { tab: 'stake-combo',icon: <TrendingUp className="w-3 h-3" />,     label: 'Stake',    color: '#10b981' },
+  // ── Outer arc (R=162, 4 items, 30° steps) ──
+  { tab: 'mining-combo',icon: <Pickaxe className="w-3 h-3" />,       label: 'Minería',  color: '#f97316' },
+  { tab: 'sushi-v2',   icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🍣</span>,  label: 'SUSHI',    color: '#ef4444' },
+  { tab: 'tnt',        icon: <ArrowLeftRight className="w-3 h-3" />, label: 'T+T',      color: '#8b5cf6' },
+  { tab: 'acua-claim', icon: <Sparkles className="w-3 h-3" />,       label: 'Claim',    color: '#34d399' },
+  // ── Far arc (R=234, 5 items, 22.5° steps) ──
+  { tab: 'stake-v4',      icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⚡</span>,  label: 'V4',       color: '#a855f7' },
+  { tab: 'stake-v5',      icon: <span style={{ fontSize: 11, lineHeight: 1 }}>💎</span>,  label: 'V5',       color: '#e879f9' },
+  { tab: 'stake-factory', icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🏭</span>,  label: 'Factory',  color: '#22d3ee' },
+  { tab: 'autostake',     icon: <span style={{ fontSize: 11, lineHeight: 1 }}>♻️</span>,  label: 'AutoStake',color: '#10b981' },
+  { tab: 'autostake-mine',icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⛏</span>,  label: 'AutoMine', color: '#6366f1' },
 ]
 
-// Triple-arc: inner R=90 (5), outer R=162 (5), far R=234 (6, 18° steps)
+// Triple-arc: inner R=90 (4, 30° steps), outer R=162 (4, 30° steps), far R=234 (5, 22.5° steps)
 const FAB_POSITIONS = [
-  // ── Inner arc (R=90, 22.5° steps, θ=90°→180°) ──
-  { dx:   0, dy:  -90 },  // H2O       θ=90°
-  { dx: -34, dy:  -83 },  // Swap      θ=112.5°
-  { dx: -64, dy:  -64 },  // H2O 2.0   θ=135°
-  { dx: -83, dy:  -34 },  // H2O v3    θ=157.5°
-  { dx: -90, dy:    0 },  // Stake V2  θ=180°
-  // ── Outer arc (R=162, 22.5° steps, θ=90°→180°) ──
-  { dx:   0,  dy: -162 }, // Stake+    θ=90°
-  { dx: -62,  dy: -150 }, // WLD       θ=112.5°
-  { dx: -115, dy: -115 }, // UTH2      θ=135°
-  { dx: -150, dy:  -62 }, // SUSHI     θ=157.5°
-  { dx: -162, dy:    0 }, // T+T       θ=180°
-  // ── Far arc (R=234, 18° steps, θ=90°→180°) ──
-  { dx:   0,  dy: -234 }, // Claim     θ=90°
-  { dx:  -72, dy: -223 }, // V4        θ=108°
-  { dx: -138, dy: -189 }, // V5        θ=126°
-  { dx: -189, dy: -138 }, // Factory   θ=144°
-  { dx: -222, dy:  -72 }, // AutoStake θ=162°
-  { dx: -234, dy:    0 }, // AutoMine  θ=180°
+  // ── Inner arc (R=90, 30° steps, θ=0°→90° from vertical) ──
+  { dx:   0, dy:  -90 },  // H2O combo   θ=0°
+  { dx: -45, dy:  -78 },  // Swap        θ=30°
+  { dx: -78, dy:  -45 },  // H2O v3      θ=60°
+  { dx: -90, dy:    0 },  // Stake combo θ=90°
+  // ── Outer arc (R=162, 30° steps) ──
+  { dx:   0, dy: -162 },  // Minería     θ=0°
+  { dx: -81, dy: -140 },  // SUSHI       θ=30°
+  { dx: -140, dy:  -81 }, // T+T         θ=60°
+  { dx: -162, dy:    0 }, // Claim       θ=90°
+  // ── Far arc (R=234, 22.5° steps) ──
+  { dx:   0,  dy: -234 }, // V4          θ=0°
+  { dx:  -90, dy: -216 }, // V5          θ=22.5°
+  { dx: -166, dy: -166 }, // Factory     θ=45°
+  { dx: -216, dy:  -90 }, // AutoStake   θ=67.5°
+  { dx: -234, dy:    0 }, // AutoMine    θ=90°
 ]
 
 function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; activeTab: Tab }) {
@@ -657,7 +647,7 @@ export default function AcuaApp() {
   const [h2oBalance, setH2OBalance]   = useState(0n)
   const [wldBalance, setWLDBalance]   = useState(0n)
   const [loadingData, setLoadingData] = useState(false)
-  const [activeTab, setActiveTab]     = useState<Tab>('h2o')
+  const [activeTab, setActiveTab]     = useState<Tab>('h2o-combo')
   const [activeBNBTab, setActiveBNBTab] = useState<BNBTab>('bnb-stake')
   const [menuOpen, setMenuOpen]       = useState(false)
   const [isNewOwner, setIsNewOwner]   = useState(false)
@@ -901,16 +891,14 @@ export default function AcuaApp() {
           })()}
 
           {/* ── WLD / World Chain app ─────────────── */}
-          {activeNetwork === 'wld' && activeTab === 'h2o' && (
-            <StakePanel userAddress={addr} />
+          {activeNetwork === 'wld' && activeTab === 'h2o-combo' && (
+            <H2OComboPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />
           )}
-
-          {activeNetwork === 'wld' && activeTab === 'h2o-new'    && <NewH2OPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
-          {activeNetwork === 'wld' && activeTab === 'stake-v2'   && <StakeV2Panel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'stake-combo' && <StakeComboPanel userAddress={addr} />}
+          {activeNetwork === 'wld' && activeTab === 'mining-combo' && (
+            <MiningComboPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />
+          )}
           {activeNetwork === 'wld' && activeTab === 'h2o-v3'     && <H2OV3Panel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'stake-plus'  && <MultiStakingPanel userAddress={addr} />}
-          {activeNetwork === 'wld' && activeTab === 'uth2'        && <MiningUTH2Panel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
-          {activeNetwork === 'wld' && activeTab === 'wld'         && <MiningWLDPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
           {activeNetwork === 'wld' && activeTab === 'time'        && <MiningTimePanel userAddress={addr} />}
           {activeNetwork === 'wld' && activeTab === 'tokens'      && <TokenDirectoryPanel />}
           {activeNetwork === 'wld' && activeTab === 'sushi-v2'   && <SushiV2Panel userAddress={addr} />}
