@@ -29,6 +29,7 @@ import { AcuaTokenStakePanel }   from '@/components/acua-token-stake-panel'
 import { AcuaFreeClaimPanel }    from '@/components/acua-free-claim-panel'
 import { StakeV4Panel }          from '@/components/stake-v4-panel'
 import { StakeV5Panel }          from '@/components/stake-v5-panel'
+import { StakeV45ComboPanel }    from '@/components/stake-v45-combo-panel'
 import { StakeFactoryPanel }     from '@/components/stake-factory-panel'
 import { AutoStakePanel }        from '@/components/autostake-panel'
 import { AutoStakeMiningPanel }  from '@/components/autostake-mining-panel'
@@ -55,7 +56,7 @@ import {
 import { cn } from '@/lib/utils'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-type Tab = 'h2o-combo' | 'stake-combo' | 'mining-combo'
+type Tab = 'h2o-combo' | 'stake-combo' | 'mining-combo' | 'stake-v45'
          | 'h2o-v3' | 'time' | 'stake-v5'
          | 'tokens' | 'swap' | 'tnt' | 'info' | 'admin' | 'monitor' | 'contracts-admin' | 'sushi-v2'
          | 'acua-stake' | 'acua-claim' | 'stake-v4' | 'stake-factory'
@@ -145,10 +146,9 @@ const MENU_STAKING: MenuEntry[] = [
   { tab: 'h2o-combo',  icon: <Droplets className="w-4 h-4" />,   label: 'H2O Staking',   badge: 'H2O + 2.0',  color: 'text-cyan-400' },
   { tab: 'h2o-v3',     icon: <Droplets className="w-4 h-4" />,   label: 'H2O v3 Pool',   color: 'text-cyan-300' },
   { tab: 'stake-combo',icon: <TrendingUp className="w-4 h-4" />, label: 'Stake',          badge: '+ V2',       color: 'text-emerald-400' },
+  { tab: 'stake-v45',  icon: <span className="text-sm leading-none">⚡💎</span>, label: 'Stake V4 + V5', badge: 'COMBO', color: 'text-purple-400' },
   { tab: 'sushi-v2',   icon: <span className="text-sm leading-none">🍣</span>, label: 'SUSHI 2.0', badge: '300% APR', color: 'text-red-400' },
   { tab: 'acua-stake', icon: <span className="text-sm leading-none">🪙</span>, label: 'ACUA Stake', badge: '12% APR', color: 'text-violet-400' },
-  { tab: 'stake-v4',   icon: <span className="text-sm leading-none">⚡</span>, label: 'Stake V4',  badge: 'SOLO RETIRO', color: 'text-purple-400' },
-  { tab: 'stake-v5',   icon: <span className="text-sm leading-none">💎</span>, label: 'Stake V5',  badge: '5% FEE', color: 'text-fuchsia-400' },
   { tab: 'stake-factory', icon: <span className="text-sm leading-none">🏭</span>, label: 'Stake Factory', badge: 'CREA EL TUYO', color: 'text-cyan-400' },
   { tab: 'autostake',  icon: <span className="text-sm leading-none">♻️</span>, label: 'AutoStake', badge: 'AUTO', color: 'text-emerald-400' },
 ]
@@ -443,7 +443,7 @@ function NavDrawer({
 
 // ─── Tab label map ───────────────────────────────────────────────────────────
 const TAB_LABELS: Record<Tab, string> = {
-  'h2o-combo': 'H2O Staking', 'stake-combo': 'Stake', 'mining-combo': 'Minería',
+  'h2o-combo': 'H2O Staking', 'stake-combo': 'Stake', 'mining-combo': 'Minería', 'stake-v45': 'Stake V4 + V5',
   'h2o-v3': 'H2O v3 Pool', 'time': 'Minería TIME', 'tokens': 'Tokens',
   'swap': 'Swap', 'tnt': 'T+T Exchange', 'info': 'Info', 'admin': 'Admin', 'monitor': 'Monitor',
   'contracts-admin': 'Admin Contratos', 'sushi-v2': 'SUSHI 2.0',
@@ -467,27 +467,33 @@ const FAB_ITEMS: FabItem[] = [
   { tab: 'swap',        icon: <Repeat2 className="w-3 h-3" />,        label: 'Swap',     color: '#3b82f6' },
   { tab: 'stake-combo', icon: <TrendingUp className="w-3 h-3" />,     label: 'Stake',    color: '#10b981' },
   { tab: 'mining-combo',icon: <Pickaxe className="w-3 h-3" />,        label: 'Minería',  color: '#f97316' },
-  // ── Outer arc (R=162, 5 items, 22.5° steps) ──
+  // ── Outer arc (R=162, 4 items, 30° steps) ──
   { tab: 'autostake',     icon: <span style={{ fontSize: 11, lineHeight: 1 }}>♻️</span>, label: 'AutoStake', color: '#10b981' },
   { tab: 'autostake-mine',icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⛏</span>,  label: 'AutoMine',  color: '#6366f1' },
   { tab: 'sushi-v2',      icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🍣</span>,  label: 'SUSHI',     color: '#ef4444' },
-  { tab: 'tnt',           icon: <ArrowLeftRight className="w-3 h-3" />, label: 'T+T',    color: '#8b5cf6' },
-  { tab: 'acua-claim',    icon: <Sparkles className="w-3 h-3" />,       label: 'Claim',  color: '#34d399' },
+  { tab: 'h2o-v3',        icon: <Droplets className="w-3 h-3" />,                         label: 'H2O v3',    color: '#22d3ee' },
+  // ── Far arc (R=234, 3 items, 30° steps) ──
+  { tab: 'stake-v45',  icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⚡💎</span>, label: 'V4+V5',  color: '#a855f7' },
+  { tab: 'tnt',        icon: <ArrowLeftRight className="w-3 h-3" />,                    label: 'T+T',    color: '#8b5cf6' },
+  { tab: 'acua-claim', icon: <Sparkles className="w-3 h-3" />,                          label: 'Claim',  color: '#34d399' },
 ]
 
-// Doble arco: inner R=90 (4, 30° steps), outer R=162 (5, 22.5° steps)
+// Triple arco: inner R=90 (4, 30°), outer R=162 (4, 30°), far R=234 (3, 30°)
 const FAB_POSITIONS = [
-  // ── Inner arc (R=90, 30° steps, θ=0°→90° desde vertical) ──
+  // ── Inner arc (R=90, 30° steps, θ=0°→90°) ──
   { dx:   0, dy:  -90 },  // H2O combo    θ=0°
   { dx: -45, dy:  -78 },  // Swap         θ=30°
   { dx: -78, dy:  -45 },  // Stake combo  θ=60°
   { dx: -90, dy:    0 },  // Minería      θ=90°
-  // ── Outer arc (R=162, 22.5° steps) ──
-  { dx:   0,  dy: -162 }, // AutoStake    θ=0°
-  { dx:  -62, dy: -150 }, // AutoMine     θ=22.5°
-  { dx: -115, dy: -115 }, // SUSHI        θ=45°
-  { dx: -150, dy:  -62 }, // T+T          θ=67.5°
-  { dx: -162, dy:    0 }, // Claim        θ=90°
+  // ── Outer arc (R=162, 30° steps, θ=0°→90°) ──
+  { dx:   0, dy: -162 },  // AutoStake    θ=0°
+  { dx: -81, dy: -140 },  // AutoMine     θ=30°
+  { dx: -140, dy:  -81 }, // SUSHI        θ=60°
+  { dx: -162, dy:    0 }, // H2O v3       θ=90°
+  // ── Far arc (R=234, 30° steps, θ=0°→60°) ──
+  { dx:   0,  dy: -234 }, // V4+V5        θ=0°
+  { dx: -117, dy: -203 }, // T+T          θ=30°
+  { dx: -203, dy: -117 }, // Claim        θ=60°
 ]
 
 function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; activeTab: Tab }) {
@@ -896,6 +902,7 @@ export default function AcuaApp() {
           {activeNetwork === 'wld' && activeTab === 'tnt'         && <TnTPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
           {activeNetwork === 'wld' && activeTab === 'acua-stake'  && <AcuaTokenStakePanel userAddress={addr} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'acua-claim'  && <AcuaFreeClaimPanel  userAddress={addr} isAdmin={isMainOwner} />}
+          {activeNetwork === 'wld' && activeTab === 'stake-v45'   && <StakeV45ComboPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'stake-v4'    && <StakeV4Panel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'stake-v5'    && <StakeV5Panel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} isAdmin={isMainOwner} />}
           {activeNetwork === 'wld' && activeTab === 'stake-factory'  && <StakeFactoryPanel userAddress={addr} walletMode={wallet.walletMode} importedSigner={wallet.importedSigner} />}
