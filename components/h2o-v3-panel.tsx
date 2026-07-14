@@ -131,7 +131,7 @@ function PoolRow({ pool, position, aprBps, live, usdcRate, onOpen }: PoolRowProp
   const t0 = tokenMeta(pool.token0)
   const t1 = tokenMeta(pool.token1)
   const hasPosition = position && position.liquidity > 0n
-  const hasPending = position && position.netH2O > 0n
+  const hasPending = position && (position.pendingFee0 > 0n || position.pendingFee1 > 0n || position.netH2O > 0n)
   const aprPct = aprBps > 0n ? bpsToPct(aprBps) : null
   const aprNum = Number(aprBps) / 100
   const change = live?.priceChange24h
@@ -226,7 +226,7 @@ function PoolRow({ pool, position, aprBps, live, usdcRate, onOpen }: PoolRowProp
               {aprPct ?? '— %'}
             </div>
             {aprBps > 0n && (
-              <div className="text-[9px] text-cyan-400/60 mt-0.5 font-mono">Recompensa en H2O</div>
+              <div className="text-[9px] text-cyan-400/60 mt-0.5 font-mono">Fees del pool en ambos tokens</div>
             )}
           </div>
           <div className="text-right">
@@ -247,8 +247,8 @@ function PoolRow({ pool, position, aprBps, live, usdcRate, onOpen }: PoolRowProp
               )}
               {hasPending && (
                 <span className="ml-auto text-cyan-300 font-bold whitespace-nowrap">
-                  +{formatCompact(position!.netH2O, 18)} H2O
-                  {pendingUsd > 0n && <span className="text-cyan-400/70 font-normal ml-1">({formatUsd(pendingUsd)})</span>}
+                  +{formatCompact(position!.pendingFee0, t0.decimals)} {t0.symbol}
+                  {position!.pendingFee1 > 0n && <span className="ml-1">+{formatCompact(position!.pendingFee1, t1.decimals)} {t1.symbol}</span>}
                 </span>
               )}
             </div>
@@ -543,7 +543,7 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
 
   async function doClaim() {
     if (!H2O_V3_ADDRESS) return setMsg('Contrato no desplegado')
-    if (!position || position.netH2O === 0n) return setMsg('Nada que reclamar')
+    if (!position || (position.pendingFee0 === 0n && position.pendingFee1 === 0n && position.netH2O === 0n)) return setMsg('Nada que reclamar')
     if (!MiniKit.isInstalled()) return setMsg('World App no está disponible.')
     setLoading(true); setMsg('')
     try {
@@ -618,15 +618,18 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
               <div className="text-[10px] uppercase text-cyan-300/80 tracking-wider font-bold flex items-center gap-1">
                 <Waves className="w-3 h-3" /> Tu posición
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="grid grid-cols-3 gap-2 text-xs">
                 <div>
                   <div className="text-cyan-500/60 text-[10px]">Liquidez</div>
                   <div className="text-cyan-100 font-mono font-bold">{formatCompact(position.liquidity, 0)}</div>
                 </div>
                 <div>
-                  <div className="text-cyan-500/60 text-[10px]">Reclamable</div>
-                  <div className="text-cyan-300 font-mono font-bold">{formatCompact(position.netH2O, 18)} H2O</div>
-                  {pendingUsd > 0n && <div className="text-[9px] text-cyan-400/70 font-mono">≈ {formatUsd(pendingUsd)}</div>}
+                  <div className="text-cyan-500/60 text-[10px]">{t0.symbol} fees</div>
+                  <div className="text-cyan-300 font-mono font-bold">{formatCompact(position.pendingFee0, t0.decimals)}</div>
+                </div>
+                <div>
+                  <div className="text-cyan-500/60 text-[10px]">{t1.symbol} fees</div>
+                  <div className="text-cyan-300 font-mono font-bold">{formatCompact(position.pendingFee1, t1.decimals)}</div>
                 </div>
               </div>
             </div>
@@ -765,20 +768,31 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
 
           {tab === 'claim' && (
             <div className="space-y-3">
-              {!position || position.netH2O === 0n ? (
+              {!position || (position.pendingFee0 === 0n && position.pendingFee1 === 0n && position.netH2O === 0n) ? (
                 <div className="text-center py-6 text-sm text-cyan-500/60">Sin recompensas para reclamar</div>
               ) : (
                 <>
-                  <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-br from-cyan-500/15 to-blue-500/10 p-5 text-center shadow-[0_0_24px_-8px_rgba(34,211,238,0.5)]">
-                    <div className="text-[10px] uppercase text-cyan-300/80 tracking-wider font-bold">Recompensa neta</div>
-                    <div className="text-3xl font-extrabold text-cyan-100 mt-1 font-mono">
-                      {formatToken(position.netH2O, 18, 4)}
+                  <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-br from-cyan-500/15 to-blue-500/10 p-4 space-y-3 shadow-[0_0_24px_-8px_rgba(34,211,238,0.5)]">
+                    <div className="text-[10px] uppercase text-cyan-300/80 tracking-wider font-bold text-center">Comisiones del pool</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-xl bg-cyan-950/60 border border-cyan-500/20 p-3 text-center">
+                        <div className="text-[9px] uppercase text-cyan-400/60 tracking-wider">{t0.symbol}</div>
+                        <div className="text-lg font-extrabold text-cyan-100 font-mono mt-0.5">
+                          {formatToken(position.pendingFee0, t0.decimals, 6)}
+                        </div>
+                      </div>
+                      <div className="rounded-xl bg-cyan-950/60 border border-cyan-500/20 p-3 text-center">
+                        <div className="text-[9px] uppercase text-cyan-400/60 tracking-wider">{t1.symbol}</div>
+                        <div className="text-lg font-extrabold text-cyan-100 font-mono mt-0.5">
+                          {formatToken(position.pendingFee1, t1.decimals, 6)}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-xs text-cyan-300/80 mt-1 font-bold">H2O</div>
+                    <div className="text-[10px] text-cyan-400/60 text-center">Comisión de retiro: 10% · Generado por fees del pool</div>
                   </div>
                   <Button onClick={doClaim} disabled={loading} className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold shadow-[0_0_24px_-4px_rgba(34,211,238,0.6)]">
                     {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Gift className="w-4 h-4 mr-2" />}
-                    Reclamar H2O
+                    Reclamar {t0.symbol} + {t1.symbol}
                   </Button>
                 </>
               )}
@@ -800,7 +814,7 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
           <div className="text-[10px] text-cyan-500/60 flex items-start gap-1.5 pt-2 border-t border-cyan-500/10">
             <Info className="w-3 h-3 shrink-0 mt-0.5" />
             <span>
-              Recompensas pagadas en H2O al precio spot · Posición {pool.stable ? 'narrow range' : 'full-range Uniswap V3'} {pool.stable ? '' : 'nunca sale de rango'}.
+              Recompensas en {t0.symbol} + {t1.symbol} (fees del pool) · 10% comisión de retiro · Posición {pool.stable ? 'narrow range' : 'full-range Uniswap V3'}.
             </span>
           </div>
         </div>
@@ -993,11 +1007,10 @@ export function H2OV3Panel({ userAddress }: { userAddress: string }) {
   }, [userAddress])
 
   // ─── Claim All ──────────────────────────────────────────────────────────────
-  const TWO_H2O = 2_000_000_000_000_000_000n
   const claimablePools = useMemo(
     () => pools.filter(p => {
       const pos = positions[p.poolId]
-      return pos && pos.netH2O >= TWO_H2O
+      return pos && (pos.pendingFee0 > 0n || pos.pendingFee1 > 0n || pos.netH2O > 0n)
     }),
     [pools, positions],
   )

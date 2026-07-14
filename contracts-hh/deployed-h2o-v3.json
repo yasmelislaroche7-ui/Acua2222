@@ -3,7 +3,7 @@
   "network": "worldchain",
   "chainId": 480,
   "deployer": "0x54F0D557E8042eC70974d2e85331BE5D66fFe5F4",
-  "contract": "0xC1feC35ea295EE867e41D1b80a23809C39ac6868",
+  "contract": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
   "npm": "0xec12a9F9a09f50550686363766Cc153D03c27b5e",
   "pricing": {
     "usdcWldPool": "0xC19BC89ac024426F5A23c5bb8bc91D8017c90684",
@@ -896,7 +896,7 @@
   "fees": {
     "depositBps": 200,
     "withdrawBps": 200,
-    "claimBps": 2000
+    "claimBps": 1000
   },
   "repairedAt": "2026-04-28T00:54:38.209Z",
   "expandedAt": "2026-04-28T04:23:26.540Z"

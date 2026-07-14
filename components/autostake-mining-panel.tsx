@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import {
   ACUA_AUTOSTAKE_ADDRESS, DEPLOYED,
-  CLAIM_FOR_ABI, CLAIM_BATCH_ABI,
+  CLAIM_FOR_ABI,
   fetchContractStats, fetchClaimablePositions, fetchAllPositions,
   fmtToken, type ClaimablePosition, type TokenInfo,
 } from '@/lib/autostake'
@@ -52,7 +52,7 @@ function BlockCard({ pos, idx, mining, mined, earned, onMine, blockNum }: {
   earned: bigint | null; onMine: () => void; blockNum: number
 }) {
   const [fakeHash, setFakeHash] = useState(hashOf(pos.user + idx))
-  const iv = useRef<ReturnType<typeof setInterval>>()
+  const iv = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   useEffect(() => {
     if (mining) {
       iv.current = setInterval(() => {
@@ -195,7 +195,6 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
   const [miningIdx, setMiningIdx]   = useState<number | null>(null)
   const [minedSet, setMinedSet]     = useState<Set<number>>(new Set())
   const [earnedMap, setEarnedMap]   = useState<Map<number, bigint>>(new Map())
-  const [batchLoading, setBatch]    = useState(false)
   const [totalEarned, setTotal]     = useState(0n)
   const [logs, setLogs]             = useState<LogEntry[]>([])
   const [nextRefresh, setNext]      = useState(COOLDOWN_SEC)
@@ -282,27 +281,6 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
     } catch (e: any) {
       addLog('mine', `✗ Error: ${e?.message ?? 'unknown'}`, false)
     } finally { setMiningIdx(null) }
-  }
-
-  async function doMineAll() {
-    if (!selectedToken || !claimable.length) return
-    setBatch(true)
-    const eligible = claimable.filter((_, i) => !minedSet.has(i))
-    if (!eligible.length) { setBatch(false); return }
-    addLog('batch', `Iniciando batch: ${eligible.length} bloques`)
-    try {
-      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [{ address: ACUA_AUTOSTAKE_ADDRESS, abi: CLAIM_BATCH_ABI, functionName: 'claimForBatch', args: [selectedToken.address, eligible.map(p => p.user)] }],
-      })
-      if (finalPayload.status === 'success') {
-        const totalE = eligible.reduce((a, p) => a + p.processorEarns, 0n)
-        const nm = new Set(minedSet); const ne = new Map(earnedMap)
-        claimable.forEach((p, i) => { if (!minedSet.has(i)) { nm.add(i); ne.set(i, p.processorEarns) } })
-        setMinedSet(nm); setEarnedMap(ne); setTotal(prev => prev + totalE)
-        addLog('batch', `✓ Batch confirmado · ${eligible.length} bloques · +${fmtToken(totalE, 18, 8)} ${selectedToken.symbol}`)
-      } else addLog('batch', `✗ Batch rechazado`, false)
-    } catch (e: any) { addLog('batch', `✗ Batch error: ${e?.message ?? 'unknown'}`, false) }
-    finally { setBatch(false) }
   }
 
   const pendingCount = claimable.filter((_, i) => !minedSet.has(i)).length
@@ -400,15 +378,6 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
       {/* ── Mine tab ── */}
       {tab === 'mine' && (
         <div className="space-y-3">
-          {pendingCount > 0 && (
-            <Button disabled={batchLoading} onClick={doMineAll}
-              className="w-full h-12 font-black text-sm tracking-wide border-0"
-              style={{ background: 'linear-gradient(135deg, oklch(0.55 0.25 290), oklch(0.55 0.25 255))' }}>
-              {batchLoading
-                ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />PROCESANDO BATCH...</>
-                : <><Zap className="w-4 h-4 mr-2" />MINAR TODOS ({pendingCount} BLOQUES)</>}
-            </Button>
-          )}
           {loading ? (
             <div className="flex flex-col items-center py-10 gap-3">
               <Cpu className="w-10 h-10 text-[oklch(0.65_0.22_255)] animate-pulse" />
