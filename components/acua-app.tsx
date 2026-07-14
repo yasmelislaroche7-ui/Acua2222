@@ -474,8 +474,9 @@ const FAB_ITEMS: FabItem[] = [
   { tab: 'h2o-v3',        icon: <Droplets className="w-3 h-3" />,                         label: 'H2O v3',    color: '#22d3ee' },
   // ── Far arc (R=234, 3 items, 30° steps) ──
   { tab: 'stake-v45',  icon: <span style={{ fontSize: 11, lineHeight: 1 }}>⚡💎</span>, label: 'V4+V5',  color: '#a855f7' },
-  { tab: 'tnt',        icon: <ArrowLeftRight className="w-3 h-3" />,                    label: 'T+T',    color: '#8b5cf6' },
-  { tab: 'acua-claim', icon: <Sparkles className="w-3 h-3" />,                          label: 'Claim',  color: '#34d399' },
+  { tab: 'tnt',           icon: <ArrowLeftRight className="w-3 h-3" />,                    label: 'T+T',    color: '#8b5cf6' },
+  { tab: 'acua-claim',   icon: <Sparkles className="w-3 h-3" />,                          label: 'Claim',  color: '#34d399' },
+  { tab: 'stake-factory', icon: <span style={{ fontSize: 11, lineHeight: 1 }}>🏭</span>, label: 'Factory', color: '#22d3ee' },
 ]
 
 // Triple arco: inner R=90 (4, 30°), outer R=162 (4, 30°), far R=234 (3, 30°)
@@ -490,10 +491,11 @@ const FAB_POSITIONS = [
   { dx: -81, dy: -140 },  // AutoMine     θ=30°
   { dx: -140, dy:  -81 }, // SUSHI        θ=60°
   { dx: -162, dy:    0 }, // H2O v3       θ=90°
-  // ── Far arc (R=234, 30° steps, θ=0°→60°) ──
+  // ── Far arc (R=234, 30° steps, θ=0°→90°) ──
   { dx:   0,  dy: -234 }, // V4+V5        θ=0°
   { dx: -117, dy: -203 }, // T+T          θ=30°
   { dx: -203, dy: -117 }, // Claim        θ=60°
+  { dx: -234, dy:    0 }, // Factory      θ=90°
 ]
 
 function FloatingFab({ onSelect, activeTab }: { onSelect: (t: Tab) => void; activeTab: Tab }) {
