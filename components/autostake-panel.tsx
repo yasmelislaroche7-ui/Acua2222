@@ -60,6 +60,8 @@ export function AutoStakePanel({ userAddress }: Props) {
   const [txLoading, setTxLoading]   = useState(false)
   const [msg, setMsg]               = useState<{ ok: boolean; text: string } | null>(null)
   const [scanLine, setScanLine]     = useState(0)
+  const [walletBal, setWalletBal]   = useState<bigint>(0n)
+  const [balLoading, setBalLoading] = useState(false)
 
   // Scan line animation
   useEffect(() => {
@@ -82,6 +84,25 @@ export function AutoStakePanel({ userAddress }: Props) {
   }, [userAddress, selectedToken])
 
   useEffect(() => { load() }, [load])
+
+  // ── Fetch wallet balance when token or tab changes ──────────────────────────
+  useEffect(() => {
+    if (!selectedToken || !userAddress || tab !== 'stake') return
+    let cancelled = false
+    setBalLoading(true)
+    const fetchBal = async () => {
+      try {
+        const { ethers: _ethers } = await import('ethers')
+        const { getProvider } = await import('@/lib/new-contracts')
+        const erc20 = new _ethers.Contract(selectedToken.address, ['function balanceOf(address) view returns (uint256)'], getProvider())
+        const bal = await erc20.balanceOf(userAddress)
+        if (!cancelled) setWalletBal(BigInt(bal.toString()))
+      } catch { if (!cancelled) setWalletBal(0n) }
+      finally { if (!cancelled) setBalLoading(false) }
+    }
+    fetchBal()
+    return () => { cancelled = true }
+  }, [selectedToken, userAddress, tab])
 
   const userPos = positions.find(p => p.token === selectedToken?.address)
 
@@ -327,11 +348,24 @@ export function AutoStakePanel({ userAddress }: Props) {
                 <span className="text-[10px] font-mono text-muted-foreground">
                   {tab === 'stake' ? 'DEPOSITAR' : 'RETIRAR'}
                 </span>
-                {tab === 'unstake' && userPos && (
-                  <button onClick={() => setAmount(ethers.formatUnits(userPos.amount, 18))}
-                    className="text-[10px] font-mono text-[oklch(0.65_0.22_255)] hover:underline">
-                    MAX {fmtToken(userPos.amount)} {userPos.symbol}
+                {tab === 'stake' ? (
+                  <button
+                    onClick={() => setAmount(ethers.formatUnits(walletBal, 18))}
+                    disabled={walletBal === 0n}
+                    className="flex items-center gap-1 text-[10px] font-mono text-[oklch(0.65_0.22_255)] hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {balLoading
+                      ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      : <>Wallet: <span className="font-bold">{fmtToken(walletBal, 18, 4)}</span> {selectedToken.symbol} · MAX</>
+                    }
                   </button>
+                ) : (
+                  userPos && (
+                    <button onClick={() => setAmount(ethers.formatUnits(userPos.amount, 18))}
+                      className="text-[10px] font-mono text-[oklch(0.65_0.22_255)] hover:underline">
+                      MAX {fmtToken(userPos.amount)} {userPos.symbol}
+                    </button>
+                  )
                 )}
               </div>
               <div className="flex items-center gap-3 rounded-xl border border-[oklch(0.65_0.22_255)]/30 bg-black/30 px-4 py-3 focus-within:border-[oklch(0.65_0.22_255)]/60 transition-colors">
@@ -342,6 +376,11 @@ export function AutoStakePanel({ userAddress }: Props) {
                 />
                 <span className="font-bold text-sm text-muted-foreground">{selectedToken.symbol}</span>
               </div>
+              {tab === 'stake' && walletBal > 0n && amount && parseFloat(amount) > walletBal / 10n ** 18n && (
+                <p className="text-[9px] font-mono text-rose-400/70">
+                  ⚠ Saldo insuficiente · tienes {fmtToken(walletBal, 18, 4)} {selectedToken.symbol}
+                </p>
+              )}
               {tab === 'stake' && selectedToken.minStake > 0n && (
                 <p className="text-[9px] font-mono text-rose-400/70">
                   · mín {fmtToken(selectedToken.minStake, 18, 0)} {selectedToken.symbol} (neto de fee)

@@ -193,6 +193,7 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
   const [loading, setLoading]       = useState(false)
   const [tab, setTab]               = useState<'mine' | 'all' | 'log'>('mine')
   const [miningIdx, setMiningIdx]   = useState<number | null>(null)
+  const [miningQueue, setMiningQueue] = useState(false)
   const [minedSet, setMinedSet]     = useState<Set<number>>(new Set())
   const [earnedMap, setEarnedMap]   = useState<Map<number, bigint>>(new Map())
   const [totalEarned, setTotal]     = useState(0n)
@@ -201,18 +202,23 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
   const [uptime, setUptime]         = useState(0)
   const [baseBlock]                 = useState(() => pseudoHeight(userAddress || '0x1234'))
   const logRef = useRef<HTMLDivElement>(null)
+  const stopQueueRef = useRef(false)
 
   function addLog(type: LogEntry['type'], text: string, ok = true) {
     setLogs(prev => [{ id: crypto.randomUUID?.() ?? Math.random().toString(), type, text, timestamp: Date.now(), ok }, ...prev].slice(0, 50))
   }
 
-  async function loadClaimable(tk: TokenInfo, silent = false) {
+  // ── Load ALL tokens' claimable positions (unified queue) ────────────────────
+  async function loadClaimableAll(tks: TokenInfo[], silent = false) {
     if (!silent) setLoading(true)
     try {
-      const c = await fetchClaimablePositions(tk.address, tk.symbol, 100)
-      setClaimable(c)
+      const results = await Promise.all(
+        tks.map(tk => fetchClaimablePositions(tk.address, tk.symbol, 100).catch(() => [] as ClaimablePosition[]))
+      )
+      const combined = results.flat()
+      setClaimable(combined)
       setMinedSet(new Set()); setEarnedMap(new Map())
-      addLog('scan', `Scan: ${c.length} bloques en cola · token ${tk.symbol}`)
+      addLog('scan', `Scan: ${combined.length} bloques en cola · ${tks.length} token(s)`)
     } catch (e: any) {
       addLog('scan', `Error scan: ${e?.message ?? 'unknown'}`, false)
     } finally { if (!silent) setLoading(false) }
@@ -231,21 +237,30 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
       const stats = await fetchContractStats()
       setTokens(stats.tokens)
       const tk = stats.tokens[0] ?? null
-      if (tk) { setSelectedToken(tk); await Promise.all([loadClaimable(tk), loadAll(tk)]) }
+      if (tk) { setSelectedToken(tk) }
+      if (stats.tokens.length > 0) {
+        await Promise.all([
+          loadClaimableAll(stats.tokens),
+          loadAll(stats.tokens[0]),
+        ])
+      }
     } finally { setLoading(false) }
   }, [])
 
   useEffect(() => { init() }, [init])
 
-  // Clock + auto-refresh
+  // Clock + auto-refresh (all tokens)
+  const tokensRef = useRef<TokenInfo[]>([])
+  useEffect(() => { tokensRef.current = tokens }, [tokens])
+
   useEffect(() => {
     const t = setInterval(() => {
       setUptime(p => p + 1)
       setNext(p => {
         if (p <= 1) {
-          if (selectedToken) {
-            loadClaimable(selectedToken, true)
-            addLog('refresh', `Auto-refresh ciclo ${Math.floor(uptime / COOLDOWN_SEC) + 1}`)
+          if (tokensRef.current.length > 0) {
+            loadClaimableAll(tokensRef.current, true)
+            addLog('refresh', `Auto-refresh · ${tokensRef.current.length} token(s) escaneados`)
           }
           return COOLDOWN_SEC
         }
@@ -253,18 +268,18 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
       })
     }, 1000)
     return () => clearInterval(t)
-  }, [selectedToken, uptime])
+  }, [])
 
   async function switchToken(tk: TokenInfo) {
-    setSelectedToken(tk); setClaimable([]); setAllPos([])
+    setSelectedToken(tk)
     setLoading(true)
-    try { await Promise.all([loadClaimable(tk), loadAll(tk)]) }
+    try { await loadAll(tk) }
     finally { setLoading(false) }
   }
 
   async function doMine(pos: ClaimablePosition, idx: number) {
     setMiningIdx(idx)
-    addLog('mine', `Minando bloque #${baseBlock + idx} · user ${shortAddr(pos.user)}`)
+    addLog('mine', `Minando bloque #${baseBlock + idx} · user ${shortAddr(pos.user)} · ${pos.symbol}`)
     try {
       const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [{ address: ACUA_AUTOSTAKE_ADDRESS, abi: CLAIM_FOR_ABI, functionName: 'claimFor', args: [pos.token, pos.user] }],
@@ -281,6 +296,21 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
     } catch (e: any) {
       addLog('mine', `✗ Error: ${e?.message ?? 'unknown'}`, false)
     } finally { setMiningIdx(null) }
+  }
+
+  // ── Mine all pending in sequence ─────────────────────────────────────────────
+  async function doMineAll() {
+    const pending = claimable.map((pos, i) => ({ pos, i })).filter(({ i }) => !minedSet.has(i))
+    if (pending.length === 0) return
+    stopQueueRef.current = false
+    setMiningQueue(true)
+    addLog('batch', `Iniciando cola: ${pending.length} bloques`)
+    for (const { pos, i } of pending) {
+      if (stopQueueRef.current) { addLog('batch', '⏹ Cola detenida por usuario'); break }
+      await doMine(pos, i)
+    }
+    setMiningQueue(false)
+    addLog('batch', `Cola completada · ${minedSet.size} minados`)
   }
 
   const pendingCount = claimable.filter((_, i) => !minedSet.has(i)).length
@@ -391,8 +421,41 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
             </div>
           ) : (
             <div className="space-y-3">
+              {/* ── Mine-All banner ── */}
+              <div className="rounded-2xl border border-[oklch(0.65_0.22_255)]/40 bg-[oklch(0.65_0.22_255)]/5 p-3 flex items-center justify-between gap-3">
+                <div className="font-mono min-w-0">
+                  <p className="text-[11px] font-bold text-[oklch(0.65_0.22_255)]">
+                    {pendingCount} bloque{pendingCount !== 1 ? 's' : ''} · todos los tokens
+                  </p>
+                  <p className="text-[9px] text-muted-foreground/60 truncate">
+                    {tokens.map(t => t.symbol).join(' · ')} · cola unificada
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {miningQueue && (
+                    <button
+                      onClick={() => { stopQueueRef.current = true }}
+                      className="px-2.5 py-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-400 text-[10px] font-bold font-mono"
+                    >
+                      ⏹ Stop
+                    </button>
+                  )}
+                  <button
+                    onClick={doMineAll}
+                    disabled={miningQueue || miningIdx !== null || pendingCount === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold font-mono transition-all disabled:opacity-50"
+                    style={{ background: miningQueue ? '#6366f180' : 'linear-gradient(135deg, #6366f1, #3b82f6)', color: '#fff' }}
+                  >
+                    {miningQueue
+                      ? <><Loader2 className="w-3 h-3 animate-spin" /> Minando…</>
+                      : <><Zap className="w-3 h-3" /> Minar Todo ({pendingCount})</>}
+                  </button>
+                </div>
+              </div>
+
+              {/* ── Individual block cards ── */}
               {claimable.map((pos, i) => (
-                <BlockCard key={`${pos.user}-${i}`} pos={pos} idx={i} blockNum={baseBlock}
+                <BlockCard key={`${pos.token}-${pos.user}-${i}`} pos={pos} idx={i} blockNum={baseBlock}
                   mining={miningIdx === i} mined={minedSet.has(i)} earned={earnedMap.get(i) ?? null}
                   onMine={() => doMine(pos, i)} />
               ))}
