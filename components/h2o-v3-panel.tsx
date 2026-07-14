@@ -509,7 +509,7 @@ function PoolDialog({ pool, position, live, aprBps, usdcRate, userAddress, onClo
         setAmount0(''); setAmount1('')
         setTimeout(onRefresh, 2500)
       } else {
-        setMsg('Transacción rechazada')
+        setMsg(parseMiniKitTxError(finalPayload))
       }
     } catch (e: any) { setMsg(e.message || 'Error') }
     finally { setLoading(false) }
@@ -1373,7 +1373,7 @@ function AprHeroBanner({ bestApr, poolCount, tvlUsd, totalTVL }: {
         <div className="relative mt-3 pt-2.5 border-t border-cyan-500/15 flex items-center gap-3 text-[10px] text-cyan-400/70">
           <span className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-            Recompensas en H2O
+            Fees en ambos tokens
           </span>
           <span className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse inline-block" style={{ animationDelay: '0.5s' }} />
@@ -2003,131 +2003,107 @@ function H2OPoolsSection({ userAddress, managedPools = [] }: { userAddress?: str
               </div>
             </div>
 
-            {/* ── Inline deposit form (all pools) ───────────────────────────── */}
+            {/* ── Inline deposit form ──────────────────────────────────────── */}
             {isDepositOpen && (
-              <div className="mt-1 rounded-xl border border-cyan-500/25 bg-gradient-to-br from-cyan-950/20 to-slate-950/30 p-3 space-y-3">
-                <div className="text-[10px] font-bold text-cyan-300 flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1.5">
-                    <Droplets className="w-3 h-3" />
-                    Aportar liquidez · rango completo
-                  </span>
-                  <span className={cn('px-1.5 py-0.5 rounded text-[8px] font-bold', ep.managed ? 'bg-emerald-500/20 text-emerald-300' : 'bg-sky-500/15 text-sky-400')}>
-                    {ep.managed ? 'Permit2' : 'Approve + Mint'}
+              <div className="mt-1 rounded-2xl border border-cyan-500/25 bg-gradient-to-br from-cyan-950/30 to-slate-950/50 p-3 space-y-2.5 shadow-[0_0_20px_-8px_rgba(34,211,238,0.3)]">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Droplets className="w-3.5 h-3.5 text-cyan-400" />
+                    <span className="text-[11px] font-bold text-cyan-200">Aportar liquidez</span>
+                  </div>
+                  <span className={cn('px-2 py-0.5 rounded-full text-[8px] font-bold border', ep.managed ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-sky-500/10 border-sky-500/25 text-sky-400')}>
+                    {ep.managed ? '⚡ Permit2' : 'Uniswap V3'}
                   </span>
                 </div>
 
-                {/* Token 0 input */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[9px] text-sky-400/70">
-                    <span className="font-bold">{t0Meta.symbol}</span>
-                    <span>Saldo: <span className="text-cyan-300 font-mono">{fmtBal(bal0, d0)}</span>
-                      <button
-                        onClick={() => { const v = ethers.formatUnits(bal0, d0); onAmt0Change(v, sqrtPriceX96, d0, d1) }}
-                        className="ml-1.5 text-[8px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-bold"
-                      >MAX</button>
-                    </span>
+                {/* Hint */}
+                <div className="text-[9px] text-cyan-400/50 text-center">
+                  Ingresa un monto — calculamos el otro automáticamente al precio del pool
+                </div>
+
+                {/* Token 0 */}
+                <div className="rounded-xl border border-cyan-500/20 bg-black/20 px-3 py-2 space-y-1">
+                  <div className="flex items-center justify-between text-[9px]">
+                    <div className="flex items-center gap-1.5">
+                      <TokenIcon symbol={t0Meta.symbol} logoUrl={t0Meta.logoUrl} size={16} />
+                      <span className="font-bold text-cyan-200">{t0Meta.symbol}</span>
+                    </div>
+                    <button onClick={() => { const v = ethers.formatUnits(bal0, d0); onAmt0Change(v, sqrtPriceX96, d0, d1) }}
+                      className="text-cyan-500/70 hover:text-cyan-300 font-mono">
+                      Bal: {fmtBal(bal0, d0)} <span className="text-[8px] ml-0.5 bg-cyan-500/15 px-1 py-0.5 rounded text-cyan-400">MAX</span>
+                    </button>
                   </div>
-                  <input
-                    type="number" min="0" step="any"
-                    value={amount0}
+                  <input type="number" min="0" step="any" value={amount0}
                     onChange={e => onAmt0Change(e.target.value, sqrtPriceX96, d0, d1)}
                     placeholder="0.0"
-                    className="w-full rounded-lg px-3 py-2 bg-black/30 border border-cyan-500/20 text-white font-mono text-sm outline-none placeholder:text-white/20 focus:border-cyan-400/50"
+                    className="w-full bg-transparent text-lg font-mono outline-none text-white placeholder:text-white/20"
                   />
                 </div>
 
-                {/* Token 1 input */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[9px] text-sky-400/70">
-                    <span className="font-bold">{t1Meta.symbol}</span>
-                    <span>Saldo: <span className="text-cyan-300 font-mono">{fmtBal(bal1, d1)}</span>
-                      <button
-                        onClick={() => { const v = ethers.formatUnits(bal1, d1); onAmt1Change(v, sqrtPriceX96, d0, d1) }}
-                        className="ml-1.5 text-[8px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-bold"
-                      >MAX</button>
-                    </span>
+                {/* Separator */}
+                <div className="flex justify-center -my-0.5">
+                  <div className="w-6 h-6 rounded-full bg-cyan-500/15 border border-cyan-500/25 flex items-center justify-center text-cyan-300 text-xs font-bold">+</div>
+                </div>
+
+                {/* Token 1 */}
+                <div className="rounded-xl border border-cyan-500/20 bg-black/20 px-3 py-2 space-y-1">
+                  <div className="flex items-center justify-between text-[9px]">
+                    <div className="flex items-center gap-1.5">
+                      <TokenIcon symbol={t1Meta.symbol} logoUrl={t1Meta.logoUrl} size={16} />
+                      <span className="font-bold text-cyan-200">{t1Meta.symbol}</span>
+                    </div>
+                    <button onClick={() => { const v = ethers.formatUnits(bal1, d1); onAmt1Change(v, sqrtPriceX96, d0, d1) }}
+                      className="text-cyan-500/70 hover:text-cyan-300 font-mono">
+                      Bal: {fmtBal(bal1, d1)} <span className="text-[8px] ml-0.5 bg-cyan-500/15 px-1 py-0.5 rounded text-cyan-400">MAX</span>
+                    </button>
                   </div>
-                  <input
-                    type="number" min="0" step="any"
-                    value={amount1}
+                  <input type="number" min="0" step="any" value={amount1}
                     onChange={e => onAmt1Change(e.target.value, sqrtPriceX96, d0, d1)}
                     placeholder="0.0"
-                    className="w-full rounded-lg px-3 py-2 bg-black/30 border border-cyan-500/20 text-white font-mono text-sm outline-none placeholder:text-white/20 focus:border-cyan-400/50"
+                    className="w-full bg-transparent text-lg font-mono outline-none text-white placeholder:text-white/20"
                   />
                 </div>
 
-                {/* Ratio hint */}
-                {sqrtPriceX96 > 0n && amount0 && amount1 && parseFloat(amount0) > 0 && (
-                  <div className="text-[9px] text-sky-400/60 font-mono text-center">
+                {/* Price ratio */}
+                {sqrtPriceX96 > 0n && amount0 && amount1 && parseFloat(amount0) > 0 && parseFloat(amount1) > 0 && (
+                  <div className="text-[9px] text-sky-400/60 font-mono text-center bg-sky-950/30 rounded-lg py-1.5 border border-sky-500/10">
                     1 {t0Meta.symbol} ≈ {(parseFloat(amount1) / parseFloat(amount0)).toFixed(d1 < 10 ? 2 : 6)} {t1Meta.symbol}
                   </div>
                 )}
 
-                {/* Non-managed: NFPM info banner */}
-                {!ep.managed && (
-                  <div className="rounded-lg border border-amber-500/25 bg-amber-950/20 p-2.5 space-y-1.5 text-[9px]">
-                    <div className="flex items-center gap-1.5 text-amber-300 font-bold">
-                      <AlertCircle className="w-3 h-3 shrink-0" />
-                      Este pool usa Uniswap V3 directamente
-                    </div>
-                    <p className="text-amber-200/60 leading-relaxed">
-                      Para depositar in-app necesitas agregar el <span className="font-bold text-amber-200">NonfungiblePositionManager</span> a tu portal de desarrollador:
-                    </p>
-                    <div className="bg-black/30 rounded px-2 py-1 font-mono text-amber-300/80 text-[8px] break-all select-all">
-                      {UNIV3_POSITION_MANAGER}
-                    </div>
-                    <p className="text-amber-200/50 text-[8px]">O usa el botón Uniswap abajo — abre dentro de World App.</p>
-                  </div>
-                )}
+                {/* Deposit button */}
+                <button
+                  onClick={() => doDeposit(ep)}
+                  disabled={depositing || !amount0 || !amount1 || parseFloat(amount0) <= 0 || parseFloat(amount1) <= 0}
+                  className={cn(
+                    'w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50',
+                    ep.managed
+                      ? 'bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white shadow-[0_0_16px_-4px_rgba(16,185,129,0.5)]'
+                      : 'bg-gradient-to-r from-sky-600 to-cyan-700 hover:from-sky-500 hover:to-cyan-600 text-white',
+                  )}
+                >
+                  {depositing
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirmando en World App…</>
+                    : <><Droplets className="w-4 h-4" /> Aportar {ep.pairSymbol}</>}
+                </button>
 
-                {/* Deposit button — managed: Permit2 / non-managed: Uniswap redirect */}
-                {ep.managed ? (
-                  <button
-                    onClick={() => doDeposit(ep)}
-                    disabled={depositing || !amount0 || !amount1}
-                    className="w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                    style={{ background: 'linear-gradient(135deg, #059669, #0891b2)', color: '#fff' }}
-                  >
-                    {depositing
-                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirmando…</>
-                      : <>+ Aportar Liquidez {ep.pairSymbol}</>
-                    }
-                  </button>
-                ) : (
-                  <div className="space-y-1.5">
-                    <button
-                      onClick={() => doDeposit(ep)}
-                      disabled={depositing || !amount0 || !amount1}
-                      className="w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                      style={{ background: 'linear-gradient(135deg, #0369a1, #0e7490)', color: '#fff' }}
-                    >
-                      {depositing
-                        ? <><Loader2 className="w-4 h-4 animate-spin" /> Confirmando…</>
-                        : <>+ Depositar (NFPM · in-app)</>
-                      }
-                    </button>
-                    <a
-                      href={uniswapLink(ep)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 transition-all"
-                    >
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M6.5 2.5C6.5 2.5 4 7 4 10c0 1.933.944 3.644 2.4 4.688C4.908 16.093 4 18.45 4 21.5h2c0-2.45.8-4.45 2-5.8.667.2 1.367.3 2 .3 3.866 0 7-3.134 7-7 0-3.866-3.134-7-7-7zm0 12c-2.761 0-5-2.239-5-5s2.239-5 5-5 5 2.239 5 5-2.239 5-5 5zm9 3.5c0 1.933-.944 3.644-2.4 4.688C14.592 24.093 15.5 21.45 15.5 18h2z"/></svg>
-                      Abrir en Uniswap
-                    </a>
-                  </div>
+                {/* Uniswap fallback for non-managed */}
+                {!ep.managed && (
+                  <a href={uniswapLink(ep)} target="_blank" rel="noopener noreferrer"
+                    className="w-full py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-sky-500/30 bg-sky-500/5 hover:bg-sky-500/15 text-sky-400 transition-all">
+                    ↗ Abrir en Uniswap
+                  </a>
                 )}
 
                 {depositMsg && (
-                  <p className={cn('text-[10px] text-center font-medium px-2', depositMsg.startsWith('✓') ? 'text-emerald-400' : 'text-red-400')}>
+                  <p className={cn('text-[10px] text-center font-medium px-2 py-1.5 rounded-lg border', depositMsg.startsWith('✓') ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-rose-500/10 border-rose-500/20 text-rose-300')}>
                     {depositMsg}
                   </p>
                 )}
 
-                <p className="text-[9px] text-sky-500/50 text-center">
-                  {ep.managed
-                    ? 'Firmará 2 Permit2 en World App · Sin gas'
-                    : `Requiere NonfungiblePositionManager en portal · O usa Uniswap`}
+                <p className="text-[9px] text-sky-500/40 text-center">
+                  {ep.managed ? 'Firmará 2 Permit2 · Sin gas · World App' : 'Posición LP full-range · recibes ambos tokens como fees'}
                 </p>
               </div>
             )}
