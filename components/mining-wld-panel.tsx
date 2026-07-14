@@ -343,9 +343,10 @@ interface MiningWLDPanelProps {
   userAddress: string
   walletMode: WalletMode
   importedSigner: import('ethers').Wallet | null
+  onNavigate?: (tab: string) => void
 }
 
-export function MiningWLDPanel({ userAddress, walletMode, importedSigner }: MiningWLDPanelProps) {
+export function MiningWLDPanel({ userAddress, walletMode, importedSigner, onNavigate }: MiningWLDPanelProps) {
   const [info, setInfo] = useState<MiningWLDInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [buyingPkgId, setBuyingPkgId] = useState<number | null>(null)
