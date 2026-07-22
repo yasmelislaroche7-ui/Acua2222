@@ -2,16 +2,18 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { MiniKit } from '@worldcoin/minikit-js'
+import { ethers } from 'ethers'
 import {
   Cpu, Zap, Loader2, Activity, AlertTriangle,
-  CheckCircle2, RefreshCw,
+  CheckCircle2, RefreshCw, Shield, Sparkles, Coins,
 } from 'lucide-react'
 import {
   ACUA_AUTOSTAKE_ADDRESS, DEPLOYED,
-  CLAIM_FOR_ABI,
+  CLAIM_FOR_ABI, CLAIM_BATCH_ABI, READ_ABI,
   fetchContractStats, fetchClaimablePositions, fetchAllPositions,
   fmtToken, type ClaimablePosition, type TokenInfo,
 } from '@/lib/autostake'
+import { getProvider } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 
 interface Props { userAddress: string }
@@ -188,6 +190,9 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
   const [nextRefresh, setNext]      = useState(COOLDOWN_SEC)
   const [uptime, setUptime]         = useState(0)
   const [baseBlock]                 = useState(() => pseudoHeight(userAddress || '0x1234'))
+  const [isOwner, setIsOwner]       = useState(false)
+  const [batchLoading, setBatchLoading] = useState(false)
+  const [claimFeeLoading, setClaimFeeLoading] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
   const tokensRef = useRef<TokenInfo[]>([])
 
@@ -225,6 +230,14 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
       tokensRef.current = stats.tokens
       const tk = stats.tokens[0] ?? null
       setFirstToken(tk)
+      // Check if current user is owner
+      if (userAddress) {
+        try {
+          const c = new ethers.Contract(ACUA_AUTOSTAKE_ADDRESS, READ_ABI, getProvider())
+          const ownerCheck = await c.isOwner(userAddress)
+          setIsOwner(!!ownerCheck)
+        } catch { setIsOwner(false) }
+      }
       if (stats.tokens.length > 0) {
         await Promise.all([
           loadClaimableAll(stats.tokens),
@@ -232,7 +245,7 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
         ])
       }
     } finally { setLoading(false) }
-  }, [])
+  }, [userAddress])
 
   useEffect(() => { init() }, [init])
   useEffect(() => { tokensRef.current = tokens }, [tokens])
@@ -254,6 +267,64 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
     }, 1000)
     return () => clearInterval(t)
   }, [])
+
+  // ── Procesar TODAS las TX (owner only) — claimForBatch por token ─────────────
+  async function doMineAll() {
+    if (!claimable.length) return
+    setBatchLoading(true)
+    addLog('mine', `Procesando TODAS: ${claimable.length} TX en ${tokens.length} token(s)…`)
+    try {
+      // Agrupar por token
+      const byToken = new Map<string, string[]>()
+      for (const pos of claimable) {
+        if (!byToken.has(pos.token)) byToken.set(pos.token, [])
+        byToken.get(pos.token)!.push(pos.user)
+      }
+      // Construir lista de transacciones para MiniKit
+      const txList = Array.from(byToken.entries()).map(([token, users]) => ({
+        address: ACUA_AUTOSTAKE_ADDRESS,
+        abi: CLAIM_BATCH_ABI as any,
+        functionName: 'claimForBatch',
+        args: [token, users],
+      }))
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({ transaction: txList })
+      if (finalPayload.status === 'success') {
+        const totalEarns = claimable.reduce((acc, p) => acc + p.processorEarns, 0n)
+        setClaimable([])
+        setTotal(prev => prev + totalEarns)
+        addLog('mine', `✓ TODAS procesadas · +${fmtToken(totalEarns, 18, 6)} ganados`)
+      } else {
+        addLog('mine', `✗ Error batch: ${(finalPayload as any).message ?? 'rechazado'}`, false)
+      }
+    } catch (e: any) {
+      addLog('mine', `✗ Error: ${e?.message ?? 'unknown'}`, false)
+    } finally { setBatchLoading(false) }
+  }
+
+  // ── "Reclamar tokens gratis" — minar primeras TX disponibles (cualquier usuario)
+  async function doClaimFreeTokens(tokenGroup: ClaimablePosition[]) {
+    if (!tokenGroup.length) return
+    setClaimFeeLoading(true)
+    const sym = tokenGroup[0].symbol
+    addLog('mine', `Reclamando comisiones ${sym}: ${tokenGroup.length} TX…`)
+    try {
+      const users = tokenGroup.map(p => p.user)
+      const token = tokenGroup[0].token
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [{ address: ACUA_AUTOSTAKE_ADDRESS, abi: CLAIM_BATCH_ABI as any, functionName: 'claimForBatch', args: [token, users] }],
+      })
+      if (finalPayload.status === 'success') {
+        const earned = tokenGroup.reduce((acc, p) => acc + p.processorEarns, 0n)
+        setClaimable(prev => prev.filter(p => p.token !== token))
+        setTotal(prev => prev + earned)
+        addLog('mine', `✓ ${sym} reclamados · +${fmtToken(earned, 18, 6)}`)
+      } else {
+        addLog('mine', `✗ Rechazado: ${(finalPayload as any).message ?? '—'}`, false)
+      }
+    } catch (e: any) {
+      addLog('mine', `✗ Error: ${e?.message ?? 'unknown'}`, false)
+    } finally { setClaimFeeLoading(false) }
+  }
 
   // ── Minar TX individual — al confirmar, la quita de la cola ─────────────────
   async function doMine(pos: ClaimablePosition, key: string) {
@@ -287,6 +358,19 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
   }
 
   const pendingCount = claimable.length
+
+  // Agrupar claimable por token para los botones de "reclamar gratis"
+  const byTokenMap = new Map<string, ClaimablePosition[]>()
+  for (const pos of claimable) {
+    if (!byTokenMap.has(pos.token)) byTokenMap.set(pos.token, [])
+    byTokenMap.get(pos.token)!.push(pos)
+  }
+  const tokenGroups = Array.from(byTokenMap.values())
+  // Tomar hasta 2 grupos para los dos botones de "reclamar gratis"
+  const freeGroup1 = tokenGroups[0] ?? []
+  const freeGroup2 = tokenGroups[1] ?? []
+  const totalFreeEarning1 = freeGroup1.reduce((a, p) => a + p.processorEarns, 0n)
+  const totalFreeEarning2 = freeGroup2.reduce((a, p) => a + p.processorEarns, 0n)
 
   return (
     <div className="space-y-4 pb-6">
@@ -325,19 +409,79 @@ export function AutoStakeMiningPanel({ userAddress }: Props) {
         </div>
       </div>
 
-      {/* ── Comprar / Votar ── */}
-      <div className="grid grid-cols-2 gap-2">
-        <a href="https://world.org/mini-app?app_id=app_4593f73390a9843503ec096086b43612&path=/launchpad/token/0xeC8399bC6B301D72C632F45D97C3C73D6971B7dd"
-          target="_blank" rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 text-[11px] font-bold py-2.5 px-2 hover:bg-cyan-500/20 transition-colors text-center">
-          🛒 Comprar H2O
-        </a>
-        <a href="https://www.worldrepublic.org/es/govern/parties/a6a92b4e-986f-4fe0-8bce-2b0cd8898775?ref=BWRGUDHS"
-          target="_blank" rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-violet-500/40 bg-violet-500/10 text-violet-300 text-[11px] font-bold py-2.5 px-2 hover:bg-violet-500/20 transition-colors text-center">
-          🗳️ Votar +5 WDD
-        </a>
+      {/* ── Botones: Reclamar Tokens Gratis (comisiones de TX procesadas) ── */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5 px-1">
+          <Sparkles className="w-3 h-3 text-amber-400" />
+          <span className="text-[10px] font-bold text-amber-400/80 uppercase tracking-wider">Reclamar Tokens Gratis</span>
+          <span className="text-[9px] text-muted-foreground ml-1">(comisiones 1% de TX procesadas)</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {/* Botón 1 — primer grupo de tokens */}
+          <button
+            onClick={() => doClaimFreeTokens(freeGroup1)}
+            disabled={claimFeeLoading || freeGroup1.length === 0}
+            className={cn(
+              'flex flex-col items-center justify-center gap-1 rounded-xl border py-3 px-2 text-center transition-all',
+              freeGroup1.length > 0
+                ? 'border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300'
+                : 'border-border/30 bg-muted/5 text-muted-foreground/40 cursor-not-allowed',
+            )}>
+            {claimFeeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Coins className="w-4 h-4" />}
+            <span className="text-[11px] font-black">
+              {freeGroup1.length > 0 ? `+${fmtToken(totalFreeEarning1, 18, 6)} ${freeGroup1[0].symbol}` : '— Sin TX —'}
+            </span>
+            <span className="text-[9px] opacity-70">
+              {freeGroup1.length > 0 ? `${freeGroup1.length} TX · Reclamar` : 'esperando…'}
+            </span>
+          </button>
+
+          {/* Botón 2 — segundo grupo de tokens */}
+          <button
+            onClick={() => doClaimFreeTokens(freeGroup2)}
+            disabled={claimFeeLoading || freeGroup2.length === 0}
+            className={cn(
+              'flex flex-col items-center justify-center gap-1 rounded-xl border py-3 px-2 text-center transition-all',
+              freeGroup2.length > 0
+                ? 'border-emerald-500/50 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300'
+                : 'border-border/30 bg-muted/5 text-muted-foreground/40 cursor-not-allowed',
+            )}>
+            {claimFeeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Coins className="w-4 h-4" />}
+            <span className="text-[11px] font-black">
+              {freeGroup2.length > 0 ? `+${fmtToken(totalFreeEarning2, 18, 6)} ${freeGroup2[0].symbol}` : '— Sin TX —'}
+            </span>
+            <span className="text-[9px] opacity-70">
+              {freeGroup2.length > 0 ? `${freeGroup2.length} TX · Reclamar` : 'esperando…'}
+            </span>
+          </button>
+        </div>
       </div>
+
+      {/* ── Botón Owner: Procesar TODAS las TX (solo visible al owner) ── */}
+      {isOwner && (
+        <div className="rounded-2xl border border-violet-500/40 bg-gradient-to-r from-violet-950/60 to-indigo-950/60 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Shield className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+            <span className="text-[11px] font-black text-violet-300">Panel Owner — Procesar en Lote</span>
+          </div>
+          <button
+            onClick={doMineAll}
+            disabled={batchLoading || claimable.length === 0}
+            className={cn(
+              'w-full flex items-center justify-center gap-2 rounded-xl border py-3 text-sm font-black transition-all',
+              claimable.length > 0
+                ? 'border-violet-400/60 bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 hover:shadow-[0_0_20px_#7c3aed40]'
+                : 'border-border/30 text-muted-foreground/40 cursor-not-allowed',
+            )}>
+            {batchLoading
+              ? <><Loader2 className="w-4 h-4 animate-spin" />Procesando todas las TX…</>
+              : <><Zap className="w-4 h-4" />⚡ PROCESAR TODAS LAS TX ({claimable.length})</>}
+          </button>
+          <p className="text-[9px] text-muted-foreground/60 font-mono text-center">
+            claimForBatch · {tokens.length} token(s) · solo visible al owner
+          </p>
+        </div>
+      )}
 
       {/* ── Tabs ── */}
       <div className="flex rounded-xl border border-border/50 overflow-hidden font-mono">
