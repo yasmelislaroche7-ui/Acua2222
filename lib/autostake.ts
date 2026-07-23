@@ -7,6 +7,12 @@ import { getProvider } from '@/lib/new-contracts'
 export const ACUA_AUTOSTAKE_ADDRESS = '0x9a3B08D4debB17e494023A23ec21cB53Ab233062'
 export const DEPLOYED = true
 
+// ─── Tokens ocultos en la UI (no se muestran para stake aunque estén en contrato) ──
+const BLACKLISTED_TOKENS = new Set([
+  '0xD404c180dD30d14EcE09c6Fb501bFd33156FDd91'.toLowerCase(), // KING of Acua
+  '0x9a5F38a31d539a6020e3CF275230BCD2689161f5'.toLowerCase(), // BTC Bitcoin Acua
+])
+
 // H2O principal — el que los usuarios tienen en World App
 export const H2O_TOKEN = '0x17392e5483983945dEB92e0518a8F2C4eB6bA59d'
 export const PERMIT2   = '0x000000000022D473030F116dDEE9F6B43aC78BA3'
@@ -225,8 +231,12 @@ export async function fetchContractStats(): Promise<ContractStats> {
     c.owner2(), c.getOwners(), c.getTokenList(),
   ])
 
+  const filteredAddrs = (tokenAddrs as string[]).filter(
+    a => !BLACKLISTED_TOKENS.has(a.toLowerCase())
+  )
+
   const tokenInfos: TokenInfo[] = await Promise.all(
-    (tokenAddrs as string[]).map(async (addr) => {
+    filteredAddrs.map(async (addr) => {
       const cfg  = await c.tokens(addr)
       const erc20 = new ethers.Contract(addr, ERC20_ABI, p)
       const [symbol, name, sc] = await Promise.all([
@@ -258,7 +268,8 @@ export async function fetchContractStats(): Promise<ContractStats> {
 export async function fetchUserPositions(userAddress: string): Promise<UserPosition[]> {
   const p = getProvider()
   const c = new ethers.Contract(ACUA_AUTOSTAKE_ADDRESS, READ_ABI, p)
-  const tokenAddrs: string[] = await c.getTokenList()
+  const rawAddrs: string[] = await c.getTokenList()
+  const tokenAddrs = rawAddrs.filter(a => !BLACKLISTED_TOKENS.has(a.toLowerCase()))
   const now = Math.floor(Date.now() / 1000)
 
   const results = await Promise.all(

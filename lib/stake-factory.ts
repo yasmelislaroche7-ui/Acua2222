@@ -20,6 +20,12 @@ export const ACUA_OWNER_ADDRESS = '0xC2Ef127734F296952DE75c1B58A6Cec605Cc2E59'
 export const USDC_ADDRESS = '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1'
 export const WORLD_CHAIN_RPC_FACTORY = 'https://worldchain-mainnet.g.alchemy.com/public'
 
+// ─── Tokens ocultos en la UI (pools con estos tokens no se muestran) ──────────
+const BLACKLISTED_TOKENS = new Set([
+  '0xD404c180dD30d14EcE09c6Fb501bFd33156FDd91'.toLowerCase(), // KING of Acua
+  '0x9a5F38a31d539a6020e3CF275230BCD2689161f5'.toLowerCase(), // BTC Bitcoin Acua
+])
+
 // ─── MiniKit ABI fragments ────────────────────────────────────────────────────
 
 const PERMIT_TUPLE = {
@@ -284,25 +290,27 @@ export async function fetchAllPools(): Promise<StakeFactoryPoolInfo[]> {
   const contract = new ethers.Contract(STAKE_FACTORY_ADDRESS, READ_ABI, provider)
   const ids: bigint[] = await contract.getAllPoolIds()
   const infos = await Promise.all(ids.map((id) => contract.getPoolInfo(id)))
-  return infos.map((p: any, i: number) => ({
-    poolId:         Number(ids[i]),
-    token:          String(p[0]),
-    tokenDecimals:  Number(p[1]),
-    name:           String(p[2]),
-    symbol:         String(p[3]),
-    logoUrl:        String(p[4]),
-    creator:        String(p[5]),
-    aprBps:         BigInt(p[6]),
-    totalStaked:    BigInt(p[7]),
-    fundPool:       BigInt(p[8]),
-    totalDeposited: BigInt(p[9]),
-    totalWithdrawn: BigInt(p[10]),
-    totalClaimed:   BigInt(p[11]),
-    totalFeesPaid:  BigInt(p[12]),
-    totalUsers:     BigInt(p[13]),
-    paused:         Boolean(p[14]),
-    createdAt:      BigInt(p[15]),
-  }))
+  return infos
+    .map((p: any, i: number) => ({
+      poolId:         Number(ids[i]),
+      token:          String(p[0]),
+      tokenDecimals:  Number(p[1]),
+      name:           String(p[2]),
+      symbol:         String(p[3]),
+      logoUrl:        String(p[4]),
+      creator:        String(p[5]),
+      aprBps:         BigInt(p[6]),
+      totalStaked:    BigInt(p[7]),
+      fundPool:       BigInt(p[8]),
+      totalDeposited: BigInt(p[9]),
+      totalWithdrawn: BigInt(p[10]),
+      totalClaimed:   BigInt(p[11]),
+      totalFeesPaid:  BigInt(p[12]),
+      totalUsers:     BigInt(p[13]),
+      paused:         Boolean(p[14]),
+      createdAt:      BigInt(p[15]),
+    }))
+    .filter(pool => !BLACKLISTED_TOKENS.has(pool.token.toLowerCase()))
 }
 
 export async function fetchPoolInfo(poolId: number): Promise<StakeFactoryPoolInfo> {
