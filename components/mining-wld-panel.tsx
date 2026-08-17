@@ -110,12 +110,11 @@ interface WLDCardProps {
   pendingRewards: bigint
   userDailyYield: bigint
   wldBalance: bigint
-  onBuy: () => void
   onClaim: () => void
   isClaiming: boolean
 }
 
-function WLDPackageCard({ pkg, userUnits, pendingRewards, userDailyYield, wldBalance, onBuy, onClaim, isClaiming }: WLDCardProps) {
+function WLDPackageCard({ pkg, userUnits, pendingRewards, userDailyYield, wldBalance, onClaim, isClaiming }: WLDCardProps) {
   const cfg = PKG_CFG[pkg.id] || { name: `Mine ${pkg.id}`, color: '#6b7280', icon: '⛏', bg: 'from-gray-950/60', rarity: '' }
   const hasActive = userUnits > 0n
   const perSecond = hasActive ? Number(ethers.formatUnits(userDailyYield, 18)) / 86400 : 0
@@ -195,14 +194,6 @@ function WLDPackageCard({ pkg, userUnits, pendingRewards, userDailyYield, wldBal
           </div>
         )}
 
-        <button
-          onClick={onBuy}
-          className="w-full flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition-all hover:scale-[1.02] active:scale-95"
-          style={{ background: cfg.color + '22', border: `1px solid ${cfg.color}50`, color: cfg.color }}
-        >
-          <Pickaxe className="w-3.5 h-3.5" />
-          {hasActive ? 'Comprar más' : 'Comprar paquete'}
-        </button>
       </div>
     </div>
   )
@@ -349,7 +340,6 @@ interface MiningWLDPanelProps {
 export function MiningWLDPanel({ userAddress, walletMode, importedSigner, onNavigate }: MiningWLDPanelProps) {
   const [info, setInfo] = useState<MiningWLDInfo | null>(null)
   const [loading, setLoading] = useState(false)
-  const [buyingPkgId, setBuyingPkgId] = useState<number | null>(null)
   const [claimingPkgId, setClaimingPkgId] = useState<number | null>(null)
   const [claimingAll, setClaimingAll] = useState(false)
   const [msg, setMsg] = useState('')
@@ -494,7 +484,6 @@ export function MiningWLDPanel({ userAddress, walletMode, importedSigner, onNavi
               pendingRewards={info!.pendingPerPkg[i] ?? 0n}
               userDailyYield={userDaily}
               wldBalance={info!.wldBalance}
-              onBuy={() => setBuyingPkgId(pkg.id)}
               onClaim={() => doClaimPkg(pkg.id)}
               isClaiming={claimingPkgId === pkg.id}
             />
@@ -511,20 +500,6 @@ export function MiningWLDPanel({ userAddress, walletMode, importedSigner, onNavi
 
       {msg && <p className={cn('text-xs text-center font-medium', msg.startsWith('✓') ? 'text-green-400' : 'text-red-400')}>{msg}</p>}
 
-      {buyingPkgId !== null && info && (
-        <BuyDialog
-          pkgId={buyingPkgId}
-          priceWLD={info.packages[buyingPkgId].priceWLD}
-          dailyYield={info.packages[buyingPkgId].dailyYield}
-          rewardSymbol={info.packages[buyingPkgId].rewardSymbol}
-          wldBalance={info.wldBalance}
-          userAddress={userAddress}
-          walletMode={walletMode}
-          importedSigner={importedSigner}
-          onClose={() => setBuyingPkgId(null)}
-          onSuccess={() => { setBuyingPkgId(null); load() }}
-        />
-      )}
     </div>
   )
 }

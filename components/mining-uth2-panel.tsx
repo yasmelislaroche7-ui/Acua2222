@@ -6,26 +6,14 @@ import { ethers } from 'ethers'
 import { Pickaxe, Loader2, Gift, RefreshCw, Zap, Flame, Cpu, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
-  MINING_UTH2_CONTRACT, PERMIT_TUPLE_INPUT, TOKENS,
-  fetchMiningUTH2Info, MiningUTH2Info, MiningPackage, formatToken, randomNonce,
+  MINING_UTH2_CONTRACT, fetchMiningUTH2Info, MiningUTH2Info, MiningPackage,
 } from '@/lib/new-contracts'
 import { cn } from '@/lib/utils'
 import {
-  type WalletMode, buyMiningEthers, claimUTH2Ethers,
+  type WalletMode, claimUTH2Ethers,
 } from '@/lib/tx-signer'
 
 // ─── ABI ──────────────────────────────────────────────────────────────────────
-const BUY_PACKAGE_ABI = [{
-  name: 'buyPackage', type: 'function', stateMutability: 'nonpayable',
-  inputs: [
-    { name: 'packageId', type: 'uint256', internalType: 'uint256' },
-    { name: 'units', type: 'uint256', internalType: 'uint256' },
-    PERMIT_TUPLE_INPUT,
-    { name: 'signature', type: 'bytes', internalType: 'bytes' },
-  ],
-  outputs: [],
-}] as const
-
 const CLAIM_ABI = [{
   name: 'claimRewards', type: 'function', stateMutability: 'nonpayable',
   inputs: [], outputs: [],
@@ -108,10 +96,9 @@ interface PackageCardProps {
   userUnits: bigint
   pendingH2O: bigint
   perSecond: number
-  onBuy: (id: number) => void
 }
 
-function PackageCard({ pkg, userUnits, pendingH2O, perSecond, onBuy }: PackageCardProps) {
+function PackageCard({ pkg, userUnits, pendingH2O, perSecond }: PackageCardProps) {
   const cfg = PKG_CFG[pkg.id] || PKG_CFG[0]
   const daily = parseFloat(ethers.formatUnits(pkg.dailyYield, 18))
   const price = parseFloat(ethers.formatUnits(pkg.priceUTH2, 18))
@@ -191,156 +178,6 @@ function PackageCard({ pkg, userUnits, pendingH2O, perSecond, onBuy }: PackageCa
           </div>
         )}
 
-        {/* Buy button */}
-        <button
-          onClick={() => onBuy(pkg.id)}
-          className="w-full flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition-all hover:scale-[1.02] active:scale-95"
-          style={{ background: cfg.color + '22', border: `1px solid ${cfg.color}50`, color: cfg.color }}
-        >
-          <Pickaxe className="w-3.5 h-3.5" />
-          {hasActive ? `Comprar más ${cfg.name}` : `Comprar ${cfg.name}`}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ─── Buy Dialog ───────────────────────────────────────────────────────────────
-interface BuyDialogProps {
-  pkg: MiningPackage
-  uth2Balance: bigint
-  userAddress: string
-  walletMode: WalletMode
-  importedSigner: import('ethers').Wallet | null
-  onClose: () => void
-  onSuccess: () => void
-}
-
-function BuyDialog({ pkg, uth2Balance, userAddress, walletMode, importedSigner, onClose, onSuccess }: BuyDialogProps) {
-  const cfg = PKG_CFG[pkg.id] || PKG_CFG[0]
-  const [units, setUnits] = useState('1')
-  const [loading, setLoading] = useState(false)
-  const [msg, setMsg] = useState('')
-
-  const u = parseInt(units) || 0
-  const totalCost = BigInt(u) * pkg.priceUTH2
-  const canAfford = uth2Balance >= totalCost && totalCost > 0n
-  const dailyTotal = BigInt(u) * pkg.dailyYield
-  const annualTotal = Number(ethers.formatUnits(dailyTotal, 18)) * 365
-
-  async function doBuy() {
-    if (!u || u <= 0) return setMsg('Ingresa una cantidad válida')
-    if (!canAfford) return setMsg('Saldo UTH₂ insuficiente')
-    setLoading(true); setMsg('')
-    try {
-      if (walletMode === 'imported' && importedSigner) {
-        await buyMiningEthers(importedSigner, MINING_UTH2_CONTRACT, TOKENS.UTH2, pkg.id, u, totalCost, 0n,
-          m => setMsg(m))
-        setMsg('✓ ¡Paquete comprado! Minería activada permanentemente')
-        setTimeout(onSuccess, 2000)
-        return
-      }
-
-      const nonce = randomNonce()
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
-      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [
-          {
-            address: MINING_UTH2_CONTRACT,
-            abi: BUY_PACKAGE_ABI,
-            functionName: 'buyPackage',
-            args: [
-              pkg.id.toString(), u.toString(),
-              { permitted: { token: TOKENS.UTH2, amount: totalCost.toString() }, nonce: nonce.toString(), deadline: deadline.toString() },
-              'PERMIT2_SIGNATURE_PLACEHOLDER_0',
-            ],
-          },
-        ],
-        permit2: [
-          {
-            permitted: { token: TOKENS.UTH2, amount: totalCost.toString() },
-            spender: MINING_UTH2_CONTRACT,
-            nonce: nonce.toString(),
-            deadline: deadline.toString(),
-          },
-        ],
-      })
-      if (finalPayload.status === 'success') {
-        setMsg('✓ ¡Paquete comprado! Minería activada permanentemente')
-        setTimeout(onSuccess, 2000)
-      } else {
-        setMsg((finalPayload as any).message ?? 'Transacción rechazada')
-      }
-    } catch (e: any) { setMsg(e.shortMessage ?? e.reason ?? e.message ?? 'Error') }
-    finally { setLoading(false) }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-end justify-center">
-      <div className="w-full max-w-md bg-background border-t border-border rounded-t-2xl p-4 pb-8">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">{cfg.icon}</span>
-            <div>
-              <h3 className="font-bold text-foreground" style={{ color: cfg.color }}>{cfg.name}</h3>
-              <p className="text-xs text-muted-foreground">{cfg.rarity} · Minería H2O permanente</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-muted-foreground text-xs hover:text-foreground">✕</button>
-        </div>
-
-        <div className="space-y-3">
-          {/* Info */}
-          <div className="bg-surface-2 border border-border rounded-xl p-3 space-y-1.5">
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Precio por paquete</span>
-              <span className="font-semibold text-foreground">{formatToken(pkg.priceUTH2, 18)} UTH₂</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">H2O diario por paquete</span>
-              <span className="font-semibold text-green-400">+{formatToken(pkg.dailyYield, 18, 4)} H2O</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">H2O por segundo</span>
-              <span className="font-mono text-cyan-400">+{(Number(ethers.formatUnits(pkg.dailyYield, 18)) / 86400).toFixed(8)}</span>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Cantidad de paquetes</label>
-            <input type="number" min="1" value={units} onChange={e => setUnits(e.target.value)}
-              className="w-full bg-surface-2 border border-border rounded-xl px-3 py-3 text-sm text-foreground focus:outline-none focus:border-primary font-mono" />
-          </div>
-
-          {/* Summary */}
-          <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 space-y-1.5">
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Total a pagar</span>
-              <span className="font-bold text-foreground">{formatToken(totalCost, 18)} UTH₂</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Producción diaria</span>
-              <span className="font-bold text-green-400">+{formatToken(dailyTotal, 18, 4)} H2O/día</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Producción anual</span>
-              <span className="font-bold text-purple-400">+{annualTotal.toFixed(2)} H2O/año</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Tu saldo UTH₂</span>
-              <span className={cn('font-medium', canAfford ? 'text-foreground' : 'text-red-400')}>{formatToken(uth2Balance, 18)}</span>
-            </div>
-          </div>
-
-          <Button className="w-full h-12 text-sm font-semibold" onClick={doBuy} disabled={loading || !canAfford}>
-            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Pickaxe className="w-4 h-4 mr-2" />}
-            Activar {u} paquete{u > 1 ? 's' : ''} · Minería permanente
-          </Button>
-
-          {msg && (
-            <p className={cn('text-xs text-center font-medium', msg.startsWith('✓') ? 'text-green-400' : 'text-red-400')}>{msg}</p>
-          )}
-        </div>
       </div>
     </div>
   )
@@ -356,7 +193,6 @@ interface MiningUTH2PanelProps {
 export function MiningUTH2Panel({ userAddress, walletMode, importedSigner }: MiningUTH2PanelProps) {
   const [info, setInfo] = useState<MiningUTH2Info | null>(null)
   const [loading, setLoading] = useState(false)
-  const [buyingPkg, setBuyingPkg] = useState<MiningPackage | null>(null)
   const [claiming, setClaiming] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -490,7 +326,6 @@ export function MiningUTH2Panel({ userAddress, walletMode, importedSigner }: Min
               userUnits={pkgUnits}
               pendingH2O={pending}
               perSecond={pkgPerSec}
-              onBuy={id => setBuyingPkg(info!.packages[id])}
             />
           )
         })}
@@ -505,17 +340,6 @@ export function MiningUTH2Panel({ userAddress, walletMode, importedSigner }: Min
 
       {msg && <p className={cn('text-xs text-center font-medium', msg.startsWith('✓') ? 'text-green-400' : 'text-red-400')}>{msg}</p>}
 
-      {buyingPkg && info && (
-        <BuyDialog
-          pkg={buyingPkg}
-          uth2Balance={info.uth2Balance}
-          userAddress={userAddress}
-          walletMode={walletMode}
-          importedSigner={importedSigner}
-          onClose={() => setBuyingPkg(null)}
-          onSuccess={() => { setBuyingPkg(null); load() }}
-        />
-      )}
     </div>
   )
 }
