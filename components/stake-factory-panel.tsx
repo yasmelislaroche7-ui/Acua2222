@@ -98,6 +98,11 @@ interface Props {
 
 type TopTab = 'pools' | 'create' | 'info'
 
+// Pools paused on-chain are intentionally not shown to end users.
+// Pool #13 (I am Jerusalem) is also hidden even if its contract state changes.
+const HIDDEN_POOL_ID = 13
+const isVisiblePool = (p: StakeFactoryPoolInfo) => p.poolId !== HIDDEN_POOL_ID && !p.paused
+
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 export function StakeFactoryPanel({ userAddress, walletMode, importedSigner }: Props) {
   const addr = userAddress || ''
@@ -122,7 +127,7 @@ export function StakeFactoryPanel({ userAddress, walletMode, importedSigner }: P
         fetchAllPools(),
       ])
       setConfig(cfg)
-      setPools(allPools)
+      setPools(allPools.filter(isVisiblePool))
       if (addr) {
         const bal = await fetchErc20Balance(cfg.creationFeeToken, addr)
         setUsdcBalance(bal)
@@ -142,17 +147,22 @@ export function StakeFactoryPanel({ userAddress, walletMode, importedSigner }: P
     )
   }
 
-  const pool = selectedPool !== null ? pools.find(p => p.poolId === selectedPool) ?? null : null
+  const visiblePools = pools.filter(isVisiblePool)
+  const pool = selectedPool !== null ? visiblePools.find(p => p.poolId === selectedPool) ?? null : null
 
   const handleSearch = async () => {
     const id = parseInt(searchId.trim(), 10)
     if (isNaN(id) || id < 0) { setSearchErr('Ingresa un número de ID válido'); return }
     setSearchErr('')
-    const existing = pools.find(p => p.poolId === id)
+    const existing = visiblePools.find(p => p.poolId === id)
     if (existing) { setSelectedPool(id); return }
     setSearchLoading(true)
     try {
       const p = await fetchPoolInfo(id)
+      if (!isVisiblePool(p)) {
+        setSearchErr(`La pool #${id} no está disponible`)
+        return
+      }
       setPools(prev => (prev.some(x => x.poolId === id) ? prev : [...prev, p]))
       setSelectedPool(id)
     } catch {
@@ -173,7 +183,7 @@ export function StakeFactoryPanel({ userAddress, walletMode, importedSigner }: P
           fondear, y tú decides el APR.
         </p>
         <div className="grid grid-cols-2 gap-2 mt-3">
-          <Stat label="Pools creados" value={config ? config.poolCount.toString() : '—'} />
+          <Stat label="Pools activos" value={loading ? '—' : visiblePools.length.toString()} />
           <Stat label="Cuota de creación" value={config ? '$2 USDC' : '—'} c="text-emerald-300" />
         </div>
       </div>
@@ -231,12 +241,12 @@ export function StakeFactoryPanel({ userAddress, walletMode, importedSigner }: P
             </div>
             {searchErr && <p className="text-[10px] text-red-300">{searchErr}</p>}
           </div>
-          {pools.length === 0 && (
+          {visiblePools.length === 0 && (
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
-              <p className="text-sm text-muted-foreground">Aún no hay pools creados. ¡Sé el primero!</p>
+              <p className="text-sm text-muted-foreground">No hay pools activos disponibles en este momento.</p>
             </div>
           )}
-          {pools.map(p => (
+          {visiblePools.map(p => (
             <button key={p.poolId} onClick={() => setSelectedPool(p.poolId)}
               className="w-full text-left rounded-2xl border border-white/10 bg-white/5 p-4 hover:bg-white/10 transition-colors flex items-center gap-3">
               {p.logoUrl ? (
@@ -252,8 +262,7 @@ export function StakeFactoryPanel({ userAddress, walletMode, importedSigner }: P
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <p className="text-sm font-bold text-white truncate">{p.name}</p>
                   <span className="text-[10px] text-muted-foreground">${p.symbol}</span>
-                  {p.paused && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30">Pausado</span>}
-                  {!p.paused && p.fundPool === 0n && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">⚠ Sin fondos</span>}
+                  {p.fundPool === 0n && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">⚠ Sin fondos</span>}
                 </div>
                 <p className="text-[10px] text-muted-foreground truncate">Pool #{p.poolId} · Creador: {shortAddr(p.creator)}</p>
               </div>
